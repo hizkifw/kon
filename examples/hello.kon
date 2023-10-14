@@ -1,0 +1,4 @@
+// main function is the entrypoint to the program
+fun main([]str argv) (int ret) {
+  return 69;
+}
