@@ -1,6 +1,6 @@
 // main function is the entrypoint to the program
-fun main([]str argv) (int code) {
-  return 69
+fun main() (int code) {
+  69 return
 }
 
 // vi: ft=kon

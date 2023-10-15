@@ -1,4 +1,4 @@
-use std::{borrow::BorrowMut, iter::Peekable, slice::Iter};
+use std::{borrow::BorrowMut, io::Write, iter::Peekable, process::Command, slice::Iter};
 
 type Identifier = String;
 
@@ -71,11 +71,6 @@ struct Token {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-struct Program {
-    pub functions: Vec<Function>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
 struct Function {
     pub name: String,
     pub args: Vec<(Vec<Token>, Identifier)>,
@@ -96,11 +91,11 @@ enum Expr {
 }
 
 fn compiler_error(loc: &Loc, message: &str) {
-    println!("{}: {}", loc, message);
+    println!("{}: ERROR: {}", loc, message);
 }
 
 fn compiler_fatal(loc: &Loc, message: &str) -> ! {
-    compiler_error(loc, message);
+    println!("{}: FATAL: {}", loc, message);
     std::process::exit(1);
 }
 
@@ -150,7 +145,12 @@ fn parse_block(depth: usize, tokens: &mut Peekable<Iter<'_, Token>>) -> Block {
 
     while let Some(token) = tokens.next() {
         match &token.typ {
-            TokenType::Ident(_) => todo!(),
+            TokenType::Ident(ident) => {
+                compiler_error(
+                    &token.loc,
+                    &format!("Not implemented: identifier {}", ident),
+                );
+            }
             TokenType::Keyword(kw) => match kw {
                 KeywordType::Fun => {
                     // Get the function name
@@ -271,7 +271,7 @@ fn tokenize_line(loc: Loc, line: &str) -> Vec<Token> {
             }
             ' ' | '\t' | '\n' => TokenType::Whitespace(c),
             'a'..='z' | 'A'..='Z' | '_' => {
-                let mut str_end = i;
+                let mut str_end = i + 1;
                 while let Some((ni, _)) =
                     linechars.next_if(|(_, nc)| nc.is_ascii_alphanumeric() || *nc == '_')
                 {
@@ -317,6 +317,79 @@ fn tokenize_file(filename: String) -> Vec<Token> {
     toks
 }
 
+fn generate_linux_x86_64_asm(program: Block, mut file: std::fs::File) -> std::io::Result<String> {
+    write!(
+        file,
+        "bits 64
+
+%define SYS_READ  0
+%define SYS_WRITE 1
+%define SYS_EXIT  60
+%define FD_STDIN  0
+%define FD_STDOUT 1
+
+segment .text
+"
+    )?;
+
+    for fun in program.functions {
+        write!(file, "{}:\n", fun.name)?;
+
+        for expr in fun.block.body {
+            match expr {
+                Expr::IntLiteral(i) => {
+                    write!(file, "    mov rax, {}\n", i)?;
+                    write!(file, "    push rax\n")?;
+                }
+                Expr::Return => {
+                    write!(file, "    pop rax\n")?;
+                    write!(file, "    ret\n")?;
+                }
+            };
+        }
+    }
+
+    write!(
+        file,
+        "
+global _start
+_start:
+    ; start of program
+    call main
+
+    ; get return value from rax and call the exit syscall
+    mov rdi, rax
+    mov rax, SYS_EXIT
+    syscall
+"
+    )?;
+
+    Ok("".into())
+}
+
+fn compile_linux_x86_64_elf64(path_asm: &str, path_obj: &str, path_exec: &str) {
+    let nasm_res = Command::new("nasm")
+        .args(["-felf64", "-o", path_obj, path_asm])
+        .output()
+        .expect("failed to run nasm");
+    if !nasm_res.status.success() {
+        panic!("nasm exited with code {}", nasm_res.status);
+    }
+
+    let ld_res = Command::new("ld")
+        .args(["-o", path_exec, path_obj])
+        .output()
+        .expect("faild to run ld");
+    if !ld_res.status.success() {
+        panic!("ld exited with code {}", ld_res.status);
+    }
+}
+
+fn stripext(input: &str) -> &str {
+    let period = input.rfind('.').unwrap_or(input.len());
+    return &input[..period];
+}
+
 fn main() {
     let arg: Vec<String> = std::env::args().collect();
 
@@ -326,12 +399,25 @@ fn main() {
     }
 
     let input_file = arg[1].to_string();
+    let input_file_noext = stripext(&input_file);
+    let output_asm = format!("{}.asm", input_file_noext);
+    let output_obj = format!("{}.o", input_file_noext);
+    let output_exec = if input_file_noext == input_file {
+        format!("{}.out", input_file_noext)
+    } else {
+        input_file_noext.to_string()
+    };
     let toks = tokenize_file(input_file);
-    for tok in &toks {
-        println!("{} -> {:?}", tok.loc, tok.typ);
-    }
-    println!("\n---\nProgram:\n");
+    // for tok in &toks {
+    //     println!("{} -> {:?}", tok.loc, tok.typ);
+    // }
+    // println!("\n---\nProgram:\n");
     let mut tok_iter = toks.iter().peekable();
     let prog = parse_block(0, &mut tok_iter);
-    println!("{:?}", prog);
+    // println!("{:?}", prog);
+
+    let asm_outf = std::fs::File::create(&output_asm).expect("Error creating output file");
+    generate_linux_x86_64_asm(prog, asm_outf).expect("Error writing output file");
+    compile_linux_x86_64_elf64(&output_asm, &output_obj, &output_exec);
+    println!("Compiled executable to {}", output_exec);
 }
