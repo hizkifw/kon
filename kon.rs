@@ -1,11 +1,13 @@
 use std::{borrow::BorrowMut, io::Write, iter::Peekable, process::Command, slice::Iter};
 
 type Identifier = String;
+type Expr = Vec<Op>;
 
 #[derive(Debug, Clone, PartialEq)]
 enum TokenType {
     Ident(Identifier),
     Keyword(KeywordType),
+    Operation(Op),
     Number(i64),
     Whitespace(char),
     Lparen,
@@ -28,6 +30,7 @@ impl std::fmt::Display for TokenType {
                 KeywordType::Fun => "fun".to_string(),
                 KeywordType::Return => "return".to_string(),
             },
+            TokenType::Operation(op) => format!("{:?}", op), // TODO: implement Display for Op
             TokenType::Number(n) => n.to_string(),
             TokenType::Whitespace(s) => s.to_string(),
             TokenType::Lparen => "(".to_string(),
@@ -71,23 +74,55 @@ struct Token {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-struct Function {
-    pub name: String,
-    pub args: Vec<(Vec<Token>, Identifier)>,
-    pub rets: Vec<(Vec<Token>, Identifier)>,
-    pub block: Block,
-}
-
-#[derive(Debug, Clone, PartialEq)]
 struct Block {
     functions: Vec<Function>,
+    variables: Vec<Variable>,
     body: Vec<Expr>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-enum Expr {
+enum DataType {
+    Int64,
+}
+
+fn sizeof(dt: &DataType) -> usize {
+    match dt {
+        DataType::Int64 => 8,
+    }
+}
+
+fn size_name(sz: usize) -> &'static str {
+    match sz {
+        1 => "BYTE",
+        2 => "WORD",
+        4 => "DWORD",
+        8 => "QWORD",
+        _ => panic!("No name for size: {}", sz),
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct Variable {
+    dtype: DataType,
+    name: Identifier,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct Function {
+    pub name: String,
+    pub args: Vec<Variable>,
+    pub rets: Vec<Variable>,
+    pub block: Block,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum Op {
     Return,
-    IntLiteral(i64),
+    PushInt(i64),
+    PushVar(Variable),
+    Add,
+    Sub,
+    Mul,
 }
 
 fn compiler_error(loc: &Loc, message: &str) {
@@ -99,7 +134,21 @@ fn compiler_fatal(loc: &Loc, message: &str) -> ! {
     std::process::exit(1);
 }
 
-fn parse_argslist(tokens: &mut Peekable<Iter<'_, Token>>) -> Vec<(Vec<Token>, String)> {
+fn parse_datatype(tokens: Vec<Token>) -> DataType {
+    if tokens.len() != 1 {
+        todo!("Complex data types are not yet supported");
+    }
+
+    match &tokens[0].typ {
+        TokenType::Ident(s) => match s.as_str() {
+            "int" => DataType::Int64,
+            _ => compiler_fatal(&tokens[0].loc, &format!("Unknown type `{}`", s)),
+        },
+        _ => todo!(),
+    }
+}
+
+fn parse_argslist(tokens: &mut Peekable<Iter<'_, Token>>) -> Vec<Variable> {
     let mut args = Vec::new();
     let mut tokens = tokens.take_while(|t| t.typ != TokenType::Rparen).peekable();
 
@@ -131,21 +180,52 @@ fn parse_argslist(tokens: &mut Peekable<Iter<'_, Token>>) -> Vec<(Vec<Token>, St
             ),
         };
 
-        args.push((part, ident));
+        let dtype = parse_datatype(part);
+        args.push(Variable { dtype, name: ident });
     }
 
     args
 }
 
-fn parse_block(depth: usize, tokens: &mut Peekable<Iter<'_, Token>>) -> Block {
+fn parse_block(
+    depth: usize,
+    tokens: &mut Peekable<Iter<'_, Token>>,
+    parent: Option<&Block>,
+    fun_args: Option<&[Variable]>,
+) -> Block {
     let mut block = Block {
         functions: Vec::new(),
+        variables: Vec::new(),
         body: Vec::new(),
     };
 
-    while let Some(token) = tokens.next() {
+    if let Some(parent) = parent {
+        block.functions = parent.functions.clone();
+        block.variables = parent.variables.clone();
+    }
+
+    let mut ops: Expr = Vec::new();
+    'tok: while let Some(token) = tokens.next() {
         match &token.typ {
             TokenType::Ident(ident) => {
+                // Check variables
+                for var in &block.variables {
+                    if var.name == *ident {
+                        ops.push(Op::PushVar(var.clone()));
+                        continue 'tok;
+                    }
+                }
+
+                // Check arguments
+                if let Some(fun_args) = fun_args {
+                    for arg in fun_args {
+                        if arg.name == *ident {
+                            ops.push(Op::PushVar(arg.clone()));
+                            continue 'tok;
+                        }
+                    }
+                }
+
                 compiler_error(
                     &token.loc,
                     &format!("Not implemented: identifier {}", ident),
@@ -200,17 +280,21 @@ fn parse_block(depth: usize, tokens: &mut Peekable<Iter<'_, Token>>) -> Block {
                         _ => compiler_fatal(&tok.loc, "Expected `{` but found EOF"),
                     };
 
+                    let fun_block = parse_block(depth + 1, tokens, Some(&block), Some(&args));
                     let fun = Function {
                         name,
                         args,
                         rets,
-                        block: parse_block(depth + 1, tokens),
+                        block: fun_block,
                     };
                     block.functions.push(fun);
                 }
-                KeywordType::Return => block.body.push(Expr::Return),
+                KeywordType::Return => {
+                    ops.push(Op::Return);
+                }
             },
-            TokenType::Number(n) => block.body.push(Expr::IntLiteral(*n)),
+            TokenType::Operation(op) => ops.push(op.clone()),
+            TokenType::Number(n) => ops.push(Op::PushInt(*n)),
             TokenType::Whitespace(_) => todo!(),
             TokenType::Lparen => todo!(),
             TokenType::Rparen => todo!(),
@@ -225,9 +309,18 @@ fn parse_block(depth: usize, tokens: &mut Peekable<Iter<'_, Token>>) -> Block {
             }
             TokenType::Comma => todo!(),
             TokenType::Period => todo!(),
-            TokenType::Semi => todo!(),
+            TokenType::Semi => {
+                // End of an expression
+                block.body.push(ops.clone());
+                ops.clear();
+            }
             TokenType::Unknown(_) => todo!(),
         }
+    }
+
+    if ops.len() > 0 {
+        block.body.push(ops.clone());
+        ops.clear();
     }
 
     block
@@ -261,6 +354,9 @@ fn tokenize_line(loc: Loc, line: &str) -> Vec<Token> {
             ',' => TokenType::Comma,
             '.' => TokenType::Period,
             ';' => TokenType::Semi,
+            '+' => TokenType::Operation(Op::Add),
+            '-' => TokenType::Operation(Op::Sub),
+            '*' => TokenType::Operation(Op::Mul),
             '0'..='9' => {
                 let mut number: i64 = c.to_digit(10).unwrap().into();
                 while let Some((_, nc)) = linechars.next_if(|(_, nc)| nc.is_ascii_digit()) {
@@ -333,19 +429,103 @@ segment .text
     )?;
 
     for fun in program.functions {
-        write!(file, "{}:\n", fun.name)?;
+        write!(file, "\n{}:\n", fun.name)?;
 
-        for expr in fun.block.body {
-            match expr {
-                Expr::IntLiteral(i) => {
-                    write!(file, "    mov rax, {}\n", i)?;
-                    write!(file, "    push rax\n")?;
-                }
-                Expr::Return => {
-                    write!(file, "    pop rax\n")?;
-                    write!(file, "    ret\n")?;
-                }
-            };
+        // Create a new stack frame
+        write!(file, "    push rbp\n")?;
+        write!(file, "    mov rbp, rsp\n")?;
+
+        // Allocate space for local variables
+
+        // Calculate variable offsets within the stack
+        let rets_offsets_start = sizeof(&DataType::Int64);
+        let mut rets_offsets = fun
+            .rets
+            .iter()
+            .rev()
+            .map(|a| sizeof(&a.dtype))
+            .scan(rets_offsets_start, |sum, sz| {
+                *sum += sz;
+                Some(*sum - sz)
+            })
+            .collect::<Vec<_>>();
+        rets_offsets.reverse();
+
+        let args_offset_start = rets_offsets.first().unwrap_or(&0)
+            + fun.rets.first().map(|r| sizeof(&r.dtype)).unwrap_or(0);
+        let mut args_offsets = fun
+            .args
+            .iter()
+            .rev()
+            .map(|a| sizeof(&a.dtype))
+            .scan(args_offset_start, |sum, sz| {
+                *sum += sz;
+                Some(*sum - sz)
+            })
+            .collect::<Vec<_>>();
+        args_offsets.reverse();
+
+        for exprlist in fun.block.body {
+            for expr in exprlist {
+                write!(file, "    ; {:?}\n", expr)?;
+                match expr {
+                    Op::PushInt(i) => {
+                        write!(file, "    mov rax, {}\n", i)?;
+                        write!(file, "    push rax\n")?;
+                    }
+                    Op::PushVar(var) => {
+                        if let Some(pos) =
+                            fun.block.variables.iter().position(|v| v.name == var.name)
+                        {
+                            // Variable is declared locally
+                            todo!();
+                        } else if let Some(pos) = fun.args.iter().position(|v| v.name == var.name) {
+                            // Variable is in function arguments
+                            let offset = args_offsets.get(pos).expect("out of bounds argument");
+                            let sz_name = size_name(sizeof(&fun.args[pos].dtype));
+                            write!(file, "    mov rax, {} [rbp+{}]\n", sz_name, offset)?;
+                            write!(file, "    push rax\n")?;
+                        } else {
+                            panic!("Trying to reference nonexistent variable");
+                        }
+
+                        //todo!("not implemented: pushvar {:?}", var);
+                    }
+                    Op::Add | Op::Sub | Op::Mul => {
+                        write!(file, "    pop rax\n")?;
+                        write!(file, "    pop rbx\n")?;
+                        match expr {
+                            Op::Add => write!(file, "    add rax, rbx\n")?,
+                            Op::Sub => write!(file, "    sub rax, rbx\n")?,
+                            Op::Mul => write!(file, "    mul rax, rbx\n")?,
+                            _ => unreachable!(),
+                        };
+                        write!(file, "    push rax\n")?;
+                    }
+                    Op::Return => {
+                        // Initialize to 8 since we have previous rbp on the stack
+                        let mut sizes = sizeof(&DataType::Int64);
+
+                        // For each return value, pop it off the stack and write it
+                        // to the return value location on the stack.
+                        for ret in &fun.rets {
+                            let sz = sizeof(&ret.dtype);
+                            sizes += sz;
+                            write!(file, "    ; -> {:?}\n", ret)?;
+                            write!(file, "    pop rax\n")?;
+                            write!(file, "    mov {} [rbp+{}], rax\n", size_name(sz), sizes)?;
+                        }
+
+                        write!(file, "    ; Tear down stack frame\n")?;
+                        write!(file, "    mov rsp, rbp\n")?;
+                        write!(file, "    pop rbp\n")?;
+                        write!(file, "    ret\n")?;
+                    }
+                };
+            }
+
+            // Restore stack frame after every expression
+            write!(file, "    mov rsp, rbp\n")?;
         }
     }
 
@@ -355,10 +535,21 @@ segment .text
 global _start
 _start:
     ; start of program
+
+    ; prepare argument and return values in stack
+    ;
+    ; kon's call convention isn't compatible with C. kon pushes all arguments
+    ; from left to right onto the stack, and then make space on the stack for
+    ; the return values. The callee modifies the return values on the prepared
+    ; stack locations and returns. The caller will clean up the stack afterwards.
+
+    mov rax, 0
+    push rax   ; TODO: put something in for the argv
+    push rax   ; add some space for the return
     call main
 
-    ; get return value from rax and call the exit syscall
-    mov rdi, rax
+    ; get return value from stack and call the exit syscall
+    pop rdi
     mov rax, SYS_EXIT
     syscall
 "
@@ -373,7 +564,11 @@ fn compile_linux_x86_64_elf64(path_asm: &str, path_obj: &str, path_exec: &str) {
         .output()
         .expect("failed to run nasm");
     if !nasm_res.status.success() {
-        panic!("nasm exited with code {}", nasm_res.status);
+        panic!(
+            "nasm exited with code {}: {}",
+            nasm_res.status,
+            String::from_utf8(nasm_res.stdout).unwrap()
+        );
     }
 
     let ld_res = Command::new("ld")
@@ -413,8 +608,8 @@ fn main() {
     // }
     // println!("\n---\nProgram:\n");
     let mut tok_iter = toks.iter().peekable();
-    let prog = parse_block(0, &mut tok_iter);
-    // println!("{:?}", prog);
+    let prog = parse_block(0, &mut tok_iter, None, None);
+    //println!("{:?}", prog);
 
     let asm_outf = std::fs::File::create(&output_asm).expect("Error creating output file");
     generate_linux_x86_64_asm(prog, asm_outf).expect("Error writing output file");
