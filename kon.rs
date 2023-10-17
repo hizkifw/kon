@@ -117,6 +117,7 @@ struct Function {
 
 #[derive(Debug, Clone, PartialEq)]
 enum Op {
+    FunCall(String),
     Return,
     PushInt(i64),
     PushVar(Variable),
@@ -226,10 +227,15 @@ fn parse_block(
                     }
                 }
 
-                compiler_error(
-                    &token.loc,
-                    &format!("Not implemented: identifier {}", ident),
-                );
+                // Check functions
+                for fun in &block.functions {
+                    if fun.name == *ident {
+                        ops.push(Op::FunCall(fun.name.clone()));
+                        continue 'tok;
+                    }
+                }
+
+                compiler_fatal(&token.loc, &format!("Unknown identifier {}", ident));
             }
             TokenType::Keyword(kw) => match kw {
                 KeywordType::Fun => {
@@ -428,7 +434,7 @@ segment .text
 "
     )?;
 
-    for fun in program.functions {
+    for fun in &program.functions {
         write!(file, "\n{}:\n", fun.name)?;
 
         // Create a new stack frame
@@ -438,7 +444,7 @@ segment .text
         // Allocate space for local variables
 
         // Calculate variable offsets within the stack
-        let rets_offsets_start = sizeof(&DataType::Int64);
+        let rets_offsets_start = 2 * sizeof(&DataType::Int64);
         let mut rets_offsets = fun
             .rets
             .iter()
@@ -465,7 +471,7 @@ segment .text
             .collect::<Vec<_>>();
         args_offsets.reverse();
 
-        for exprlist in fun.block.body {
+        for exprlist in &fun.block.body {
             for expr in exprlist {
                 write!(file, "    ; {:?}\n", expr)?;
                 match expr {
@@ -502,21 +508,30 @@ segment .text
                         };
                         write!(file, "    push rax\n")?;
                     }
-                    Op::Return => {
-                        // Initialize to 8 since we have previous rbp on the stack
-                        let mut sizes = sizeof(&DataType::Int64);
+                    Op::FunCall(fun_name) => {
+                        // Get function parameters
+                        let fun = program
+                            .functions
+                            .iter()
+                            .find(|f| f.name == *fun_name)
+                            .expect("undefined function");
 
+                        // Create space for return values
+                        let ret_sz: usize = fun.rets.iter().map(|ret| sizeof(&ret.dtype)).sum();
+                        write!(file, "    sub rsp, {}\n", ret_sz)?;
+                        write!(file, "    call {}\n", fun_name)?;
+                    }
+                    Op::Return => {
                         // For each return value, pop it off the stack and write it
                         // to the return value location on the stack.
-                        for ret in &fun.rets {
+                        for (i, ret) in fun.rets.iter().enumerate() {
                             let sz = sizeof(&ret.dtype);
-                            sizes += sz;
+                            let offset = rets_offsets[i];
                             write!(file, "    ; -> {:?}\n", ret)?;
                             write!(file, "    pop rax\n")?;
-                            write!(file, "    mov {} [rbp+{}], rax\n", size_name(sz), sizes)?;
+                            write!(file, "    mov {} [rbp+{}], rax\n", size_name(sz), offset)?;
                         }
 
-                        write!(file, "    ; Tear down stack frame\n")?;
                         write!(file, "    mov rsp, rbp\n")?;
                         write!(file, "    pop rbp\n")?;
                         write!(file, "    ret\n")?;

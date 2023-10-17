@@ -4,7 +4,7 @@ fun add(int a, int b) (int ret) {
 
 // main function is the entrypoint to the program
 fun main() (int code) {
-  34 return
+  34 35 add return
 }
 
 // vi: ft=kon
