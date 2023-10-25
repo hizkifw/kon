@@ -1,0 +1,17 @@
+use std::fmt;
+
+type hello struct {
+
+}
+
+fun runStuff() {
+	// asdf
+}
+
+fun main(argv []str) -> int {
+	if argv.length < 2 {
+		return 123;
+	}
+
+	0
+}
