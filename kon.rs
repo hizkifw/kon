@@ -9,6 +9,7 @@ enum TokenType {
     Keyword(KeywordType),
     Operation(Op),
     Number(i64),
+    Str(String),
     Whitespace(char),
     Lparen,
     Rparen,
@@ -32,6 +33,7 @@ impl std::fmt::Display for TokenType {
             },
             TokenType::Operation(op) => format!("{:?}", op), // TODO: implement Display for Op
             TokenType::Number(n) => n.to_string(),
+            TokenType::Str(s) => s.clone(),
             TokenType::Whitespace(s) => s.to_string(),
             TokenType::Lparen => "(".to_string(),
             TokenType::Rparen => ")".to_string(),
@@ -120,6 +122,7 @@ enum Op {
     FunCall(String),
     Return,
     PushInt(i64),
+    PushStr(String),
     PushVar(Variable),
     Add,
     Sub,
@@ -208,6 +211,9 @@ fn parse_block(
     let mut ops: Expr = Vec::new();
     'tok: while let Some(token) = tokens.next() {
         match &token.typ {
+            TokenType::Str(s) => {
+                ops.push(Op::PushStr(s.clone()));
+            }
             TokenType::Ident(ident) => {
                 // Check variables
                 for var in &block.variables {
@@ -262,8 +268,8 @@ fn parse_block(
 
                     let args = parse_argslist(tokens);
 
-                    let tok = match tokens.next() {
-                        Some(tok) => tok,
+                    let tok = match tokens.peek() {
+                        Some(tok) => *tok,
                         _ => compiler_fatal(
                             &token.loc,
                             "Expected return type or block start but found EOF",
@@ -271,7 +277,10 @@ fn parse_block(
                     };
 
                     let rets = match tok.typ {
-                        TokenType::Lparen => parse_argslist(tokens),
+                        TokenType::Lparen => {
+                            tokens.next();
+                            parse_argslist(tokens)
+                        }
                         _ => Vec::new(),
                     };
 
@@ -381,6 +390,14 @@ fn tokenize_line(loc: Loc, line: &str) -> Vec<Token> {
                 }
                 tokenize_word(&line[i..str_end])
             }
+            '"' => {
+                let mut str_end = i + 1;
+                while let Some((ni, _)) = linechars.next_if(|(_, nc)| *nc != '"') {
+                    str_end = ni + 1;
+                }
+                linechars.next();
+                TokenType::Str(line[i + 1..str_end].to_owned())
+            }
             chr => {
                 compiler_error(&loc, &format!("Unknown character `{}`", chr));
                 TokenType::Unknown(chr)
@@ -434,6 +451,12 @@ segment .text
 "
     )?;
 
+    // Collect strings
+    let mut strings = Vec::new();
+
+    let strid = |n: usize| format!("str_{}", n);
+    let strid_len = |n: usize| format!("strlen_{}", n);
+
     for fun in &program.functions {
         write!(file, "\n{}:\n", fun.name)?;
 
@@ -471,13 +494,20 @@ segment .text
             .collect::<Vec<_>>();
         args_offsets.reverse();
 
-        for exprlist in &fun.block.body {
+        for (el_idx, exprlist) in fun.block.body.iter().enumerate() {
             for expr in exprlist {
                 write!(file, "    ; {:?}\n", expr)?;
                 match expr {
                     Op::PushInt(i) => {
                         write!(file, "    mov rax, {}\n", i)?;
                         write!(file, "    push rax\n")?;
+                    }
+                    Op::PushStr(s) => {
+                        write!(file, "    mov rax, {}\n", strid(strings.len()))?;
+                        write!(file, "    push rax\n")?;
+                        write!(file, "    mov rax, {}\n", strid_len(strings.len()))?;
+                        write!(file, "    push rax\n")?;
+                        strings.push(s.clone());
                     }
                     Op::PushVar(var) => {
                         if let Some(pos) =
@@ -540,8 +570,16 @@ segment .text
             }
 
             // Restore stack frame after every expression
-            write!(file, "    mov rsp, rbp\n")?;
+            if el_idx < fun.block.body.len() - 1 {
+                write!(file, "    mov rsp, rbp\n")?;
+            }
         }
+
+        // Implicit return
+        write!(file, "    ; implicit return\n")?;
+        write!(file, "    mov rsp, rbp\n")?;
+        write!(file, "    pop rbp\n")?;
+        write!(file, "    ret\n")?;
     }
 
     write!(
@@ -567,8 +605,15 @@ _start:
     pop rdi
     mov rax, SYS_EXIT
     syscall
+
+segment .data
 "
     )?;
+
+    for (i, s) in strings.iter().enumerate() {
+        write!(file, "{}: db {:?}, 0\n", strid(i), s)?;
+        write!(file, "{}: equ $ - {} - 1\n", strid_len(i), strid(i))?;
+    }
 
     Ok("".into())
 }

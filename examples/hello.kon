@@ -1,10 +1,18 @@
-fun add(int a, int b) (int ret) {
-  a b + return
+fun hello() {
+  1 1 "Hello, world!\n"
+}
+
+fun get_numbers() (int left, int right) {
+  80 11 return
+}
+
+fun sub(int a, int b) (int ret) {
+  a b - return
 }
 
 // main function is the entrypoint to the program
 fun main() (int code) {
-  34 35 add return
+  get_numbers sub return
 }
 
 // vi: ft=kon
