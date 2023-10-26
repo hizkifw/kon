@@ -115,6 +115,25 @@ func TokenizeFile(fileName string) ([]Token, error) {
 					Loc: loc,
 				})
 				col--
+			} else if c == '"' {
+				for {
+					col++
+					if col >= len(line) {
+						LogError(loc, "Unterminated string literal")
+						break
+					}
+
+					c = line[col]
+					if c == '"' && line[col-1] != '\\' {
+						break
+					}
+				}
+
+				tokens = append(tokens, Token{
+					Typ: TokenStrLiteral,
+					Val: line[loc.Col+1 : col],
+					Loc: loc,
+				})
 			} else if c == ' ' || c == '\t' || c == '\r' || c == '\n' {
 				// Whitespace, skip for now
 			} else if s[:2] == "//" {

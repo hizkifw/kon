@@ -4,8 +4,9 @@ type hello struct {
 
 }
 
+// This function does stuff
 fun runStuff() {
-	// asdf
+	"Hello, \"world\"!";
 }
 
 fun main(argv []str) -> int {
