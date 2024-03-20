@@ -1,4 +1,4 @@
-package main
+package token
 
 type TokenType uint
 
@@ -33,6 +33,11 @@ const (
 
 	endTokenKeywords
 
+	TokenBang       // !
+	TokenPlus       // +
+	TokenMinus      // -
+	TokenDiv        // /
+	TokenMult       // *
 	TokenLT         // <
 	TokenLTE        // <=
 	TokenGT         // >

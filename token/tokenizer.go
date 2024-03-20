@@ -1,4 +1,4 @@
-package main
+package token
 
 import (
 	"bufio"
@@ -20,6 +20,10 @@ type Token struct {
 	Typ TokenType
 	Val string
 	Loc Loc
+}
+
+func LogError(l Loc, format string, a ...any) {
+	fmt.Printf("%s: Error: %s\n", l, fmt.Sprintf(format, a...))
 }
 
 func IsDigit(b byte) bool {
@@ -188,6 +192,16 @@ func TokenizeFile(fileName string) ([]Token, error) {
 			} else if s[:2] == "->" {
 				col++
 				tokens = append(tokens, Token{Typ: TokenArrowR, Val: "", Loc: loc})
+			} else if c == '!' {
+				tokens = append(tokens, Token{Typ: TokenBang, Val: "", Loc: loc})
+			} else if c == '+' {
+				tokens = append(tokens, Token{Typ: TokenPlus, Val: "", Loc: loc})
+			} else if c == '-' {
+				tokens = append(tokens, Token{Typ: TokenMinus, Val: "", Loc: loc})
+			} else if c == '/' {
+				tokens = append(tokens, Token{Typ: TokenDiv, Val: "", Loc: loc})
+			} else if c == '*' {
+				tokens = append(tokens, Token{Typ: TokenMult, Val: "", Loc: loc})
 			} else {
 				LogError(loc, "Unknown token: %s", string(c))
 			}

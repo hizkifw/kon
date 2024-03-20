@@ -1,0 +1,24 @@
+fundecl -> "fun" IDENTIFIER "(" arglist ")" ( "->" retlist )? "{" funbody "}"
+
+arglist -> arg ( "," arglist )?
+
+arg     -> IDENT TYPE
+
+retlist -> TYPE ( "," retlist )?
+
+funbody ->
+
+expression -> literal
+              | unary
+              | binary
+              | grouping ;
+
+literal -> NUMBER ;
+
+grouping -> "(" expression ")" ;
+
+unary -> ( "-" | "!" ) expression ;
+
+binary -> expression operator expression ;
+
+operator -> "+" | "-" | "/" | "*" | "==" | "!=" | "<" | "<=" | ">" | ">=" ;

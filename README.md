@@ -7,7 +7,7 @@ How to build:
 go install golang.org/x/tools/cmd/stringer@latest
 
 # Generate enums
-go generate
+go generate ./...
 
 # Build
 go build

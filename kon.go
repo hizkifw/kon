@@ -3,11 +3,10 @@ package main
 import (
 	"fmt"
 	"os"
-)
 
-func LogError(l Loc, format string, a ...any) {
-	fmt.Printf("%s: Error: %s\n", l, fmt.Sprintf(format, a...))
-}
+	"github.com/hizkifw/kon/ast"
+	"github.com/hizkifw/kon/token"
+)
 
 func realMain() int {
 	if len(os.Args) < 2 {
@@ -15,7 +14,7 @@ func realMain() int {
 		return 1
 	}
 
-	tokens, err := TokenizeFile(os.Args[1])
+	tokens, err := token.TokenizeFile(os.Args[1])
 	if err != nil {
 		fmt.Printf("Error tokenizing file: %v", err)
 		return 1
@@ -25,6 +24,10 @@ func realMain() int {
 	for _, tok := range tokens {
 		fmt.Printf("  %s\t%#v\n", tok.Typ, tok.Val)
 	}
+
+	parser := ast.NewParser(tokens)
+	parsed := parser.Parse()
+	fmt.Printf("Parsed: %#v\n", parsed)
 
 	return 0
 }

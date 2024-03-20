@@ -11,7 +11,7 @@ fun runStuff() {
 
 fun main(argv []str) -> int {
 	if argv.length < 2 {
-		return 123;
+		return 34 + 35;
 	}
 
 	0
