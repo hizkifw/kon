@@ -22,6 +22,9 @@ type Usage struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
 	TotalTokens      int `json:"total_tokens"`
+	// CachedTokens is the provider-reported share of PromptTokens that hit a
+	// prompt cache. PromptTokens always covers every input token.
+	CachedTokens int `json:"cached_tokens,omitempty"`
 }
 
 type Role string

@@ -8,9 +8,11 @@ The project favors a small product surface and readable Go over frameworks and
 hidden state. Sessions and prompt history are ordinary JSONL files. There is no
 database, daemon, account system, or plugin loader.
 
-Provider protocols and streaming are supplied by
-[goai](https://github.com/zendev-sh/goai); kon keeps ownership of its durable
-agent loop, context policy, tools, and terminal UX.
+Provider wire formats are owned in-tree: kon speaks the OpenAI Chat
+Completions format directly and keeps full control of message construction,
+streaming, and token accounting. A small `provider.Model` interface isolates
+each wire format so others can be added later. kon also owns its durable agent
+loop, context policy, tools, and terminal UX.
 
 Owned identifiers are Stripe-style typed IDs: sessions use `ses_…` and entries
 use `ent_…`. Provider-owned model and tool-call IDs are kept in separate opaque
@@ -78,13 +80,14 @@ Edit `config.json` before sending the first prompt:
 ```
 
 Each `name` is a unique alias used by `/model`. Supported providers are
-`openai`, `anthropic`, `google`, `openrouter`, `ollama`, and
-`openai-compatible`. The last option covers services that expose an
-OpenAI-compatible Chat Completions API and requires `base_url`. Provider-native
-profiles use their standard endpoint unless `base_url` overrides it. `api_key`
-may be empty when the provider uses its conventional environment variable or
-needs no credential. Optional `headers` are sent on every provider request. Set
-`context_window_tokens` to `0` to disable automatic compaction for that profile.
+`openai`, `openrouter`, `ollama`, and `openai-compatible`. All of them speak
+the OpenAI Chat Completions format; the last option covers other services that
+expose it and requires `base_url`. Profiles use their standard endpoint unless
+`base_url` overrides it — for `ollama`, a base URL without a path gains `/v1`,
+its OpenAI-compatible endpoint. `api_key` may be empty when the provider uses
+its conventional environment variable or needs no credential. Optional
+`headers` are sent on every provider request. Set `context_window_tokens` to
+`0` to disable automatic compaction for that profile.
 
 Configuration is read once at startup. Invalid files are reported and never
 rewritten. Since a literal API key may be stored in the file, kon creates it

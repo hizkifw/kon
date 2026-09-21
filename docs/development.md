@@ -32,7 +32,7 @@ XDG_CONFIG_HOME="$(mktemp -d)" XDG_DATA_HOME="$(mktemp -d)" go run ./cmd/kon
 | `internal/ui` | terminal state and presentation | HTTP or JSONL encoding |
 | `internal/app` | live runner/store lifecycle and model switching | terminal presentation |
 | `internal/agent` | model/tool loop and compaction policy | terminal rendering |
-| `internal/provider` | goai model construction and durable-message conversion | session policy |
+| `internal/provider` | provider `Model` backends and durable-message conversion | session policy |
 | `internal/session` | domain messages and append-only context tree | provider requests |
 | `internal/tools` | bounded tool schemas and execution | agent orchestration |
 | `internal/typedid` | identifier construction and parsing | storage or provider policy |

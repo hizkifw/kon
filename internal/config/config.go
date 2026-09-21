@@ -38,7 +38,10 @@ type Compaction struct {
 	KeepRecentTokens int `json:"keep_recent_tokens"`
 }
 
-var supportedProviders = []string{"anthropic", "google", "ollama", "openai", "openai-compatible", "openrouter"}
+// supportedProviders lists the config values kon can serve. Every one of them
+// speaks the OpenAI chat completions wire format; other formats (Anthropic,
+// Google) return once a backend implements provider.Model.
+var supportedProviders = []string{"openai", "openai-compatible", "openrouter", "ollama"}
 
 func Default() Config {
 	return Config{

@@ -8,9 +8,9 @@ and connects the following pieces:
 Bubble Tea UI
     │ commands / prompt / events
     ▼
-app runtime ────── agent runner ───── goai adapter
+app runtime ────── agent runner ───── provider layer
     │                    │
-    │                    ├── provider protocol + streaming
+    │                    ├── provider.Model backends (wire formats)
     │                    └── tool executor
     └── session store ───── append-only JSONL
 ```
@@ -27,10 +27,10 @@ app runtime ────── agent runner ───── goai adapter
    persist one result for every call before requesting another assistant turn.
 7. Stop at a final assistant message. Tool iterations are unbounded.
 
-kon deliberately invokes goai one generation step at a time. This keeps every
-assistant tool request and every tool result durable before the next network
-request. goai owns provider wire formats, stream normalization, and transient
-request retries; kon owns orchestration, persistence, and compaction.
+kon deliberately invokes the provider one generation step at a time. This
+keeps every assistant tool request and every tool result durable before the
+next network request. The provider layer owns wire formats and stream parsing;
+kon owns orchestration, persistence, and compaction.
 
 The app runtime is the sole owner of the live store and runner. A new session is
 fully prepared before it replaces the current one, so creation failures leave
@@ -77,8 +77,10 @@ sensible dependency for a provider-neutral harness.
 - A malformed final JSONL record is treated as an interrupted append and
   truncated. Malformed interior records, duplicate IDs, missing parents, and
   unsupported schema versions are rejected.
-- Network failures and provider errors stop the current run after goai's
-  bounded transient-error retry policy is exhausted.
+- Network failures and provider errors stop the current run. A 400 that
+  rejects `stream_options` or `max_tokens` is retried once without the field
+  or with the modern replacement, so older and newer OpenAI-compatible servers
+  both work.
 - A recognized context-overflow rejection is safe to compact and retry once.
 - Tool failures become tool-result messages so the model can respond to them.
 - Shell commands must carry a model-specified timeout (at most 600 seconds)
@@ -89,11 +91,12 @@ sensible dependency for a provider-neutral harness.
 
 ## Dependency policy
 
-Direct dependencies are Bubble Tea, Bubbles, Lip Gloss, and goai. kon imports a
-small provider set instead of goai's complete catalog so unused cloud SDK and
-protocol code does not enter release binaries. JSON, typed-ID generation,
-files, subprocesses, and release cross-compilation use the Go standard library.
-Dependencies are pinned in `go.mod` and authenticated by `go.sum`.
+Direct dependencies are Bubble Tea, Bubbles, and Lip Gloss. The provider layer
+uses only the Go standard library: chat completions request bodies and SSE
+streams are parsed in-tree so token accounting and streaming stay exact and
+inspected. JSON, typed-ID generation, files, subprocesses, and release
+cross-compilation also use the Go standard library. Dependencies are pinned in
+`go.mod` and authenticated by `go.sum`.
 
 Owned identifiers are value objects from `internal/typedid`. Their unexported
 representation prevents arbitrary construction outside that package. External

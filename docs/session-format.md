@@ -52,7 +52,7 @@ never written.
 ## Model change entries
 
 ```json
-{"type":"model_change","id":"ent_2xM8vQ5kR9cT3Np7Za4L","parent_id":"ent_9qW4mK7zT2bN8Vc5Rx1A","timestamp":"...","model":{"name":"review","provider":"anthropic","external_id":"claude-sonnet-4-5"}}
+{"type":"model_change","id":"ent_2xM8vQ5kR9cT3Np7Za4L","parent_id":"ent_9qW4mK7zT2bN8Vc5Rx1A","timestamp":"...","model":{"name":"fast","provider":"openai","external_id":"gpt-4o"}}
 ```
 
 The name is kon's configured alias. The external ID remains opaque. Model

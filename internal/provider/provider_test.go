@@ -1,141 +1,126 @@
 package provider
 
 import (
-	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
 	"testing"
 
 	"github.com/hizkifw/kon/internal/session"
 	"github.com/hizkifw/kon/internal/typedid"
-	"github.com/zendev-sh/goai"
-	goaiprovider "github.com/zendev-sh/goai/provider"
 )
 
-func TestMessageRoundTripPreservesProviderToolMetadata(t *testing.T) {
-	result := &goai.TextResult{
-		ToolCalls: []goaiprovider.ToolCall{{ID: "call-1", Name: "read", Input: json.RawMessage(`{"path":"x"}`), Metadata: map[string]any{"thoughtSignature": "sig"}}},
-		Steps: []goai.StepResult{{Text: "checking", Content: []goaiprovider.Part{
-			{Type: goaiprovider.PartText, Text: "checking"},
-			{Type: goaiprovider.PartToolCall, ToolCallID: "call-1", ToolName: "read", ToolInput: json.RawMessage(`{"path":"x"}`), ProviderOptions: map[string]any{"thoughtSignature": "sig"}},
-		}}},
-		FinishReason: goaiprovider.FinishToolCalls,
+func TestAssistantAssemblesDurableMessage(t *testing.T) {
+	client := &Client{modelID: typedid.ExternalModelID("gpt-4o")}
+	response := Response{
+		Text:      "checking",
+		Reasoning: "let me look",
+		ToolCalls: []ToolCall{{ID: "call-1", Name: "read", Arguments: json.RawMessage(`{"path":"x"}`)}},
+		Finish:    "tool_calls",
+		Usage:     &session.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15, CachedTokens: 4},
 	}
-	message, err := fromResult(result, typedid.ExternalModelID("model"))
+	message, err := client.assistant(response)
 	if err != nil {
 		t.Fatal(err)
 	}
-	converted := toMessages([]session.Message{message})
-	if got := converted[0].Content[1].ProviderOptions["thoughtSignature"]; got != "sig" {
-		t.Fatalf("metadata = %v", got)
+	if message.Role != session.RoleAssistant || message.Content != "checking" || message.Model.String() != "gpt-4o" || message.Finish != "tool_calls" {
+		t.Fatalf("message = %#v", message)
 	}
-}
-
-func TestFromResultPreservesThinkingForReplay(t *testing.T) {
-	// Mirrors what goai assembles for a streamed thinking-model response:
-	// reasoning parts (with the provider signature) come first in
-	// ResponseMessages, and StepResult.Content carries no reasoning.
-	result := &goai.TextResult{
-		Text:  "checking",
-		Steps: []goai.StepResult{{Text: "checking"}},
-		ResponseMessages: []goaiprovider.Message{{Role: goaiprovider.RoleAssistant, Content: []goaiprovider.Part{
-			{Type: goaiprovider.PartReasoning, Text: "let me look", ProviderOptions: map[string]any{"signature": "sig-1"}},
-			{Type: goaiprovider.PartText, Text: "checking"},
-			{Type: goaiprovider.PartToolCall, ToolCallID: "call-1", ToolName: "read", ToolInput: json.RawMessage(`{"path":"x"}`)},
-		}}},
-		ToolCalls:    []goaiprovider.ToolCall{{ID: "call-1", Name: "read", Input: json.RawMessage(`{"path":"x"}`)}},
-		FinishReason: goaiprovider.FinishToolCalls,
+	if message.Usage == nil || message.Usage.PromptTokens != 10 || message.Usage.CachedTokens != 4 {
+		t.Fatalf("usage = %#v", message.Usage)
 	}
-	message, err := fromResult(result, typedid.ExternalModelID("model"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(message.Parts) != 3 || message.Parts[0].Type != "reasoning" || message.Parts[0].Text != "let me look" {
-		t.Fatalf("parts = %#v", message.Parts)
-	}
-	converted := toMessages([]session.Message{message})
-	if len(converted[0].Content) != 3 {
-		t.Fatalf("content = %#v", converted[0].Content)
-	}
-	reasoning := converted[0].Content[0]
-	if reasoning.Type != goaiprovider.PartReasoning || reasoning.Text != "let me look" {
-		t.Fatalf("reasoning part = %#v", reasoning)
-	}
-	if got := reasoning.ProviderOptions["signature"]; got != "sig-1" {
-		t.Fatalf("signature = %v", got)
-	}
-}
-
-type streamModel struct {
-	chunks []goaiprovider.StreamChunk
-}
-
-func (m *streamModel) ModelID() string { return "test-model" }
-
-func (m *streamModel) DoGenerate(context.Context, goaiprovider.GenerateParams) (*goaiprovider.GenerateResult, error) {
-	return nil, nil
-}
-
-func (m *streamModel) DoStream(context.Context, goaiprovider.GenerateParams) (*goaiprovider.StreamResult, error) {
-	stream := make(chan goaiprovider.StreamChunk, len(m.chunks))
-	for _, chunk := range m.chunks {
-		stream <- chunk
-	}
-	close(stream)
-	return &goaiprovider.StreamResult{Stream: stream}, nil
-}
-
-func TestStreamKeepsThinkingTraceForProviderReplay(t *testing.T) {
-	model := &streamModel{chunks: []goaiprovider.StreamChunk{
-		{Type: goaiprovider.ChunkReasoning, Text: "let me look"},
-		{Type: goaiprovider.ChunkReasoning, Metadata: map[string]any{"signature": "sig-1"}},
-		{Type: goaiprovider.ChunkText, Text: "checking"},
-		{Type: goaiprovider.ChunkToolCall, ToolCallID: "call-1", ToolName: "read", ToolInput: `{"path":"x"}`},
-		{Type: goaiprovider.ChunkFinish, FinishReason: goaiprovider.FinishToolCalls},
-	}}
-	client := &Client{model: model, modelID: typedid.ExternalModelID("test-model")}
-	message, err := client.Stream(context.Background(), []session.Message{{Role: session.RoleUser, Content: "hi"}}, nil, func(Event) {})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(message.Parts) != 3 || message.Parts[0].Type != "reasoning" || message.Parts[0].Text != "let me look" {
-		t.Fatalf("parts = %#v", message.Parts)
-	}
-	if len(message.ToolCalls) != 1 || message.ToolCalls[0].ID.String() != "call-1" {
+	if len(message.ToolCalls) != 1 || message.ToolCalls[0].ID.String() != "call-1" || message.ToolCalls[0].Type != "function" {
 		t.Fatalf("tool calls = %#v", message.ToolCalls)
 	}
-	// Replay the stored assistant message the way the next provider call does.
-	converted := toMessages([]session.Message{message})
-	if len(converted[0].Content) != 3 {
-		t.Fatalf("content = %#v", converted[0].Content)
+	// Reasoning is persisted first so a turn replays in generation order.
+	want := []string{PartReasoning, PartText, PartToolCall}
+	if len(message.Parts) != len(want) {
+		t.Fatalf("parts = %#v", message.Parts)
 	}
-	reasoning := converted[0].Content[0]
-	if reasoning.Type != goaiprovider.PartReasoning || reasoning.Text != "let me look" {
-		t.Fatalf("replayed reasoning part = %#v", reasoning)
+	for i, kind := range want {
+		if message.Parts[i].Type != kind {
+			t.Fatalf("parts = %#v", message.Parts)
+		}
 	}
-	if got := reasoning.ProviderOptions["signature"]; got != "sig-1" {
-		t.Fatalf("replayed signature = %v", got)
+	if message.Parts[0].Text != "let me look" || message.Parts[2].ToolCallID.String() != "call-1" || string(message.Parts[2].ToolInput) != `{"path":"x"}` {
+		t.Fatalf("parts = %#v", message.Parts)
 	}
-}
-
-func TestChunkEventMapsReasoningDeltas(t *testing.T) {
-	text, ok := chunkEvent(goaiprovider.StreamChunk{Type: goaiprovider.ChunkText, Text: "hi"})
-	if !ok || text.Thinking || text.Text != "hi" {
-		t.Fatalf("text chunk = %#v, ok = %v", text, ok)
-	}
-	thinking, ok := chunkEvent(goaiprovider.StreamChunk{Type: goaiprovider.ChunkReasoning, Text: "hmm"})
-	if !ok || !thinking.Thinking || thinking.Text != "hmm" {
-		t.Fatalf("reasoning chunk = %#v, ok = %v", thinking, ok)
-	}
-	if _, ok := chunkEvent(goaiprovider.StreamChunk{Type: goaiprovider.ChunkReasoning}); ok {
-		t.Fatal("empty reasoning chunk was emitted")
-	}
-	if _, ok := chunkEvent(goaiprovider.StreamChunk{Type: goaiprovider.ChunkToolCall}); ok {
-		t.Fatal("tool-call chunk was emitted as text")
+	if err := message.Validate(); err != nil {
+		t.Fatalf("assembled message is invalid: %v", err)
 	}
 }
 
-func TestContextOverflowUsesGoAIDetection(t *testing.T) {
-	if !IsContextOverflow(&goai.ContextOverflowError{Message: "prompt is too long"}) {
-		t.Fatal("overflow was not detected")
+func TestAssistantRejectsEmptyResponse(t *testing.T) {
+	client := &Client{}
+	if _, err := client.assistant(Response{}); err == nil {
+		t.Fatal("empty response was accepted")
+	}
+}
+
+func TestIsContextOverflowMatchesProviderPhrasings(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil", nil, false},
+		{"openai code", &APIError{Status: 400, Code: "context_length_exceeded", Message: "model context"}, true},
+		{"openai message", &APIError{Status: 400, Message: "This model's maximum context length is 8192 tokens"}, true},
+		{"anthropic phrasing", &APIError{Status: 400, Message: "prompt is too long: 250000 tokens > 200000 maximum"}, true},
+		{"request too large", &APIError{Status: http.StatusRequestEntityTooLarge, Body: "request entity too large: too many tokens"}, true},
+		{"in-stream rejection", &APIError{Status: 0, Message: "context length exceeded"}, true},
+		{"other bad request", &APIError{Status: 400, Code: "invalid_argument", Message: "model does not exist"}, false},
+		{"rate limit", &APIError{Status: 429, Message: "maximum context length exceeded"}, false},
+		{"plain error", errors.New("maximum context length"), false},
+	}
+	for _, testCase := range cases {
+		if got := IsContextOverflow(testCase.err); got != testCase.want {
+			t.Fatalf("%s: IsContextOverflow = %v, want %v", testCase.name, got, testCase.want)
+		}
+	}
+}
+
+func TestIsContextOverflowSurvivesWrapping(t *testing.T) {
+	err := fmt.Errorf("run turn: %w", &APIError{Status: 400, Code: "context_length_exceeded"})
+	if !IsContextOverflow(err) {
+		t.Fatal("wrapped overflow was not detected")
+	}
+}
+
+func TestRejectedFieldRequiresRejectionSignal(t *testing.T) {
+	// A 400 that names the field must also signal an invalid or unknown
+	// parameter; otherwise any 400 mentioning the field triggers a retry.
+	cases := []struct {
+		name  string
+		field string
+		body  string
+		want  bool
+	}{
+		{"unknown field", "stream_options", `{"error":{"message":"Unknown field: stream_options"}}`, true},
+		{"unsupported field", "max_tokens", `{"error":{"message":"Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead."}}`, true},
+		{"invalid parameter", "max_tokens", `{"error":{"message":"Invalid parameter: max_tokens"}}`, true},
+		{"unrelated 400 mentioning the field", "stream_options", `{"error":{"message":"stream_options appeared after the outage window"}}`, false},
+		{"field absent", "stream_options", `{"error":{"message":"Unknown field: temperature"}}`, false},
+	}
+	for _, testCase := range cases {
+		err := &APIError{Status: http.StatusBadRequest, Body: testCase.body}
+		if got := rejectedField(err, testCase.field); got != testCase.want {
+			t.Fatalf("%s: rejectedField = %v, want %v", testCase.name, got, testCase.want)
+		}
+	}
+	if rejectedField(&APIError{Status: http.StatusInternalServerError, Body: "Unknown field: stream_options"}, "stream_options") {
+		t.Fatal("non-400 triggered field retry")
+	}
+}
+
+func TestAPIErrorMessage(t *testing.T) {
+	structured := &APIError{Status: 400, Message: "bad model"}
+	if got := structured.Error(); got != "provider returned status 400: bad model" {
+		t.Fatalf("Error() = %q", got)
+	}
+	raw := &APIError{Status: 500, Body: " upstream exploded \n"}
+	if got := raw.Error(); got != "provider returned status 500: upstream exploded" {
+		t.Fatalf("Error() = %q", got)
 	}
 }

@@ -4,6 +4,13 @@
 
 ### Changed
 
+- kon now owns the OpenAI Chat Completions wire format directly and the goai
+  dependency is gone. The provider layer builds request messages, parses SSE
+  deltas, and assembles tool calls in-tree, and reports usage exactly as the
+  server counted it (`cached_tokens` is now persisted alongside token totals).
+  Supported providers are `openai`, `openrouter`, `ollama`, and
+  `openai-compatible`; the `provider.Model` interface keeps other wire formats
+  easy to add later.
 - Shell commands must specify a `timeout` in whole seconds (at most 600); the
   tool rejects calls without one, and a timed-out command's captured output
   survives into the tool result instead of being discarded.
@@ -23,16 +30,16 @@
 ### Added
 
 - Initial fullscreen coding agent with named, switchable model profiles.
-- Provider-native streaming through goai for OpenAI, Anthropic, Google,
-  OpenRouter, Ollama, and OpenAI-compatible endpoints.
+- Streaming against the OpenAI Chat Completions format for OpenAI, OpenRouter,
+  Ollama, and OpenAI-compatible endpoints.
 - Append-only tree sessions, prompt history, and automatic context compaction.
 - Read, write, edit, and shell tools.
 - Switching models with `/model <name>` persists the selection to the config
   file, so the next kon launch starts on the same model.
 - Linux, macOS, and Windows release targets for amd64 and arm64.
 - Stripe-style typed session and entry IDs, with opaque types for provider IDs.
-- Streaming display of model thinking: reasoning deltas from goai render as
-  interleaved `thinking` transcript blocks.
+- Streaming display of model thinking: reasoning deltas render as interleaved
+  `thinking` transcript blocks.
 
 ### Fixed
 

@@ -74,7 +74,7 @@ func TestInitializePreservesInvalidConfig(t *testing.T) {
 
 func TestSaveRewritesDefaultModel(t *testing.T) {
 	cfg := Default()
-	cfg.Models = append(cfg.Models, Model{Name: "review", Provider: "anthropic", ModelID: "claude", ContextWindowTokens: 100_000})
+	cfg.Models = append(cfg.Models, Model{Name: "review", Provider: "openai", ModelID: "gpt-4o", ContextWindowTokens: 100_000})
 	path := filepath.Join(t.TempDir(), filename)
 	if err := cfg.Save(path); err != nil {
 		t.Fatal(err)
@@ -106,11 +106,11 @@ func TestSaveRewritesDefaultModel(t *testing.T) {
 func TestValidateNamedModels(t *testing.T) {
 	cfg := Default()
 	cfg.DefaultModel = "review"
-	cfg.Models = append(cfg.Models, Model{Name: "review", Provider: "anthropic", ModelID: "claude", ContextWindowTokens: 100_000})
+	cfg.Models = append(cfg.Models, Model{Name: "review", Provider: "openai", ModelID: "gpt-4o", ContextWindowTokens: 100_000})
 	if err := cfg.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if model, ok := cfg.Model("review"); !ok || model.ModelID != "claude" {
+	if model, ok := cfg.Model("review"); !ok || model.ModelID != "gpt-4o" {
 		t.Fatalf("Model(review) = %#v, %v", model, ok)
 	}
 	cfg.Models[1].Name = "default"
