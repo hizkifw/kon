@@ -17,7 +17,7 @@ func (m *Model) resize() {
 	m.input.SetWidth(max(1, m.width))
 	m.input.SetHeight(inputHeight)
 	m.viewport.SetWidth(max(1, m.width))
-	m.viewport.SetHeight(max(1, m.height-inputHeight-2))
+	m.viewport.SetHeight(max(1, m.height-inputHeight-2-m.menu.height()))
 }
 
 // refreshTranscript updates the viewport contents. When toBottom is set, the
@@ -52,7 +52,12 @@ func (m Model) View() tea.View {
 		ctx += "/" + compactNumber(m.active.ContextWindow)
 	}
 	status := " " + abbreviateHome(m.cwd) + "  ·  " + ctx + "  ·  " + m.status
-	content := strings.Join([]string{headerStyle.Render(fitLine(header, m.width)), m.viewport.View(), statusStyle.Render(fitLine(status, m.width)), m.input.View()}, "\n")
+	sections := []string{headerStyle.Render(fitLine(header, m.width)), m.viewport.View(), statusStyle.Render(fitLine(status, m.width))}
+	if menu := m.menu.render(m.width); menu != "" {
+		sections = append(sections, menu)
+	}
+	sections = append(sections, m.input.View())
+	content := strings.Join(sections, "\n")
 	view := tea.NewView(content)
 	view.AltScreen = true
 	view.MouseMode = tea.MouseModeCellMotion

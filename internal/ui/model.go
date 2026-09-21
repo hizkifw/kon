@@ -37,6 +37,7 @@ type Model struct {
 	transcript              transcript
 	history                 promptHistory
 	runtime                 Runtime
+	commands                *registry
 	active                  app.Model
 	cwd, configPath, status string
 	contextTokens           int
@@ -46,6 +47,7 @@ type Model struct {
 	runEvents               chan tea.Msg
 	cancelRequested         bool
 	flushPending            bool
+	menu                    menu
 }
 
 func New(cwd, configPath string, runtime Runtime, historyStore *history.Store, entries []history.Entry) Model {
@@ -72,7 +74,8 @@ func New(cwd, configPath string, runtime Runtime, historyStore *history.Store, e
 	}
 	return Model{
 		viewport: vp, input: input, history: newPromptHistory(historyStore, entries),
-		runtime: runtime, active: state.Active, cwd: cwd, configPath: configPath,
+		runtime: runtime, commands: defaultRegistry(),
+		active: state.Active, cwd: cwd, configPath: configPath,
 		transcript: transcript{cwd: cwd},
 		status:     status, contextTokens: -1,
 	}
@@ -115,17 +118,39 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshTranscript(true)
 		return m, nil
 	case tea.KeyPressMsg:
-		if updated, cmd, handled := m.handleKey(msg.String()); handled {
+		updated, cmd, handled := m.handleKey(msg.String())
+		if handled {
 			return updated, cmd
 		}
+		// handleKey closed the popup and may have updated the model; keep
+		// those changes while normal input handling continues below.
+		m = updated.(Model)
 	}
 	var cmd tea.Cmd
+	before := m.input.Value()
 	m.input, cmd = m.input.Update(msg)
 	commands = append(commands, cmd)
 	m.viewport, cmd = m.viewport.Update(msg)
 	commands = append(commands, cmd)
+	if m.input.Value() != before {
+		// Refresh the popup whenever the prompt changed, regardless of which
+		// key or paste produced the change. The command source only yields
+		// candidates for input beginning with "/", so ordinary text closes it
+		// and "/" as the first rune opens the command list.
+		m.refreshInput()
+		return m, tea.Batch(commands...)
+	}
 	m.resize()
 	return m, tea.Batch(commands...)
+}
+
+// refreshInput recomputes the popup for the current prompt and re-lays-out the
+// frame. Every path that changes the input or the menu ends here, so the
+// viewport height always matches the menu in the same frame instead of
+// reflowing on a later update.
+func (m *Model) refreshInput() {
+	m.openMenu()
+	m.resize()
 }
 
 func (m Model) handleKey(key string) (tea.Model, tea.Cmd, bool) {
@@ -162,12 +187,37 @@ func (m Model) handleKey(key string) (tea.Model, tea.Cmd, bool) {
 		return m, nil, true
 	case "alt+enter":
 		m.input.InsertString("\n")
-		m.resize()
+		m.refreshInput()
 		return m, nil, true
 	case "enter":
+		if m.menu.open() {
+			return m.completeMenu()
+		}
 		updated, cmd := m.submit()
 		return updated, cmd, true
+	case "tab":
+		return m.completeMenu()
+	case "shift+tab":
+		if m.menu.open() {
+			m.menu.move(-1)
+			return m, nil, true
+		}
+		return m, nil, false
+	case "esc":
+		if m.menu.open() {
+			m.resetMenu()
+			return m, nil, true
+		}
+		return m, nil, false
 	case "up", "down":
+		if m.menu.open() {
+			if key == "up" {
+				m.menu.move(-1)
+			} else {
+				m.menu.move(1)
+			}
+			return m, nil, true
+		}
 		if strings.Contains(m.input.Value(), "\n") {
 			return m, nil, false
 		}
@@ -177,10 +227,80 @@ func (m Model) handleKey(key string) (tea.Model, tea.Cmd, bool) {
 		}
 		if value, ok := m.history.recall(m.input.Value(), direction); ok {
 			m.input.SetValue(value)
+			m.refreshInput()
 			return m, nil, true
 		}
 	}
+	m.menu.close()
 	return m, nil, false
+}
+
+// resetMenu closes the popup and re-lays-out the frame so the reclaimed rows
+// are handed back to the viewport in the same update.
+func (m *Model) resetMenu() {
+	m.menu.close()
+	m.resize()
+}
+
+// openMenu refreshes the popup from the command registry. An empty candidate
+// set closes it. Typing "/" at the start of the prompt opens it immediately so
+// the available commands are discoverable.
+func (m *Model) openMenu() {
+	items := m.commands.Candidates(*m, m.input.Value())
+	if len(items) == 0 {
+		m.menu.close()
+		return
+	}
+	// Preserve the highlighted row while it is still present so cycling does
+	// not jump when the candidate set is stable.
+	previous := m.menu.selected().Value
+	m.menu.items = items
+	m.menu.index = 0
+	if previous != "" {
+		for i, item := range items {
+			if item.Value == previous {
+				m.menu.index = i
+				break
+			}
+		}
+	}
+}
+
+// completeMenu fills the prompt with the highlighted popup entry and refreshes
+// the menu. If the popup is closed it is opened first, so Tab after "/"
+// completes the top candidate. Arrow keys move the selection; Tab and Enter
+// only accept, they never cycle. The appended space ends the current segment:
+// completing a command with no more arguments (e.g. "/new") leaves no matching
+// candidate and closes the menu, while "/model" advances to its argument list.
+func (m Model) completeMenu() (tea.Model, tea.Cmd, bool) {
+	if !m.menu.open() {
+		m.openMenu()
+		if !m.menu.open() {
+			return m, nil, false
+		}
+	}
+	m.commitMenu()
+	m.refreshInput()
+	return m, nil, true
+}
+
+// commitMenu applies the highlighted item through the popup source.
+// Callers are responsible for resizing once the menu state is final.
+func (m *Model) commitMenu() {
+	m.commands.Accept(m, m.menu.selected().Value)
+}
+
+// replaceToken swaps the trailing token of input for value. Command names
+// (values beginning with "/") replace the whole input; argument values keep
+// the already-typed prefix.
+func replaceToken(input, value string) string {
+	if strings.HasPrefix(value, "/") {
+		return value
+	}
+	if at := strings.LastIndexAny(input, " \t"); at >= 0 {
+		return input[:at+1] + value
+	}
+	return value
 }
 
 func (m Model) submit() (tea.Model, tea.Cmd) {
@@ -189,12 +309,12 @@ func (m Model) submit() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if strings.HasPrefix(text, "/") {
-		command, err := parseSlashCommand(text)
+		command, err := m.commands.parse(text)
 		if err != nil {
 			m.status = err.Error()
 			return m, nil
 		}
-		return m.executeCommand(command)
+		return command.run(m)
 	}
 	if m.busy {
 		m.status = "agent is busy; Ctrl+C cancels"
