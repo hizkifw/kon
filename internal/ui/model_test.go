@@ -201,12 +201,307 @@ func TestReadErrorsStillRender(t *testing.T) {
 }
 
 func TestParseSlashCommand(t *testing.T) {
-	command, err := parseSlashCommand("/model review")
-	if err != nil || command.name != "model" || command.argument != "review" {
+	registry := defaultRegistry()
+	command, err := registry.parse("/model review")
+	if err != nil || command.command.name != "model" || len(command.args) != 1 || command.args[0] != "review" {
 		t.Fatalf("command = %#v, err = %v", command, err)
 	}
-	if _, err := parseSlashCommand("/new extra"); err == nil {
+	if _, err := registry.parse("/new extra"); err == nil {
 		t.Fatal("invalid /new was accepted")
+	}
+	if _, err := registry.parse("/model"); err != nil {
+		t.Fatalf("optional argument rejected: %v", err)
+	}
+	if _, err := registry.parse("/bogus"); err == nil {
+		t.Fatal("unknown command was accepted")
+	}
+}
+
+// newMultiModel builds a model with the named profiles and a ready runtime,
+// sized for layout-sensitive assertions. It covers the multi-model boilerplate
+// shared by the popup tests.
+func newMultiModel(t testing.TB, names ...string) Model {
+	t.Helper()
+	models := make([]app.Model, 0, len(names))
+	for _, name := range names {
+		models = append(models, app.Model{Name: name, Provider: "anthropic", ExternalID: "claude"})
+	}
+	runtime := &fakeRuntime{state: app.State{Active: models[0], Phase: app.PhaseReady}, models: models}
+	m := New("/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
+	m.width, m.height = 80, 24
+	return m
+}
+
+func TestRegistryCompleteDispatchesToArgument(t *testing.T) {
+	m := newMultiModel(t, "fast", "review", "reason")
+
+	got := m.commands.completion(m, "/mo")
+	if len(got) != 1 || got[0].Value != "/model" {
+		t.Fatalf("command completion = %#v", got)
+	}
+	got = m.commands.completion(m, "/model re")
+	if len(got) != 2 || got[0].Value != "reason" || got[1].Value != "review" {
+		t.Fatalf("argument completion = %#v", got)
+	}
+	if got := m.commands.completion(m, "/model review "); got != nil {
+		t.Fatalf("completion past last argument = %#v", got)
+	}
+}
+
+func TestRegistryCompletesAllCommandsOnBareSlash(t *testing.T) {
+	m := newTestModel(t)
+	got := m.commands.completion(m, "/")
+	if len(got) != 2 || got[0].Value != "/new" || got[1].Value != "/model" {
+		t.Fatalf("bare slash completion = %#v", got)
+	}
+}
+
+func TestSlashCommandsOnlyCompleteAtStart(t *testing.T) {
+	m := newTestModel(t)
+	if got := m.commands.completion(m, "can you help me with /foo"); got != nil {
+		t.Fatalf("completion mid-prompt = %#v", got)
+	}
+	// A leading space also disqualifies the input.
+	if got := m.commands.completion(m, " /model"); got != nil {
+		t.Fatalf("completion after leading space = %#v", got)
+	}
+}
+
+func TestTabFillsSelectedAfterArrowing(t *testing.T) {
+	m := newMultiModel(t, "fast", "review", "reason")
+	m.input.SetValue("/model re")
+	m.openMenu()
+	if got := m.menu.selected().Value; got != "reason" {
+		t.Fatalf("initial selection = %q", got)
+	}
+	// The arrow key moves the selection; Tab fills exactly that selection.
+	moved, _, handled := m.handleKey("down")
+	if !handled {
+		t.Fatal("down was not handled with the popup open")
+	}
+	filled, _, handled := moved.(Model).handleKey("tab")
+	if !handled || filled.(Model).input.Value() != "/model review " {
+		t.Fatalf("tab did not fill the arrow selection: %q", filled.(Model).input.Value())
+	}
+}
+
+func TestTabFillsSelectedParameter(t *testing.T) {
+	m := newMultiModel(t, "fast", "review")
+	m.input.SetValue("/model r")
+
+	opened, _, handled := m.handleKey("tab")
+	if !handled || opened.(Model).input.Value() != "/model review " {
+		t.Fatalf("tab did not fill the parameter: %q", opened.(Model).input.Value())
+	}
+}
+
+func TestArrowsCycleWithoutFilling(t *testing.T) {
+	m := newMultiModel(t, "fast", "review", "reason")
+	m.input.SetValue("/model re")
+	m.openMenu()
+
+	if got := m.menu.selected().Value; got != "reason" {
+		t.Fatalf("initial selection = %q", got)
+	}
+	moved, _, handled := m.handleKey("down")
+	movedModel := moved.(Model)
+	if !handled || movedModel.menu.selected().Value != "review" {
+		t.Fatalf("down did not move the selection: %#v", movedModel.menu)
+	}
+	// Arrowing must not rewrite the prompt; only Tab fills it in.
+	if movedModel.input.Value() != "/model re" {
+		t.Fatalf("arrow key rewrite the prompt: %q", movedModel.input.Value())
+	}
+	up, _, _ := movedModel.handleKey("up")
+	if got := up.(Model).menu.selected().Value; got != "reason" {
+		t.Fatalf("up did not move the selection back: %q", got)
+	}
+}
+
+func TestEnterAcceptsCompletion(t *testing.T) {
+	m := newMultiModel(t, "fast", "review", "reason")
+	m.input.SetValue("/model re")
+	m.openMenu()
+	if !m.menu.open() {
+		t.Fatal("popup did not open for a multi-candidate argument")
+	}
+	accepted, _, handled := m.handleKey("enter")
+	if !handled {
+		t.Fatal("enter was not handled with the popup open")
+	}
+	if got := accepted.(Model).input.Value(); got != "/model reason " {
+		t.Fatalf("enter did not accept the selection: %q", got)
+	}
+}
+
+func TestEnterCompletesLikeTabThenSubmits(t *testing.T) {
+	runtime := &fakeRuntime{state: app.State{Phase: app.PhaseReady}}
+	m := New("/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
+	m.input.SetValue("/new")
+	m.openMenu()
+	// Enter behaves like Tab: with the popup open it accepts the selection,
+	// appending a space. "/new " has no candidates, so the menu closes.
+	completed, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	got := completed.(Model)
+	if got.input.Value() != "/new " {
+		t.Fatalf("enter did not complete the selection: %q", got.input.Value())
+	}
+	if got.menu.open() {
+		t.Fatal("menu stayed open after completion")
+	}
+	if got.status == "new session" {
+		t.Fatal("enter ran the command instead of only completing")
+	}
+	// With the menu closed a second Enter submits and runs the command.
+	submitted, _ := got.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if submitted.(Model).status != "new session" {
+		t.Fatalf("second enter did not submit: status %q", submitted.(Model).status)
+	}
+}
+
+func TestMenuPopupAppearsOnLeadingSlashAndClears(t *testing.T) {
+	m := newTestModel(t)
+	typed, _ := m.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
+	m = typed.(Model)
+	if !m.menu.open() || len(m.menu.items) != 2 {
+		t.Fatalf("popup did not open on slash: %#v", m.menu)
+	}
+	// Typing ordinary text mid-prompt closes the popup and offers nothing.
+	m.input.SetValue("hello /mo")
+	m.openMenu()
+	if m.menu.open() {
+		t.Fatalf("popup opened for a mid-prompt slash: %#v", m.menu)
+	}
+}
+
+func TestTabAcceptsTrailingToken(t *testing.T) {
+	m := newTestModel(t)
+	m.input.SetValue("/model fa")
+	updated, _, handled := m.handleKey("tab")
+	if !handled || updated.(Model).input.Value() != "/model fast " {
+		t.Fatalf("tab completion = %q", updated.(Model).input.Value())
+	}
+}
+
+func TestForwardDeleteRefreshesPopup(t *testing.T) {
+	m := newMultiModel(t, "fast", "review")
+	m.input.SetValue("/model review")
+	m.openMenu()
+	if !m.menu.open() {
+		t.Fatal("popup did not open for the argument")
+	}
+	// Place the cursor before the trailing "w" and delete it forward; the
+	// input becomes "/model revie" and the popup must recompute.
+	m.input.SetCursorColumn(len("/model revie"))
+	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyDelete})
+	got := updated.(Model)
+	if got.input.Value() != "/model revie" {
+		t.Fatalf("delete did not change the input: %q", got.input.Value())
+	}
+	if !got.menu.open() || got.menu.selected().Value != "review" {
+		t.Fatalf("popup was stale after forward delete: %#v", got.menu)
+	}
+}
+
+func TestDeleteToClosePopup(t *testing.T) {
+	m := newTestModel(t)
+	typed, _ := m.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
+	m = typed.(Model)
+	if !m.menu.open() {
+		t.Fatal("popup did not open on slash")
+	}
+	// Backspace the slash away: the popup must close.
+	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
+	if updated.(Model).menu.open() {
+		t.Fatal("popup stayed open after the slash was removed")
+	}
+}
+
+func TestPasteRefreshesPopup(t *testing.T) {
+	m := newTestModel(t)
+	typed, _ := m.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
+	m = typed.(Model)
+	if !m.menu.open() {
+		t.Fatal("popup did not open on slash")
+	}
+	// Pasting "new" turns the input into "/new"; the popup must narrow to it.
+	pasted, _ := m.Update(tea.PasteMsg{Content: "new"})
+	got := pasted.(Model)
+	if got.input.Value() != "/new" {
+		t.Fatalf("paste did not update the input: %q", got.input.Value())
+	}
+	if !got.menu.open() || len(got.menu.items) != 1 || got.menu.items[0].Value != "/new" {
+		t.Fatalf("popup was stale after paste: %#v", got.menu)
+	}
+}
+
+func TestPasteClosesPopup(t *testing.T) {
+	m := newTestModel(t)
+	typed, _ := m.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
+	m = typed.(Model)
+	if !m.menu.open() {
+		t.Fatal("popup did not open on slash")
+	}
+	// Pasting plain text that breaks the command prefix closes the popup.
+	pasted, _ := m.Update(tea.PasteMsg{Content: "zzz"})
+	if pasted.(Model).menu.open() {
+		t.Fatal("popup stayed open after pasting a non-command")
+	}
+}
+
+func TestTabCompletionAppendsSpaceAndAdvancesMenu(t *testing.T) {
+	m := newMultiModel(t, "fast", "review")
+	m.input.SetValue("/mod")
+
+	// Completing the command appends a space and advances to the argument
+	// list, so the menu stays open on the profiles.
+	completed, _, handled := m.handleKey("tab")
+	completedModel := completed.(Model)
+	if !handled || completedModel.input.Value() != "/model " {
+		t.Fatalf("command completion = %q", completedModel.input.Value())
+	}
+	if !completedModel.menu.open() || completedModel.menu.selected().Value != "fast" {
+		t.Fatalf("menu did not advance to the argument list: %#v", completedModel.menu)
+	}
+	// The next Tab fills an argument and then closes, since nothing follows.
+	argued, _, handled := completedModel.handleKey("tab")
+	if !handled || argued.(Model).input.Value() != "/model fast " {
+		t.Fatalf("argument completion = %q", argued.(Model).input.Value())
+	}
+	if argued.(Model).menu.open() {
+		t.Fatal("menu stayed open after completing the last argument")
+	}
+}
+
+func TestTabCompletionResizesViewportImmediately(t *testing.T) {
+	m := newMultiModel(t, "fast", "review", "reason")
+	m.input.SetValue("/mod")
+	m.openMenu()
+
+	// The command menu has one entry (height 1); after Tab the argument menu
+	// has three. The viewport must already account for the taller menu in the
+	// same frame, otherwise the popup renders in the wrong place and reflows
+	// on the next update.
+	completed, _, _ := m.handleKey("tab")
+	completedModel := completed.(Model)
+	if completedModel.menu.height() != 3 {
+		t.Fatalf("menu height = %d, want 3", completedModel.menu.height())
+	}
+	want := 24 - 1 - 2 - 3
+	if got := completedModel.viewport.Height(); got != want {
+		t.Fatalf("viewport height = %d, want %d", got, want)
+	}
+}
+
+func TestTabCompletionClosesSegmentWithNoCandidates(t *testing.T) {
+	m := newTestModel(t)
+	m.input.SetValue("/new")
+	completed, _, handled := m.handleKey("tab")
+	if !handled || completed.(Model).input.Value() != "/new " {
+		t.Fatalf("no-argument command completion = %q", completed.(Model).input.Value())
+	}
+	if completed.(Model).menu.open() {
+		t.Fatal("menu stayed open after completing a no-argument command")
 	}
 }
 
@@ -349,7 +644,7 @@ func TestSubmitAnchorsToBottom(t *testing.T) {
 	}
 }
 
-func newTestModel(t *testing.T) Model {
+func newTestModel(t testing.TB) Model {
 	t.Helper()
 	model := app.Model{Name: "fast", Provider: "openai", ExternalID: "gpt", ContextWindow: 100}
 	runtime := &fakeRuntime{state: app.State{Active: model, Phase: app.PhaseReady}, models: []app.Model{model}}

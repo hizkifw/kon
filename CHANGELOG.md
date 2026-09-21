@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Added
+
+- Slash commands are registered in a central registry inside `internal/ui`.
+  Each command declares its positional arguments and, per argument, an
+  autocomplete handler.
+  Typing `/` at the start of the prompt opens a suggestion popup with the first
+  entry selected; Tab (or Enter) fills the selection and arrow keys cycle it.
+  Commands are only recognized at the start of the prompt.
+- The suggestion popup is a reusable `ui.menu` widget driven by a `menuSource`,
+  so future pickers can reuse the same rendering and key handling.
+
 ### Changed
 
 - kon now owns the OpenAI Chat Completions wire format directly and the goai

@@ -97,9 +97,11 @@ with owner-only permissions where the platform supports them.
 
 | Key | Action |
 | --- | --- |
-| Enter | Submit the prompt |
+| Enter | Submit the prompt, or accept the selected suggestion |
 | Alt+Enter | Insert a newline |
-| Up/Down | Recall prompts while editing a single line |
+| Tab / Shift+Tab | Fill in the selected suggestion |
+| Up/Down | Recall prompts, or move the suggestion selection |
+| Esc | Dismiss the popup |
 | Page Up/Page Down | Scroll the transcript |
 | Mouse wheel | Scroll the transcript |
 | Ctrl+C | Cancel active work, or exit while idle |
@@ -109,6 +111,20 @@ with owner-only permissions where the platform supports them.
 `/model` lists configured profiles and `/model <name>` switches the active
 profile without starting a new session. Model changes are written to the
 session log. Unknown slash commands are never sent to a provider.
+
+Typing `/` at the start of the prompt opens a popup listing the available
+commands, with the first entry already selected. Tab (or Enter) fills in the
+selection and Shift+Tab moves it; arrow keys cycle the selection without
+filling it in. Slash commands are only recognized at the very start of the
+prompt, so `/foo` inside a longer message is ordinary text. Commands are
+registered in a central registry in `internal/ui/commands.go`: each
+registration declares its positional arguments and, per argument, an
+autocomplete handler. Adding a command means calling `register` in
+`defaultRegistry`; parsing, usage validation, and completion dispatch are
+handled by the registry. The popup itself is a generic widget
+(`internal/ui/menu.go`) driven by a `menuSource`, so future pickers (file
+mentions, history search, and so on) can reuse it without changing the input
+handling.
 
 The status bar shows the working directory and context usage. `~12.4k` means
 usage is estimated; `?` means the provider has not supplied enough information.

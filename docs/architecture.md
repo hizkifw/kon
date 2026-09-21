@@ -39,7 +39,11 @@ configuration-required, and closed states.
 
 The UI and runtime communicate through typed events and operations. Typed
 transcript blocks own labels and rendering, prompt history owns recall state,
-and slash commands live outside the Bubble Tea update loop. Each block renders
+and slash commands are declared in a central registry that owns parsing,
+argument validation, and autocomplete dispatch while the command bodies run as
+model methods. Suggestions render in a generic popup widget driven by a
+`menuSource`, so command completion and future pickers share one renderer and
+key handler. Each block renders
 as a role-colored slab: user, agent, tool, and error messages carry distinct
 backgrounds, thinking traces render in muted gray, and consecutive tool calls
 pair with their results and collapse into a single grouped slab so bursts of
