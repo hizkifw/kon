@@ -140,9 +140,14 @@ func TestResumeSwitchesToPersistedSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer runtime.Close()
+	// A fresh session is empty and therefore not yet a resume target. Add a
+	// message directly to make it persist, as a real turn would.
+	if _, err := runtime.store.AppendMessage(session.Message{Role: session.RoleUser, Content: "hello"}); err != nil {
+		t.Fatal(err)
+	}
 	original := runtime.SessionID()
 	if original.IsZero() {
-		t.Fatal("new runtime has no session ID")
+		t.Fatal("session with content has no session ID")
 	}
 
 	other, err := session.New(paths.Sessions, cwd, "test", "system")
@@ -212,7 +217,13 @@ func TestResumeUnknownSessionKeepsCurrent(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer runtime.Close()
+	if _, err := runtime.store.AppendMessage(session.Message{Role: session.RoleUser, Content: "current"}); err != nil {
+		t.Fatal(err)
+	}
 	original := runtime.SessionID()
+	if original.IsZero() {
+		t.Fatal("session with content has no session ID")
+	}
 
 	missing, err := typedid.ParseSessionID("ses_00000000000000000000")
 	if err != nil {
@@ -261,8 +272,9 @@ func TestNewResumedWithoutSessionsStartsFresh(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer runtime.Close()
-	if runtime.SessionID().IsZero() {
-		t.Fatal("--resume with no sessions did not start a session")
+	// The fallback session is empty, so it is not yet persisted or resumable.
+	if !runtime.SessionID().IsZero() {
+		t.Fatal("empty fallback session was reported as resumable")
 	}
 }
 
