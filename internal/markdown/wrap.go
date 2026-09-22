@@ -160,7 +160,7 @@ func hardWrapPieces(p piece, limit int) []Line {
 			}
 			chunk = cluster
 		}
-		out = append(out, Line{Text: string(chunk), Spans: spanFor(piece{text: string(chunk), style: p.style})})
+		out = append(out, Line{Text: string(chunk), Spans: spanFor(piece{text: string(chunk), style: p.style, link: p.link})})
 		rest = rest[len(chunk):]
 	}
 	return out
@@ -168,10 +168,10 @@ func hardWrapPieces(p piece, limit int) []Line {
 
 // spanFor returns the styled span for a piece, or nil when it is unstyled.
 func spanFor(p piece) []Styled {
-	if p.style == StyleNone || p.text == "" {
+	if (p.style == StyleNone && p.link == "") || p.text == "" {
 		return nil
 	}
-	return []Styled{{Text: p.text, Style: p.style}}
+	return []Styled{{Text: p.text, Style: p.style, Link: p.link}}
 }
 
 // truncateWidth cuts s to at most n display cells, splitting between

@@ -46,10 +46,31 @@ func TestInlineSpans(t *testing.T) {
 			wantSpan: []Styled{{Text: "gone", Style: StyleStrikethrough}},
 		},
 		{
-			name:     "link keeps text",
+			name:     "link shows label and url",
 			in:       "a [label](http://x) b",
-			wantText: "a label b",
-			wantSpan: []Styled{{Text: "label", Style: StyleLink}},
+			wantText: "a label (http://x) b",
+			wantSpan: []Styled{
+				{Text: "label", Style: StyleLink, Link: "http://x"},
+				{Text: " (http://x)", Style: StyleLinkURL, Link: "http://x"},
+			},
+		},
+		{
+			name:     "autolink shows url once",
+			in:       "see <http://x> here",
+			wantText: "see http://x here",
+			wantSpan: []Styled{{Text: "http://x", Style: StyleLink, Link: "http://x"}},
+		},
+		{
+			name:     "bare url shows once",
+			in:       "see http://example.com here",
+			wantText: "see http://example.com here",
+			wantSpan: []Styled{{Text: "http://example.com", Style: StyleLink, Link: "http://example.com"}},
+		},
+		{
+			name:     "label equal to url shows once",
+			in:       "[http://x](http://x)",
+			wantText: "http://x",
+			wantSpan: []Styled{{Text: "http://x", Style: StyleLink, Link: "http://x"}},
 		},
 		{
 			name:     "image alt text",

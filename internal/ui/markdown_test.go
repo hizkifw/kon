@@ -95,6 +95,67 @@ func TestMarkdownLinesFitViewport(t *testing.T) {
 	}
 }
 
+// TestMarkdownLinksClickable guards link presentation end to end: the URL is
+// visible in the line text, the label and URL spans carry OSC 8 hyperlink
+// sequences (so terminals that support them make the link clickable), and
+// the OSC 8 sequences do not disturb the line width.
+func TestMarkdownLinksClickable(t *testing.T) {
+	doc := "Read the [release notes](https://github.com/example/project/releases/tag/v2.1.0) and the docs at <https://example.com/docs>."
+	for _, width := range []int{40, 80} {
+		var tr transcript
+		tr.cwd = "/tmp"
+		tr.add(block{kind: blockAssistant, text: doc})
+		var visible strings.Builder
+		oscSeen := false
+		for _, line := range tr.linesFor(width) {
+			visible.WriteString(plain(line))
+			visible.WriteString(" ")
+			if strings.Contains(line, "\x1b]8;;https://github.com/example/project/releases/tag/v2.1.0\x1b\\") {
+				oscSeen = true
+			}
+			if got := ansi.StringWidth(line); got != width {
+				t.Fatalf("width=%d: line width %d: %q", width, got, plain(line))
+			}
+		}
+		if !oscSeen {
+			t.Fatalf("width=%d: no OSC 8 hyperlink emitted", width)
+		}
+		got := visible.String()
+		for _, want := range []string{"release notes", "https://github.com/example/project/releases/tag/v2.1.0", "https://example.com/docs"} {
+			if !strings.Contains(got, want) {
+				t.Fatalf("width=%d: visible text missing %q:\n%s", width, want, got)
+			}
+		}
+	}
+}
+
+// TestMarkdownLinkNoControlInjection checks that control bytes in a link
+// destination cannot break out of the OSC 8 sequence and inject terminal
+// escapes: every ESC in the painted line must begin a well-formed sequence
+// (CSI "\x1b[", OSC "\x1b]", or the ST terminator "\x1b\\"), never a bare
+// escape. Percent-encoded control bytes are left verbatim in the URL, so
+// they stay inert text rather than becoming terminal control.
+func TestMarkdownLinkNoControlInjection(t *testing.T) {
+	var tr transcript
+	tr.cwd = "/tmp"
+	tr.add(block{kind: blockAssistant, text: "go [here](https://x.example/a%07b%1bc) now"})
+	for _, line := range tr.linesFor(60) {
+		for i := 0; i < len(line); i++ {
+			if line[i] != 0x1b {
+				continue
+			}
+			if i+1 >= len(line) {
+				t.Fatalf("trailing ESC byte: %q", line)
+			}
+			switch line[i+1] {
+			case '[', ']', '\\':
+			default:
+				t.Fatalf("stray ESC byte followed by %q at %d: %q", line[i+1], i, line)
+			}
+		}
+	}
+}
+
 // TestMarkdownStreamFinalizeMatchesRender checks that finishing a stream folds
 // into a block whose render equals the streamed view.
 func TestMarkdownStreamFinalizeMatchesRender(t *testing.T) {

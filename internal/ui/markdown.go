@@ -109,6 +109,7 @@ func markdownSegments(line markdown.Line, styles map[markdown.Style]part, fg col
 			p.fg = fg
 		}
 		p.text = span.Text
+		p.link = span.Link
 		segments = append(segments, p)
 		pos += idx + len(span.Text)
 	}
@@ -152,12 +153,43 @@ func slabLineContinuous(bg color.Color, width int, segments ...part) string {
 		if segment.strike {
 			style = style.Strikethrough(true)
 		}
-		out.WriteString(style.Render(text))
+		rendered := style.Render(text)
+		if segment.link != "" {
+			// OSC 8 hyperlink: terminals that support it make the span
+			// clickable; others show the text (and the visible URL) unchanged.
+			// The sequence is zero-width, so width accounting is unaffected.
+			rendered = osc8Link(segment.link) + rendered + osc8Close()
+		}
+		out.WriteString(rendered)
 		used += lipgloss.Width(text)
 	}
 	out.WriteString(bgSpaces(bg, max(0, width-used)))
 	return out.String()
 }
+
+// osc8Link opens an OSC 8 hyperlink to target. Control bytes are stripped
+// from the target first: the destination comes from model-authored markdown,
+// and an embedded ESC or BEL could otherwise terminate the sequence early and
+// inject terminal escapes (the same class kon strips on input).
+func osc8Link(target string) string {
+	return "\x1b]8;;" + oscSafe(target) + "\x1b\\"
+}
+
+// oscSafe removes control characters (C0 and DEL) from an OSC 8 target.
+func oscSafe(s string) string {
+	if strings.IndexFunc(s, func(r rune) bool { return r < 0x20 || r == 0x7f }) < 0 {
+		return s
+	}
+	return strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, s)
+}
+
+// osc8Close terminates an OSC 8 hyperlink.
+func osc8Close() string { return "\x1b]8;;\x1b\\" }
 
 // markdownLive renders an assistant message incrementally through the
 // markdown package's streaming renderer. Frozen blocks are painted once into

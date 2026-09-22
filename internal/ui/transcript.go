@@ -78,6 +78,7 @@ type part struct {
 	italic    bool
 	underline bool
 	strike    bool
+	link      string // OSC 8 hyperlink target, when set
 }
 
 // Markdown palette additions: colors used only by markdown roles.

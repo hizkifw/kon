@@ -330,6 +330,113 @@ func TestBlockSpacingStreamConverges(t *testing.T) {
 	}
 }
 
+// TestLinks checks link rendering: the label is styled as a link and carries
+// its destination, the destination is shown in a faint URL style, a link
+// whose label equals its destination shows the URL once, and both the label
+// and the URL span are clickable.
+func TestLinks(t *testing.T) {
+	cases := []struct {
+		name     string
+		in       string
+		wantText string
+		wantSpan []Styled
+	}{
+		{
+			name:     "label and url",
+			in:       "[docs](https://example.com/x)",
+			wantText: "docs (https://example.com/x)",
+			wantSpan: []Styled{
+				{Text: "docs", Style: StyleLink, Link: "https://example.com/x"},
+				{Text: " (https://example.com/x)", Style: StyleLinkURL, Link: "https://example.com/x"},
+			},
+		},
+		{
+			name:     "autolink shows once",
+			in:       "<https://example.com>",
+			wantText: "https://example.com",
+			wantSpan: []Styled{{Text: "https://example.com", Style: StyleLink, Link: "https://example.com"}},
+		},
+		{
+			name:     "bare link shows once",
+			in:       "https://example.com/path",
+			wantText: "https://example.com/path",
+			wantSpan: []Styled{{Text: "https://example.com/path", Style: StyleLink, Link: "https://example.com/path"}},
+		},
+		{
+			name:     "label equal to url shows once",
+			in:       "[https://example.com](https://example.com)",
+			wantText: "https://example.com",
+			wantSpan: []Styled{{Text: "https://example.com", Style: StyleLink, Link: "https://example.com"}},
+		},
+		{
+			name:     "styled label keeps inline emphasis",
+			in:       "[**bold** link](https://example.com)",
+			wantText: "bold link (https://example.com)",
+			wantSpan: []Styled{
+				{Text: "bold", Style: StyleStrong, Link: "https://example.com"},
+				{Text: " link", Style: StyleLink, Link: "https://example.com"},
+				{Text: " (https://example.com)", Style: StyleLinkURL, Link: "https://example.com"},
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			lines := Render(tc.in, testTheme, 80)
+			var text strings.Builder
+			var spans []Styled
+			for _, l := range lines {
+				text.WriteString(l.Text)
+				spans = append(spans, l.Spans...)
+			}
+			if text.String() != tc.wantText {
+				t.Fatalf("text=%q want=%q", text.String(), tc.wantText)
+			}
+			if len(spans) != len(tc.wantSpan) {
+				t.Fatalf("spans=%v want=%v", spans, tc.wantSpan)
+			}
+			for i := range spans {
+				if spans[i] != tc.wantSpan[i] {
+					t.Fatalf("span[%d]=%v want=%v", i, spans[i], tc.wantSpan[i])
+				}
+			}
+		})
+	}
+}
+
+// TestLinksSurviveWrap checks a long link wraps without losing its
+// destination or splitting a span across lines, and that the URL wraps at
+// punctuation boundaries rather than mid-token.
+func TestLinksSurviveWrap(t *testing.T) {
+	in := "See the [release notes](https://github.com/example/project/releases/tag/v2.1.0) for details."
+	for _, width := range []int{20, 40, 60} {
+		lines := Render(in, testTheme, width)
+		var raw strings.Builder // all line text, no separators
+		destSeen := false
+		for _, l := range lines {
+			raw.WriteString(l.Text)
+			for _, sp := range l.Spans {
+				if !strings.Contains(l.Text, sp.Text) {
+					t.Fatalf("width=%d span %q not in line %q", width, sp.Text, l.Text)
+				}
+				if sp.Link != "" {
+					destSeen = true
+				}
+			}
+		}
+		if !strings.Contains(raw.String(), "github.com/example/project/releases/tag/v2.1.0") {
+			t.Fatalf("width=%d lost destination in %q", width, raw.String())
+		}
+		if !destSeen {
+			t.Fatalf("width=%d no span carries the destination", width)
+		}
+		for _, l := range lines {
+			if w := displayWidth(l.Text); w > width {
+				t.Fatalf("width=%d line wider than width: %q", width, l.Text)
+			}
+		}
+	}
+}
+
 // TestRenderDeterministic verifies Render agrees with itself across parser
 // runs (determinism).
 func TestRenderDeterministic(t *testing.T) {

@@ -10,10 +10,16 @@ import (
 )
 
 // piece is a run of text with one style, flowing through the span wrapper.
-// StyleNone marks unstyled text, which produces no span.
+// StyleNone marks unstyled text, which produces no span. link, when set, is
+// the hyperlink destination the run belongs to. breakBefore marks a run that
+// may start a new line (a URL chunk boundary): it forces the pending word to
+// commit first, so the wrapper can break between chunks without inserting a
+// space.
 type piece struct {
-	text  string
-	style Style
+	text        string
+	style       Style
+	link        string
+	breakBefore bool
 }
 
 // unescape resolves backslash escapes, numeric references, and HTML entities
@@ -76,11 +82,13 @@ func appendInlinePieces(n ast.Node, source []byte, theme Theme, style Style) []p
 		case *extast.Strikethrough:
 			out = append(out, appendInlinePieces(c, source, theme, inner(theme, StyleStrikethrough, style))...)
 		case *ast.Link:
-			out = append(out, appendInlinePieces(c, source, theme, inner(theme, StyleLink, style))...)
+			dest := string(v.Destination)
+			out = append(out, linkPieces(c, source, theme, style, dest)...)
 		case *ast.AutoLink:
-			// Autolinks render the URL as text; the destination equals the
-			// label for these, so one styled run covers both.
-			out = append(out, piece{text: string(v.Text(source)), style: inner(theme, StyleLink, style)})
+			// Autolinks render the URL as its own label; the destination
+			// equals the label, so only one run is emitted, made clickable.
+			label := string(v.Label(source))
+			out = append(out, piece{text: label, style: inner(theme, StyleLink, style), link: string(v.URL(source))})
 		case *ast.Image:
 			// Images render their alt text; the URL is terminal-invisible.
 			out = append(out, appendInlinePieces(c, source, theme, inner(theme, StyleLink, style))...)
@@ -93,6 +101,72 @@ func appendInlinePieces(n ast.Node, source []byte, theme Theme, style Style) []p
 		}
 	}
 	return out
+}
+
+// linkPieces renders a link as its label (styled as a link and made
+// clickable) followed by the destination in a faint URL style, unless the
+// label already is the destination (in which case the label alone suffices).
+// The destination is a leading-space-separated parenthesized run so it stays
+// clickable and readable in terminals without hyperlink support.
+func linkPieces(link ast.Node, source []byte, theme Theme, style Style, dest string) []piece {
+	label := appendInlinePieces(link, source, theme, inner(theme, StyleLink, style))
+	if dest != "" {
+		for i := range label {
+			label[i].link = dest
+		}
+	}
+	if dest == "" || labelText(label) == dest {
+		return label
+	}
+	url := piece{
+		text:  " (" + dest + ")",
+		style: inner(theme, StyleLinkURL, style),
+		link:  dest,
+	}
+	return append(label, urlPieces(url, dest)...)
+}
+
+// urlPieces splits a displayed URL into chunks that may each start a new line,
+// breaking after path and query punctuation. A long URL then wraps at
+// readable boundaries instead of being hard-split mid-token, while the chunks
+// concatenate to the exact original text. Chunks with no break points (a
+// short URL) stay one piece.
+func urlPieces(base piece, dest string) []piece {
+	text := base.text
+	// Break after these characters (they stay at the end of their chunk).
+	const punct = "/-_.?&=#"
+	var pieces []piece
+	start := 0
+	for i := 0; i < len(text); i++ {
+		if strings.IndexByte(punct, text[i]) < 0 {
+			continue
+		}
+		// Break after position i; skip a break that would leave an empty
+		// chunk or split off a trailing empty tail.
+		end := i + 1
+		if end >= len(text) || end <= start {
+			continue
+		}
+		pieces = append(pieces, piece{text: text[start:end], style: base.style, link: base.link})
+		start = end
+	}
+	if start < len(text) {
+		pieces = append(pieces, piece{text: text[start:], style: base.style, link: base.link})
+	}
+	// Mark every chunk after the first as a break point.
+	for i := 1; i < len(pieces); i++ {
+		pieces[i].breakBefore = true
+	}
+	return pieces
+}
+
+// labelText returns the visible text of a run of pieces.
+func labelText(pieces []piece) string {
+	var b strings.Builder
+	for _, p := range pieces {
+		b.WriteString(p.text)
+	}
+	return b.String()
 }
 
 // inner resolves a nested inline style against the theme, keeping the
@@ -138,9 +212,10 @@ type spanWrapper struct {
 func newSpanWrapper(limit int) *spanWrapper { return &spanWrapper{limit: max(1, limit)} }
 
 // appendCur appends a piece to the current line, merging into the previous
-// piece when both carry the same style, so a styled run stays one span.
+// piece when both carry the same style and link, so a styled run stays one
+// span (and differently-linked runs never merge).
 func (w *spanWrapper) appendCur(p piece) {
-	if n := len(w.cur); n > 0 && w.cur[n-1].style == p.style {
+	if n := len(w.cur); n > 0 && w.cur[n-1].style == p.style && w.cur[n-1].link == p.link {
 		w.cur[n-1].text += p.text
 		return
 	}
@@ -185,6 +260,17 @@ func (w *spanWrapper) Write(pieces []piece) {
 }
 
 func (w *spanWrapper) writePiece(p piece) {
+	if p.breakBefore && p.text != "" {
+		// A break-marked run (a URL chunk) may start a new line. Commit the
+		// pending word; if the chunk would not fit, break the line first
+		// (dropping the held-back space, since the URL continues a link
+		// rather than being a new word).
+		w.addWord()
+		if w.curWidth()+piecesWidth(w.space)+displayWidth(p.text) > w.limit && w.curWidth() > 0 {
+			w.space = w.space[:0]
+			w.addNewline()
+		}
+	}
 	rest := p.text
 	for rest != "" {
 		if rest[0] == ' ' || rest[0] == '\t' {
@@ -192,7 +278,7 @@ func (w *spanWrapper) writePiece(p piece) {
 			// width is held back until the next word commits.
 			w.addWord()
 			for rest != "" && (rest[0] == ' ' || rest[0] == '\t') {
-				w.space = append(w.space, piece{text: " ", style: p.style})
+				w.space = append(w.space, piece{text: " ", style: p.style, link: p.link})
 				rest = rest[1:]
 			}
 			continue
@@ -207,7 +293,7 @@ func (w *spanWrapper) writePiece(p piece) {
 		for j < len(rest) && rest[j] != ' ' && rest[j] != '\t' && rest[j] != '\n' {
 			j++
 		}
-		w.writeWordRun(piece{text: rest[:j], style: p.style})
+		w.writeWordRun(piece{text: rest[:j], style: p.style, link: p.link})
 		rest = rest[j:]
 	}
 }
@@ -217,7 +303,7 @@ func (w *spanWrapper) writePiece(p piece) {
 // breaks first (dropping the space, as a line-leading space would be noise);
 // a word wider than the whole limit is hard-split straight away.
 func (w *spanWrapper) writeWordRun(p piece) {
-	if n := len(w.word); n > 0 && w.word[n-1].style == p.style {
+	if n := len(w.word); n > 0 && w.word[n-1].style == p.style && w.word[n-1].link == p.link {
 		w.word[n-1].text += p.text
 	} else {
 		w.word = append(w.word, p)
@@ -263,8 +349,8 @@ func (w *spanWrapper) hardSplit() {
 			w.addNewline()
 			continue
 		}
-		w.appendCur(piece{text: cluster, style: p.style})
-		all[0] = piece{text: p.text[len(cluster):], style: p.style}
+		w.appendCur(piece{text: cluster, style: p.style, link: p.link})
+		all[0] = piece{text: p.text[len(cluster):], style: p.style, link: p.link}
 		if all[0].text == "" {
 			all = all[1:]
 		}
@@ -296,8 +382,8 @@ func spanLines(pieces [][]piece) []Line {
 		var spans []Styled
 		for _, p := range line {
 			text.WriteString(p.text)
-			if p.style != StyleNone {
-				spans = append(spans, Styled{Text: p.text, Style: p.style})
+			if p.style != StyleNone || p.link != "" {
+				spans = append(spans, Styled{Text: p.text, Style: p.style, Link: p.link})
 			}
 		}
 		out = append(out, Line{Text: text.String(), Spans: spans})

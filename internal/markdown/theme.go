@@ -28,9 +28,13 @@
 // appendBlocks), giving headings, paragraphs, lists, tables, quotes, code,
 // and rules room to breathe; the blank lines are output only and never
 // re-enter the parsed source. Spans are emitted after wrapping, annotating
-// whole display lines, so a span never crosses a line break. Raw HTML renders
-// as its literal text (a tag the model wrote shows as written); link
-// destinations are not surfaced (StyleLinkURL is reserved for a later pass).
+// whole display lines, so a span never crosses a line break. Links render as
+// their label (styled as a link) followed by the destination in a faint URL
+// style, so the target is visible and copy-pasteable; the label also carries
+// the destination on the span (Styled.Link) so the rendering layer can make
+// it clickable with an OSC 8 hyperlink. A link whose label already is its
+// destination renders the destination once. Raw HTML renders as its literal
+// text (a tag the model wrote shows as written).
 package markdown
 
 import "strings"
@@ -74,10 +78,13 @@ func (t Theme) Resolve(s Style) Style {
 	return s
 }
 
-// Styled is one styled region of a line.
+// Styled is one styled region of a line. Link carries the hyperlink
+// destination when the region is part of a link, so the rendering layer can
+// make it clickable; it is empty for ordinary spans.
 type Styled struct {
 	Text  string
 	Style Style
+	Link  string
 }
 
 // Line is one display line with its styled regions. Plain lines carry no

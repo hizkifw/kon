@@ -11,14 +11,18 @@
   emphasis, strong, inline code, strikethrough, and links styled through the
   transcript palette (bold, italic, underline, and dedicated colors). Text
   entities and backslash escapes render as their literal characters, and raw
-  HTML shows as written rather than being interpreted or dropped. Adjacent
-  blocks are separated by a blank line, so headings, paragraphs, lists,
-  tables, quotes, code, and rules have breathing room (multi-paragraph quotes
-  get a bar-only separator). Every line wraps to fit the transcript width --
-  including list markers, blockquote gutters, wide tables, and code -- so no
-  text is cut off with an ellipsis at the right edge. The formatting appears
-  incrementally as a message streams and does not shift when the message
-  finalizes into history.
+  HTML shows as written rather than being interpreted or dropped. Links show
+  their label followed by the destination in a faint URL style (and the
+  destination is emitted as an OSC 8 hyperlink, so it is clickable in
+  terminals that support it); a bare URL and a link whose label already is
+  its destination show the URL just once, and long URLs wrap at punctuation
+  boundaries rather than mid-token. Adjacent blocks are separated by a blank
+  line, so headings, paragraphs, lists, tables, quotes, code, and rules have
+  breathing room (multi-paragraph quotes get a bar-only separator). Every line
+  wraps to fit the transcript width -- including list markers, blockquote
+  gutters, wide tables, and code -- so no text is cut off with an ellipsis at
+  the right edge. The formatting appears incrementally as a message streams
+  and does not shift when the message finalizes into history.
 - A streaming markdown core (`internal/markdown`) backs the transcript
   rendering above, built on goldmark with GFM tables, strikethrough, task
   lists, and autolinks. It renders CommonMark blocks into wrapped display
@@ -28,8 +32,8 @@
   of the same bytes at every frame (guarded by mid-stream convergence tests
   and a randomized corpus covering blank-spanning containers, partial-list
   markers, and inline styling), and `Finish` folds the open tail in one pass
-  when a stream ends. Link destinations are not surfaced yet (link text
-  renders, the URL does not).
+  when a stream ends. Link destinations ride on the span as data, so the
+  rendering layer decides how to present them.
 
 ### Changed
 
