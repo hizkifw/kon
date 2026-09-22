@@ -56,7 +56,7 @@ func run(args []string) error {
 		case strings.HasPrefix(arg, "--resume="):
 			resume, resumeID = true, strings.TrimPrefix(arg, "--resume=")
 		default:
-			return fmt.Errorf("unknown argument %q (try --help)", args[0])
+			return fmt.Errorf("unknown argument %q (try --help)", arg)
 		}
 	}
 
