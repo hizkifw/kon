@@ -68,9 +68,9 @@ func TestInlineSpans(t *testing.T) {
 			wantText: "a *literal* b",
 		},
 		{
-			name:     "raw html dropped",
+			name:     "raw html kept as text",
 			in:       "a <b>bold</b> c",
-			wantText: "a bold c",
+			wantText: "a <b>bold</b> c",
 		},
 		{
 			name:     "emph spanning spaces is one span",

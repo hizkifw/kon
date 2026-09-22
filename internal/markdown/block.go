@@ -488,14 +488,22 @@ func (r *blockRenderer) tableLines(n ast.Node, source []byte) []Line {
 	return out
 }
 
-// headingLines renders a heading's inline content with heading-style spans.
+// headingLines renders a heading's text through the inline walk (so emphasis,
+// code, and entities inside a heading still work) and marks the whole line as
+// a heading. The heading style is carried by a zero-width span at the line
+// start rather than by re-styling every inline span: renderers apply the
+// line's first span style to the fallback text, so the whole heading picks up
+// the heading look while inline spans keep their own roles.
 func (r *blockRenderer) headingLines(h *ast.Heading, source []byte) []Line {
-	lines := wrapPieces(inlinePieces(h, source, r.theme), r.width)
+	pieces := inlinePieces(h, source, r.theme)
+	lines := wrapPieces(pieces, r.width)
 	if len(lines) == 0 {
 		lines = []Line{Plain("")}
 	}
-	// Re-style the wrapped lines as headings: wrapPieces returns text
-	// spans from the inline walk, so replace the attribute in place.
+	style := r.theme.Resolve(StyleHeading)
+	for i := range lines {
+		lines[i].Spans = append([]Styled{{Text: "", Style: style}}, lines[i].Spans...)
+	}
 	return lines
 }
 
@@ -518,6 +526,36 @@ func (r *blockRenderer) codeLines(segments *text.Segments, source []byte) []Line
 	return out
 }
 
+// taskCheckbox returns the "[ ]"/"[✓]" marker for a task-list item, or "" if
+// the item is not a task item. The checkbox lives inside the item's first
+// content block (TextBlock or Paragraph), so it is found by inspecting that
+// block's first inline child.
+func taskCheckbox(item ast.Node) string {
+	for sub := item.FirstChild(); sub != nil; sub = sub.NextSibling() {
+		if cb, ok := sub.(*extast.TaskCheckBox); ok {
+			return checkboxMarker(cb)
+		}
+		if _, ok := sub.(*ast.TextBlock); ok {
+			if cb, ok := sub.FirstChild().(*extast.TaskCheckBox); ok {
+				return checkboxMarker(cb)
+			}
+		}
+		if _, ok := sub.(*ast.Paragraph); ok {
+			if cb, ok := sub.FirstChild().(*extast.TaskCheckBox); ok {
+				return checkboxMarker(cb)
+			}
+		}
+	}
+	return ""
+}
+
+func checkboxMarker(cb *extast.TaskCheckBox) string {
+	if cb.IsChecked {
+		return "[✓] "
+	}
+	return "[ ] "
+}
+
 // listLines renders a list. Loose lists (blank line between items) put a blank
 // line between items; tight lists do not. Item content recurses through
 // renderBlocks so nested structures indent naturally.
@@ -529,36 +567,16 @@ func (r *blockRenderer) listLines(l *ast.List, source []byte) []Line {
 		marker := bulletMarker(l, number)
 		number++
 		indent := strings.Repeat(" ", len(marker)+1)
-		// A task checkbox is the first inline child of the item's first
-		// content block (TextBlock/Paragraph); it renders as a ☑/☐ marker
-		// on the first content line.
-		checkbox := ""
-		for sub := item.FirstChild(); sub != nil; sub = sub.NextSibling() {
-			if cb, ok := sub.(*extast.TaskCheckBox); ok {
-				if cb.IsChecked {
-					checkbox = "☑ "
-				} else {
-					checkbox = "☐ "
-				}
-				continue
-			}
-			if inner, ok := sub.FirstChild().(*extast.TaskCheckBox); ok && inner != nil {
-				if inner.IsChecked {
-					checkbox = "☑ "
-				} else {
-					checkbox = "☐ "
-				}
-			}
-			break
-		}
+		// A task checkbox renders as a "[ ]"/"[✓]" marker at the start of
+		// the item's first content line. GFM places the checkbox inside the
+		// first content block (a TextBlock for a tight list, a Paragraph for
+		// a loose one), not as a direct child of the item.
+		checkbox := taskCheckbox(item)
 		first := true
 		for sub := item.FirstChild(); sub != nil; sub = sub.NextSibling() {
 			if _, ok := sub.(*extast.TaskCheckBox); ok {
 				continue
 			}
-			// The checkbox inside the content block's inline list is
-			// skipped by inlineText automatically? No: TaskCheckBox has no
-			// text; the marker line is added here instead.
 			if sub.Kind() == ast.KindList {
 				// Nested list: indent under the parent marker column. The
 				// nested renderer already emits its own bullets two cells

@@ -14,7 +14,7 @@ import (
 // attribute.
 func markdownStyles() map[markdown.Style]part {
 	return map[markdown.Style]part{
-		markdown.StyleHeading:       {fg: colorAgentFg, bold: true},
+		markdown.StyleHeading:       {fg: colorHeadingFg, bold: true},
 		markdown.StyleFaint:         {fg: colorFaint},
 		markdown.StyleCodeBlock:     {fg: colorCodeFg},
 		markdown.StyleCodeInline:    {fg: colorCodeFg},
@@ -52,38 +52,66 @@ func renderMarkdownBlock(lines []markdown.Line, bg, fg color.Color, width int) [
 // back-to-back with no injected separator (unlike slabLine, whose segments
 // are distinct fields).
 func paintMarkdownLine(line markdown.Line, styles map[markdown.Style]part, bg, fg color.Color, width int) string {
-	var segments []part
-	if len(line.Spans) == 0 {
-		segments = []part{{text: line.Text, fg: fg}}
-	} else {
-		// Walk the spans, emitting any unstyled text between them as its own
-		// segment so the piece order matches the line text.
-		pos := 0
-		ok := true
-		for _, span := range line.Spans {
-			idx := strings.Index(line.Text[pos:], span.Text)
-			if idx < 0 {
-				ok = false
-				break
-			}
-			if idx > 0 {
-				segments = append(segments, part{text: line.Text[pos : pos+idx], fg: fg})
-			}
-			p := styles[span.Style]
-			if p.fg == nil {
-				p.fg = fg
-			}
-			p.text = span.Text
-			segments = append(segments, p)
-			pos += idx + len(span.Text)
-		}
-		if !ok {
-			segments = []part{{text: line.Text, fg: fg}}
-		} else if pos < len(line.Text) {
-			segments = append(segments, part{text: line.Text[pos:], fg: fg})
-		}
-	}
+	segments := markdownSegments(line, styles, fg)
 	return slabLineContinuous(bg, width, segments...)
+}
+
+// markdownSegments splits a line into styled segments. A zero-width span is
+// treated as the line's base style (so a heading's lead marker recolors the
+// plain text and any unstyled gaps), and a line with no spans is a single
+// segment in the base style.
+func markdownSegments(line markdown.Line, styles map[markdown.Style]part, fg color.Color) []part {
+	base := styles[markdown.StyleText]
+	if base.fg == nil {
+		base.fg = fg
+	}
+
+	// Find a leading base-style marker (a zero-width span) if present.
+	spans := line.Spans
+	if len(spans) > 0 && spans[0].Text == "" {
+		if p, ok := styles[spans[0].Style]; ok {
+			base = p
+			if base.fg == nil {
+				base.fg = fg
+			}
+		}
+		spans = spans[1:]
+	}
+	base.text = ""
+
+	if len(spans) == 0 {
+		return []part{{text: line.Text, fg: base.fg, bold: base.bold, italic: base.italic, underline: base.underline, strike: base.strike}}
+	}
+	var segments []part
+	pos := 0
+	for _, span := range spans {
+		if span.Text == "" {
+			continue
+		}
+		idx := strings.Index(line.Text[pos:], span.Text)
+		if idx < 0 {
+			// Span text not found (should not happen); fall back to base.
+			return []part{{text: line.Text, fg: base.fg, bold: base.bold, italic: base.italic, underline: base.underline, strike: base.strike}}
+		}
+		if idx > 0 {
+			s := base
+			s.text = line.Text[pos : pos+idx]
+			segments = append(segments, s)
+		}
+		p := styles[span.Style]
+		if p.fg == nil {
+			p.fg = fg
+		}
+		p.text = span.Text
+		segments = append(segments, p)
+		pos += idx + len(span.Text)
+	}
+	if pos < len(line.Text) {
+		s := base
+		s.text = line.Text[pos:]
+		segments = append(segments, s)
+	}
+	return segments
 }
 
 // slabLineContinuous paints segments with no separator between them and the

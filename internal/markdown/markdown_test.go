@@ -17,6 +17,34 @@ func lineTexts(lines []Line) []string {
 	return out
 }
 
+// TestHeadingStyled checks that a heading line carries a StyleHeading lead
+// span (which renderers apply to the whole line) and that inline styling
+// inside a heading is preserved alongside it.
+func TestHeadingStyled(t *testing.T) {
+	lines := Render("# Title", testTheme, 40)
+	if len(lines) != 1 {
+		t.Fatalf("heading lines=%d want 1", len(lines))
+	}
+	if len(lines[0].Spans) == 0 || lines[0].Spans[0].Style != StyleHeading {
+		t.Fatalf("heading lead span = %v, want StyleHeading marker", lines[0].Spans)
+	}
+	if lines[0].Spans[0].Text != "" {
+		t.Fatalf("heading marker should be zero-width, got %q", lines[0].Spans[0].Text)
+	}
+
+	// A heading with inline emphasis keeps the emphasis span after the marker.
+	lines = Render("## Sub *em* end", testTheme, 40)
+	found := false
+	for _, sp := range lines[0].Spans {
+		if sp.Style == StyleEmph && sp.Text == "em" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("heading inline emphasis lost: %v", lines[0].Spans)
+	}
+}
+
 // TestRenderBasics covers each block kind's from-scratch output.
 func TestRenderBasics(t *testing.T) {
 	cases := []struct {
@@ -52,8 +80,9 @@ func TestRenderBasics(t *testing.T) {
 		{"setext", "Title\n=====", []string{"Title"}, 40},
 		{"strikethrough para", "~~gone~~", []string{"gone"}, 40},
 		{"table", "| a | b |\n|---|---|\n| 1 | 2 |", []string{"a  b", "1  2"}, 40},
-		{"task", "- [x] done\n- [ ] not", []string{"• ☑ done", "• ☐ not"}, 40},
+		{"task", "- [x] done\n- [ ] not", []string{"• [✓] done", "• [ ] not"}, 40},
 		{"html block", "<div>raw</div>", []string{"<div>raw</div>"}, 40},
+		{"inline html kept", "a <b>bold</b> c", []string{"a <b>bold</b> c"}, 40},
 		{"cjk wrap", "你好世界再见", []string{"你好世界再", "见"}, 10},
 		{"emoji", "emoji 😀 test", []string{"emoji 😀 test"}, 40},
 	}

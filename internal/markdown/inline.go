@@ -36,8 +36,8 @@ func unescape(raw []byte) string {
 }
 
 // inlinePieces walks an inline subtree collecting styled pieces. Soft line
-// breaks become spaces, hard line breaks become "\n" (a real wrap break),
-// raw HTML tags are dropped from the text, and image nodes render their alt
+// breaks become spaces, hard line breaks become "\n" (a real wrap break), raw
+// HTML renders as its literal source text, and image nodes render their alt
 // text. Every character emitted comes from a Text node's unescaped source or
 // a node's resolved text, so the pieces never contain escape syntax.
 func inlinePieces(n ast.Node, source []byte, theme Theme) []piece {
@@ -85,7 +85,9 @@ func appendInlinePieces(n ast.Node, source []byte, theme Theme, style Style) []p
 			// Images render their alt text; the URL is terminal-invisible.
 			out = append(out, appendInlinePieces(c, source, theme, inner(theme, StyleLink, style))...)
 		case *ast.RawHTML:
-			// Tags are dropped from the text.
+			// Raw HTML renders as its literal source text rather than being
+			// interpreted or dropped, so a tag the model wrote still shows.
+			out = append(out, piece{text: string(v.Segments.Value(source)), style: style})
 		default:
 			out = append(out, appendInlinePieces(c, source, theme, style)...)
 		}

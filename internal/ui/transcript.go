@@ -82,9 +82,10 @@ type part struct {
 
 // Markdown palette additions: colors used only by markdown roles.
 var (
-	colorCodeFg  = lipgloss.Color("#C2A878")
-	colorQuoteFg = lipgloss.Color("#B0B0B0")
-	colorLink    = lipgloss.Color("#7FB3D5")
+	colorHeadingFg = lipgloss.Color("#FFFFFF")
+	colorCodeFg    = lipgloss.Color("#C2A878")
+	colorQuoteFg   = lipgloss.Color("#B0B0B0")
+	colorLink      = lipgloss.Color("#7FB3D5")
 )
 
 type transcript struct {

@@ -4,12 +4,14 @@
 
 ### Added
 
-- Assistant messages render as markdown in the transcript. Headings, lists,
-  fenced and indented code, blockquotes, tables, rules, and task checkboxes
-  now display as formatted text instead of raw markdown syntax, with inline
+- Assistant messages render as markdown in the transcript. Headings (bright
+  and bold, with inline emphasis preserved inside), lists, fenced and indented
+  code, blockquotes, tables, rules, and task checkboxes (`[ ]` / `[✓]`) now
+  display as formatted text instead of raw markdown syntax, with inline
   emphasis, strong, inline code, strikethrough, and links styled through the
   transcript palette (bold, italic, underline, and dedicated colors). Text
-  entities and backslash escapes render as their literal characters. The
+  entities and backslash escapes render as their literal characters, and raw
+  HTML shows as written rather than being interpreted or dropped. The
   formatting appears incrementally as a message streams and does not shift
   when the message finalizes into history.
 - A streaming markdown core (`internal/markdown`) backs the transcript

@@ -21,9 +21,9 @@
 // strikethrough, links, image alt text, autolinks) both produce tokens, and
 // Text node content is unescaped so entities and backslash escapes render as
 // their literal characters. Spans are emitted after wrapping, annotating
-// whole display lines, so a span never crosses a line break. Raw HTML tags
-// are dropped from the text; link destinations are not surfaced
-// (StyleLinkURL is reserved for a later pass).
+// whole display lines, so a span never crosses a line break. Raw HTML renders
+// as its literal text (a tag the model wrote shows as written); link
+// destinations are not surfaced (StyleLinkURL is reserved for a later pass).
 package markdown
 
 import "strings"
