@@ -7,6 +7,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/hizkifw/kon/internal/markdown"
 	"github.com/hizkifw/kon/internal/tools"
 )
 
@@ -71,10 +72,20 @@ var (
 
 // part is one styled segment of a slab line.
 type part struct {
-	text string
-	fg   color.Color
-	bold bool
+	text      string
+	fg        color.Color
+	bold      bool
+	italic    bool
+	underline bool
+	strike    bool
 }
+
+// Markdown palette additions: colors used only by markdown roles.
+var (
+	colorCodeFg  = lipgloss.Color("#C2A878")
+	colorQuoteFg = lipgloss.Color("#B0B0B0")
+	colorLink    = lipgloss.Color("#7FB3D5")
+)
 
 type transcript struct {
 	blocks   []block
@@ -99,7 +110,7 @@ type transcript struct {
 	// strip removes escapes/control bytes from incoming deltas; the stateful
 	// machine survives across deltas so a sequence split between them is
 	// dropped whole (see ansiStripper).
-	active         *liveStream
+	active         liveRenderer
 	activeThinking bool
 	strip          ansiStripper
 
@@ -137,9 +148,20 @@ func (t *transcript) updateToolLive(d tools.Display) {
 	t.dirty = true
 }
 
+// liveRenderer renders the not-yet-finalized portion of a live stream
+// incrementally. finalized returns append-only finished lines; currentLines
+// returns the still-growing tail lines, rebuilt per frame; pending returns
+// the whole live portion as one string for the from-scratch reference path.
+type liveRenderer interface {
+	append(text string)
+	finalized() []string
+	currentLines() []string
+	pending() string
+}
+
 // ensureThinking promotes a buffered thinking trace into an incremental live
 // stream so subsequent reasoning deltas fold in without a full re-render.
-func (t *transcript) ensureThinking() *liveStream {
+func (t *transcript) ensureThinking() liveRenderer {
 	if t.activeThinking && t.active != nil {
 		return t.active
 	}
@@ -149,12 +171,14 @@ func (t *transcript) ensureThinking() *liveStream {
 }
 
 // ensureMessage promotes a buffered assistant message into an incremental live
-// stream so subsequent text deltas fold in without a full re-render.
-func (t *transcript) ensureMessage() *liveStream {
+// stream so subsequent text deltas fold in without a full re-render. Assistant
+// messages stream through the markdown renderer so formatting appears as it
+// arrives; thinking traces stay plain (see newThinkingStream).
+func (t *transcript) ensureMessage() liveRenderer {
 	if t.active != nil && !t.activeThinking {
 		return t.active
 	}
-	t.active = newMessageStream(colorAgentBg, colorAgentFg, t.width)
+	t.active = newMarkdownLive(colorAgentBg, colorAgentFg, t.width)
 	t.activeThinking = false
 	return t.active
 }
@@ -241,7 +265,7 @@ func (t *transcript) pending(width int) string {
 		if t.active != nil && !t.activeThinking {
 			return t.active.pending()
 		}
-		return strings.Join(messageSlab(normalizeText(string(t.stream)), colorAgentBg, colorAgentFg, width), "\n")
+		return strings.Join(renderMarkdownBlock(markdown.Render(string(t.stream), markdown.Theme{}, width), colorAgentBg, colorAgentFg, width), "\n")
 	default:
 		return ""
 	}
@@ -256,7 +280,7 @@ func (t *transcript) rebuildActive(width int) {
 		t.active.append(t.thinking)
 		t.activeThinking = true
 	case len(t.stream) > 0:
-		t.active = newMessageStream(colorAgentBg, colorAgentFg, width)
+		t.active = newMarkdownLive(colorAgentBg, colorAgentFg, width)
 		t.active.append(string(t.stream))
 		t.activeThinking = false
 	default:
@@ -367,7 +391,7 @@ func (t *transcript) linesFor(width int) []string {
 			t.lines = append(t.lines, fin[t.liveFin])
 			t.liveFin++
 		}
-		t.lines = append(t.lines, t.active.current())
+		t.lines = append(t.lines, t.active.currentLines()...)
 	} else if t.sepDone {
 		t.lines = t.lines[:t.stableN]
 		t.sepDone = false
@@ -442,7 +466,7 @@ func (t *transcript) renderBlock(b block, width int) []string {
 	case blockUser:
 		return messageSlab(normalizeText(b.text), colorUserBg, colorUserFg, width)
 	case blockAssistant:
-		return messageSlab(normalizeText(b.text), colorAgentBg, colorAgentFg, width)
+		return renderMarkdownBlock(markdown.Render(b.text, markdown.Theme{}, width), colorAgentBg, colorAgentFg, width)
 	case blockThinking:
 		return thinkingLines(normalizeText(b.text), width)
 	case blockError:

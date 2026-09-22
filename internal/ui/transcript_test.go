@@ -436,9 +436,9 @@ func TestSlabBackgroundSpansWidth(t *testing.T) {
 			thinkingLines("short", width)...,
 		)
 		lines = append(lines, messageSlab(strings.Repeat("word ", 30), colorAgentBg, colorAgentFg, width)...)
-		live := newMessageStream(colorAgentBg, colorAgentFg, width)
-		live.append(strings.Repeat("word ", 30))
-		lines = append(lines, live.Lines()...)
+		live := newMarkdownLive(colorAgentBg, colorAgentFg, width)
+		live.append(strings.Repeat("words with **bold** and `code`. ", 20))
+		lines = append(lines, live.currentLines()...)
 		for _, line := range lines {
 			if got := ansi.StringWidth(line); got != width {
 				t.Fatalf("width %d: line width = %d, background does not span the viewport: %q", width, got, line)

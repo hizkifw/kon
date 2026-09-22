@@ -15,24 +15,26 @@
 // Blocks expose Boundary() (their byte offset after the last closed block) so
 // a caller can re-parse only the grown tail.
 //
-// Block styling resolves against a Theme into per-line Styled spans; inline
-// markdown (emphasis, strong, inline code, strikethrough, links, image alt
-// text, autolinks) produces spans too, and Text node content is unescaped so
-// entities and backslash escapes render as their literal characters. Spans
-// are emitted after wrapping, annotating whole display lines, so a span never
-// crosses a line break. Raw HTML tags are dropped from the text. Link
-// destinations are not surfaced (StyleLinkURL is reserved for a later pass).
+// Styling is presentation-free: each span carries a Style token, and the
+// rendering layer (internal/ui) maps tokens to colors and attributes. Block
+// structure and inline markdown (emphasis, strong, inline code,
+// strikethrough, links, image alt text, autolinks) both produce tokens, and
+// Text node content is unescaped so entities and backslash escapes render as
+// their literal characters. Spans are emitted after wrapping, annotating
+// whole display lines, so a span never crosses a line break. Raw HTML tags
+// are dropped from the text; link destinations are not surfaced
+// (StyleLinkURL is reserved for a later pass).
 package markdown
 
 import "strings"
 
-// Style identifies one visual role. The terminal layer maps these to actual
-// colors and attributes (see the internal/ui palette), keeping this package
-// presentation-free.
+// Style identifies one visual role. The rendering layer maps these to actual
+// colors and attributes, keeping this package free of presentation choices.
 type Style uint8
 
 const (
-	StyleText          Style = iota // ordinary prose
+	StyleNone          Style = iota // no styling (spans are omitted for this)
+	StyleText                       // ordinary prose
 	StyleHeading                    // ATX and setext headings
 	StyleFaint                      // rules and horizontal filler
 	StyleCodeBlock                  // fenced and indented code block text
@@ -48,28 +50,27 @@ const (
 	StyleTask                       // task-list checkbox
 )
 
-// Theme resolves styles into display attributes. Values are meaningful only to
-// the layer that consumes them.
+// Theme optionally remaps styles to other styles (for example, rendering
+// emphasis as plain prose in a theme that reserves color for structure). The
+// zero Theme is the identity mapping.
 type Theme struct {
-	Styles map[Style]string
+	Overrides map[Style]Style
 }
 
-// NewTheme builds a theme from style/attribute pairs.
-func NewTheme(styles map[Style]string) Theme {
-	if styles == nil {
-		styles = map[Style]string{}
+// Resolve returns the style a role renders as.
+func (t Theme) Resolve(s Style) Style {
+	if t.Overrides != nil {
+		if o, ok := t.Overrides[s]; ok {
+			return o
+		}
 	}
-	return Theme{Styles: styles}
+	return s
 }
-
-// Attr returns the attributes registered for a style.
-func (t Theme) Attr(s Style) string { return t.Styles[s] }
 
 // Styled is one styled region of a line.
 type Styled struct {
-	Text string
-	// Attr carries the theme attributes for the region.
-	Attr string
+	Text  string
+	Style Style
 }
 
 // Line is one display line with its styled regions. Plain lines carry no

@@ -66,13 +66,6 @@ func (p linePainter) pad(n int) string {
 	return bgSpaces(p.bg, n)
 }
 
-// newMessageStream builds a live stream for an assistant message slab.
-func newMessageStream(bg, fg color.Color, width int) *liveStream {
-	return newLiveStream(linePainter{
-		width: width, bg: bg, fg: fg, padLeft: 1,
-	})
-}
-
 // newThinkingStream builds a live stream for a reasoning trace. It mirrors
 // thinkingLines: no background, italic, one cell of left padding.
 func newThinkingStream(width int) *liveStream {
@@ -203,3 +196,8 @@ func (l *liveStream) finalized() []string {
 func (l *liveStream) current() string {
 	return l.painter.bodyLine(l.wrap.Current())
 }
+
+// currentLines returns the still-growing lines as a slice, so the transcript's
+// line cache can treat a plain live stream and a markdown live stream
+// uniformly. The plain wrapper only ever has one growing line.
+func (l *liveStream) currentLines() []string { return []string{l.current()} }

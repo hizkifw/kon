@@ -4,19 +4,25 @@
 
 ### Added
 
-- A streaming markdown core (`internal/markdown`) for transcript rendering,
-  built on goldmark with GFM tables, strikethrough, task lists, and autolinks.
-  It renders CommonMark blocks (headings, paragraphs, fenced and indented
-  code, blockquotes, tight/loose/nested/ordered lists, tables, thematic
-  breaks, raw HTML) into wrapped display lines with theme-resolved style
-  spans, and freezes provably closed blocks so per-frame render cost is
-  proportional to the unfrozen tail, not the document. The streaming view is
-  byte-identical to a from-scratch render of the same bytes at every frame
-  (guarded by mid-stream convergence tests and a randomized corpus covering
-  blank-spanning containers and partial-list markers), and `Finish` folds the
-  open tail in one pass when a stream ends. Not yet wired into the
-  transcript; inline emphasis, strikethrough, and link destinations are
-  scoped as the next layer.
+- Assistant messages render as markdown in the transcript. Headings, lists,
+  fenced and indented code, blockquotes, tables, rules, and task checkboxes
+  now display as formatted text instead of raw markdown syntax, with inline
+  emphasis, strong, inline code, strikethrough, and links styled through the
+  transcript palette (bold, italic, underline, and dedicated colors). Text
+  entities and backslash escapes render as their literal characters. The
+  formatting appears incrementally as a message streams and does not shift
+  when the message finalizes into history.
+- A streaming markdown core (`internal/markdown`) backs the transcript
+  rendering above, built on goldmark with GFM tables, strikethrough, task
+  lists, and autolinks. It renders CommonMark blocks into wrapped display
+  lines carrying presentation-free style tokens, and freezes provably closed
+  blocks so per-frame render cost is proportional to the unfrozen tail, not
+  the document. The streaming view is byte-identical to a from-scratch render
+  of the same bytes at every frame (guarded by mid-stream convergence tests
+  and a randomized corpus covering blank-spanning containers, partial-list
+  markers, and inline styling), and `Finish` folds the open tail in one pass
+  when a stream ends. Link destinations are not surfaced yet (link text
+  renders, the URL does not).
 
 ### Changed
 

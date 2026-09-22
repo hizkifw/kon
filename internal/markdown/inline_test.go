@@ -1,6 +1,7 @@
 package markdown
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -18,43 +19,43 @@ func TestInlineSpans(t *testing.T) {
 			name:     "emphasis",
 			in:       "a *em* b",
 			wantText: "a em b",
-			wantSpan: []Styled{{Text: "em", Attr: "emph"}},
+			wantSpan: []Styled{{Text: "em", Style: StyleEmph}},
 		},
 		{
 			name:     "strong",
 			in:       "a **strong** b",
 			wantText: "a strong b",
-			wantSpan: []Styled{{Text: "strong", Attr: "strong"}},
+			wantSpan: []Styled{{Text: "strong", Style: StyleStrong}},
 		},
 		{
 			name:     "inline code",
 			in:       "a `x := 1` b",
 			wantText: "a x := 1 b",
-			wantSpan: []Styled{{Text: "x := 1", Attr: "codeinline"}},
+			wantSpan: []Styled{{Text: "x := 1", Style: StyleCodeInline}},
 		},
 		{
 			name:     "code span trims one edge space",
 			in:       "a ` code ` b",
 			wantText: "a code b",
-			wantSpan: []Styled{{Text: "code", Attr: "codeinline"}},
+			wantSpan: []Styled{{Text: "code", Style: StyleCodeInline}},
 		},
 		{
 			name:     "strikethrough",
 			in:       "a ~~gone~~ b",
 			wantText: "a gone b",
-			wantSpan: []Styled{{Text: "gone", Attr: "strike"}},
+			wantSpan: []Styled{{Text: "gone", Style: StyleStrikethrough}},
 		},
 		{
 			name:     "link keeps text",
 			in:       "a [label](http://x) b",
 			wantText: "a label b",
-			wantSpan: []Styled{{Text: "label", Attr: "link"}},
+			wantSpan: []Styled{{Text: "label", Style: StyleLink}},
 		},
 		{
 			name:     "image alt text",
 			in:       "a ![pic](img.png) b",
 			wantText: "a pic b",
-			wantSpan: []Styled{{Text: "pic", Attr: "link"}},
+			wantSpan: []Styled{{Text: "pic", Style: StyleLink}},
 		},
 		{
 			name:     "entities unescaped",
@@ -75,13 +76,13 @@ func TestInlineSpans(t *testing.T) {
 			name:     "emph spanning spaces is one span",
 			in:       "*two words*",
 			wantText: "two words",
-			wantSpan: []Styled{{Text: "two words", Attr: "emph"}},
+			wantSpan: []Styled{{Text: "two words", Style: StyleEmph}},
 		},
 		{
 			name:     "nested strong in emph",
 			in:       "*a **b** c*",
 			wantText: "a b c",
-			wantSpan: []Styled{{Text: "a ", Attr: "emph"}, {Text: "b", Attr: "strong"}, {Text: " c", Attr: "emph"}},
+			wantSpan: []Styled{{Text: "a ", Style: StyleEmph}, {Text: "b", Style: StyleStrong}, {Text: " c", Style: StyleEmph}},
 		},
 		{
 			name:     "plain paragraph has no spans",
@@ -182,7 +183,7 @@ func linesEqual(lines []Line) string {
 		b.WriteString(l.Text)
 		for _, sp := range l.Spans {
 			b.WriteString("|")
-			b.WriteString(sp.Attr)
+			b.WriteString(strconv.Itoa(int(sp.Style)))
 			b.WriteString(":")
 			b.WriteString(sp.Text)
 		}

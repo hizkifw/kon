@@ -481,7 +481,7 @@ func (r *blockRenderer) tableLines(n ast.Node, source []byte) []Line {
 		text := strings.Join(cells, "  ")
 		line := Plain(text)
 		if isHeader {
-			line = Line{Text: text, Spans: []Styled{{text, r.theme.Attr(StyleHeading)}}}
+			line = Line{Text: text, Spans: []Styled{{Text: text, Style: r.theme.Resolve(StyleHeading)}}}
 		}
 		out = append(out, line)
 	}
@@ -512,7 +512,7 @@ func (r *blockRenderer) codeLines(segments *text.Segments, source []byte) []Line
 		}
 		content := strings.TrimSuffix(string(r.buf), "\n")
 		for _, raw := range strings.Split(content, "\n") {
-			out = append(out, Line{Text: raw, Spans: []Styled{{raw, r.theme.Attr(StyleCodeBlock)}}})
+			out = append(out, Line{Text: raw, Spans: []Styled{{Text: raw, Style: r.theme.Resolve(StyleCodeBlock)}}})
 		}
 	}
 	return out
@@ -574,14 +574,12 @@ func (r *blockRenderer) listLines(l *ast.List, source []byte) []Line {
 				spans := cloneSpans(line.Spans)
 				if first && checkbox != "" {
 					text = checkbox + text
-					if checkAttr := r.theme.Attr(StyleTask); checkAttr != "" {
-						spans = append([]Styled{{Text: checkbox, Attr: checkAttr}}, spans...)
-					}
+					spans = append([]Styled{{Text: checkbox, Style: r.theme.Resolve(StyleTask)}}, spans...)
 				}
 				if first {
 					out = append(out, Line{
 						Text:  marker + " " + text,
-						Spans: append([]Styled{{marker, r.theme.Attr(StyleListBullet)}}, spans...),
+						Spans: append([]Styled{{Text: marker, Style: r.theme.Resolve(StyleListBullet)}}, spans...),
 					})
 					first = false
 					continue
@@ -618,7 +616,7 @@ func quoteLines(inner []block, theme Theme) []Line {
 	for _, blk := range inner {
 		for _, line := range blk.lines {
 			bar := "▏"
-			spans := append([]Styled{{bar, theme.Attr(StyleQuoteMark)}}, cloneSpans(line.Spans)...)
+			spans := append([]Styled{{Text: bar, Style: theme.Resolve(StyleQuoteMark)}}, cloneSpans(line.Spans)...)
 			out = append(out, Line{Text: bar + " " + line.Text, Spans: spans})
 		}
 	}

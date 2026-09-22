@@ -6,22 +6,8 @@ import (
 	"testing"
 )
 
-var testTheme = NewTheme(map[Style]string{
-	StyleText:          "text",
-	StyleHeading:       "heading",
-	StyleFaint:         "faint",
-	StyleCodeBlock:     "codeblock",
-	StyleCodeInline:    "codeinline",
-	StyleQuote:         "quote",
-	StyleQuoteMark:     "quotemark",
-	StyleListBullet:    "bullet",
-	StyleEmph:          "emph",
-	StyleStrong:        "strong",
-	StyleLink:          "link",
-	StyleLinkURL:       "linkurl",
-	StyleStrikethrough: "strike",
-	StyleTask:          "task",
-})
+// testTheme is the identity mapping: styles pass through unchanged.
+var testTheme = Theme{}
 
 func lineTexts(lines []Line) []string {
 	out := make([]string, len(lines))

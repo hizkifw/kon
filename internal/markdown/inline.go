@@ -10,9 +10,10 @@ import (
 )
 
 // piece is a run of text with one style, flowing through the span wrapper.
+// StyleNone marks unstyled text, which produces no span.
 type piece struct {
-	text string
-	attr string
+	text  string
+	style Style
 }
 
 // unescape resolves backslash escapes, numeric references, and HTML entities
@@ -40,10 +41,10 @@ func unescape(raw []byte) string {
 // text. Every character emitted comes from a Text node's unescaped source or
 // a node's resolved text, so the pieces never contain escape syntax.
 func inlinePieces(n ast.Node, source []byte, theme Theme) []piece {
-	return appendInlinePieces(n, source, theme, "")
+	return appendInlinePieces(n, source, theme, StyleNone)
 }
 
-func appendInlinePieces(n ast.Node, source []byte, theme Theme, attr string) []piece {
+func appendInlinePieces(n ast.Node, source []byte, theme Theme, style Style) []piece {
 	var out []piece
 	for c := n.FirstChild(); c != nil; c = c.NextSibling() {
 		switch v := c.(type) {
@@ -58,47 +59,50 @@ func appendInlinePieces(n ast.Node, source []byte, theme Theme, attr string) []p
 			case v.SoftLineBreak():
 				text += " "
 			}
-			out = append(out, piece{text: text, attr: attr})
+			out = append(out, piece{text: text, style: style})
 		case *ast.String:
 			// Synthetic text (e.g. from linkify); already resolved.
-			out = append(out, piece{text: string(v.Value), attr: attr})
+			out = append(out, piece{text: string(v.Value), style: style})
 		case *ast.CodeSpan:
 			// Code spans render their content verbatim (already space-
 			// trimmed per CommonMark), never unescaped.
-			out = append(out, piece{text: string(v.Text(source)), attr: theme.inlineAttr(StyleCodeInline, attr)})
+			out = append(out, piece{text: string(v.Text(source)), style: inner(theme, StyleCodeInline, style)})
 		case *ast.Emphasis:
-			style := StyleEmph
+			s := StyleEmph
 			if v.Level == 2 {
-				style = StyleStrong
+				s = StyleStrong
 			}
-			out = append(out, appendInlinePieces(c, source, theme, theme.inlineAttr(style, attr))...)
+			out = append(out, appendInlinePieces(c, source, theme, inner(theme, s, style))...)
 		case *extast.Strikethrough:
-			out = append(out, appendInlinePieces(c, source, theme, theme.inlineAttr(StyleStrikethrough, attr))...)
+			out = append(out, appendInlinePieces(c, source, theme, inner(theme, StyleStrikethrough, style))...)
 		case *ast.Link:
-			out = append(out, appendInlinePieces(c, source, theme, theme.inlineAttr(StyleLink, attr))...)
+			out = append(out, appendInlinePieces(c, source, theme, inner(theme, StyleLink, style))...)
 		case *ast.AutoLink:
 			// Autolinks render the URL as text; the destination equals the
 			// label for these, so one styled run covers both.
-			out = append(out, piece{text: string(v.Text(source)), attr: theme.inlineAttr(StyleLink, attr)})
+			out = append(out, piece{text: string(v.Text(source)), style: inner(theme, StyleLink, style)})
 		case *ast.Image:
 			// Images render their alt text; the URL is terminal-invisible.
-			out = append(out, appendInlinePieces(c, source, theme, theme.inlineAttr(StyleLink, attr))...)
+			out = append(out, appendInlinePieces(c, source, theme, inner(theme, StyleLink, style))...)
 		case *ast.RawHTML:
 			// Tags are dropped from the text.
 		default:
-			out = append(out, appendInlinePieces(c, source, theme, attr)...)
+			out = append(out, appendInlinePieces(c, source, theme, style)...)
 		}
 	}
 	return out
 }
 
-// inlineAttr resolves a style with the theme, falling back to the
-// surrounding attribute when the theme maps the style to nothing.
-func (t Theme) inlineAttr(style Style, fallback string) string {
-	if attr := t.Attr(style); attr != "" {
-		return attr
+// inner resolves a nested inline style against the theme, keeping the
+// surrounding style when the theme maps the nested one to nothing.
+func inner(theme Theme, style, fallback Style) Style {
+	if resolved := theme.Resolve(style); resolved != style {
+		return resolved
 	}
-	return fallback
+	if style == StyleNone {
+		return fallback
+	}
+	return style
 }
 
 // proseLines renders a paragraph or text block's inline content with spans.
@@ -132,9 +136,9 @@ type spanWrapper struct {
 func newSpanWrapper(limit int) *spanWrapper { return &spanWrapper{limit: max(1, limit)} }
 
 // appendCur appends a piece to the current line, merging into the previous
-// piece when both carry the same attribute, so a styled run stays one span.
+// piece when both carry the same style, so a styled run stays one span.
 func (w *spanWrapper) appendCur(p piece) {
-	if n := len(w.cur); n > 0 && w.cur[n-1].attr == p.attr {
+	if n := len(w.cur); n > 0 && w.cur[n-1].style == p.style {
 		w.cur[n-1].text += p.text
 		return
 	}
@@ -186,7 +190,7 @@ func (w *spanWrapper) writePiece(p piece) {
 			// width is held back until the next word commits.
 			w.addWord()
 			for rest != "" && (rest[0] == ' ' || rest[0] == '\t') {
-				w.space = append(w.space, piece{text: " ", attr: p.attr})
+				w.space = append(w.space, piece{text: " ", style: p.style})
 				rest = rest[1:]
 			}
 			continue
@@ -201,7 +205,7 @@ func (w *spanWrapper) writePiece(p piece) {
 		for j < len(rest) && rest[j] != ' ' && rest[j] != '\t' && rest[j] != '\n' {
 			j++
 		}
-		w.writeWordRun(piece{text: rest[:j], attr: p.attr})
+		w.writeWordRun(piece{text: rest[:j], style: p.style})
 		rest = rest[j:]
 	}
 }
@@ -211,7 +215,7 @@ func (w *spanWrapper) writePiece(p piece) {
 // breaks first (dropping the space, as a line-leading space would be noise);
 // a word wider than the whole limit is hard-split straight away.
 func (w *spanWrapper) writeWordRun(p piece) {
-	if n := len(w.word); n > 0 && w.word[n-1].attr == p.attr {
+	if n := len(w.word); n > 0 && w.word[n-1].style == p.style {
 		w.word[n-1].text += p.text
 	} else {
 		w.word = append(w.word, p)
@@ -257,8 +261,8 @@ func (w *spanWrapper) hardSplit() {
 			w.addNewline()
 			continue
 		}
-		w.appendCur(piece{text: cluster, attr: p.attr})
-		all[0] = piece{text: p.text[len(cluster):], attr: p.attr}
+		w.appendCur(piece{text: cluster, style: p.style})
+		all[0] = piece{text: p.text[len(cluster):], style: p.style}
 		if all[0].text == "" {
 			all = all[1:]
 		}
@@ -282,7 +286,7 @@ func (w *spanWrapper) Lines() [][]piece {
 
 // spanLines converts wrapped pieces into display lines: the line text is the
 // concatenation of piece texts, and spans carry each styled piece's text and
-// theme attribute. Unstyled lines carry no spans.
+// target style. Unstyled lines carry no spans.
 func spanLines(pieces [][]piece) []Line {
 	var out []Line
 	for _, line := range pieces {
@@ -290,8 +294,8 @@ func spanLines(pieces [][]piece) []Line {
 		var spans []Styled
 		for _, p := range line {
 			text.WriteString(p.text)
-			if p.attr != "" {
-				spans = append(spans, Styled{Text: p.text, Attr: p.attr})
+			if p.style != StyleNone {
+				spans = append(spans, Styled{Text: p.text, Style: p.style})
 			}
 		}
 		out = append(out, Line{Text: text.String(), Spans: spans})
