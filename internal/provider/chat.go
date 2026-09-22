@@ -141,6 +141,14 @@ func toChatMessages(messages []session.Message) ([]chatMessage, error) {
 		case session.RoleSystem, session.RoleUser:
 			out = append(out, chatMessage{Role: string(message.Role), Content: &message.Content})
 		case session.RoleAssistant:
+			// A partial turn interrupted before any answer text carries only
+			// reasoning. This wire format has no reasoning field, so there is
+			// nothing to send; skipping it avoids an empty assistant message
+			// that several servers reject. The reasoning stays in the durable
+			// log and the transcript.
+			if message.Content == "" && len(message.ToolCalls) == 0 {
+				continue
+			}
 			wire := chatMessage{Role: string(message.Role)}
 			if message.Content != "" {
 				wire.Content = &message.Content
@@ -215,7 +223,12 @@ func (m *chatModel) stream(ctx context.Context, payload chatRequest, emit func(E
 	}
 	result, err := decodeChatStream(response.Body, emit)
 	if err != nil {
-		return Response{}, err
+		// A cancelled or dropped connection can arrive with deltas already
+		// assembled. Tool calls are deliberately dropped here: the aborted turn
+		// never executes them, and replaying an assistant tool call without its
+		// results would be rejected by the provider. The client keeps only the
+		// text and reasoning.
+		return result, err
 	}
 	if err := finalizeToolCalls(&result); err != nil {
 		return Response{}, err
@@ -483,6 +496,7 @@ func decodeChatStream(r io.Reader, emit func(Event)) (Response, error) {
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 64*1024), maxEventSize)
 	var data []string
+	done := false
 	apply := func(event string) error {
 		if event == "[DONE]" {
 			return errStreamDone
@@ -504,9 +518,12 @@ func decodeChatStream(r io.Reader, emit func(Event)) (Response, error) {
 			data = nil
 			if err := apply(payload); err != nil {
 				if errors.Is(err, errStreamDone) {
+					done = true
 					return response, nil
 				}
-				return Response{}, err
+				// Keep deltas assembled before a mid-stream provider error so
+				// the partial turn is not discarded.
+				return response, err
 			}
 		default:
 			// Comments (": keep-alive") and event:/id:/retry: fields carry
@@ -514,16 +531,28 @@ func decodeChatStream(r io.Reader, emit func(Event)) (Response, error) {
 		}
 	}
 	if err := scanner.Err(); err != nil {
+		// A dropped connection surfaces here; keep whatever was assembled so
+		// the partial turn is preserved rather than lost.
 		if errors.Is(err, bufio.ErrTooLong) {
-			return Response{}, fmt.Errorf("read chat stream: event exceeded %d bytes: %w", maxEventSize, err)
+			return response, fmt.Errorf("read chat stream: event exceeded %d bytes: %w", maxEventSize, err)
 		}
-		return Response{}, fmt.Errorf("read chat stream: %w", err)
+		return response, fmt.Errorf("read chat stream: %w", err)
 	}
 	// Flush a trailing event whose blank-line separator never arrived.
 	if len(data) > 0 {
-		if err := apply(strings.Join(data, "\n")); err != nil && !errors.Is(err, errStreamDone) {
-			return Response{}, err
+		if err := apply(strings.Join(data, "\n")); err != nil {
+			if errors.Is(err, errStreamDone) {
+				done = true
+			} else {
+				return response, err
+			}
 		}
+	}
+	// A stream that ends without the [DONE] sentinel or a finish reason was cut
+	// short even though the transport closed cleanly. Report it as an error so
+	// the caller keeps the partial turn instead of mistaking it for complete.
+	if !done && response.Finish == "" {
+		return response, errors.New("read chat stream: connection closed before the stream finished")
 	}
 	return response, nil
 }

@@ -58,9 +58,36 @@ func newModel(profile config.Model) (Model, error) {
 func (c *Client) Stream(ctx context.Context, messages []session.Message, tools []Tool, emit func(Event)) (session.Message, error) {
 	response, err := c.model.Stream(ctx, messages, tools, emit)
 	if err != nil {
-		return session.Message{}, err
+		return c.assistantOrPartial(response, err)
 	}
 	return c.assistant(response)
+}
+
+// assistantOrPartial turns a failed stream into the durable message for whatever
+// the provider had already produced before the failure. A cancelled or dropped
+// connection usually arrives with accumulated deltas and no error text; those
+// deltas are persisted so the partial turn survives a resume and the next
+// request continues from it. When nothing arrived there is no partial turn to
+// keep and the original error is returned unchanged.
+func (c *Client) assistantOrPartial(response Response, err error) (session.Message, error) {
+	if response.Text == "" && response.Reasoning == "" {
+		return session.Message{}, err
+	}
+	// An aborted stream has no finish reason and its usage is incomplete; both
+	// are omitted so the partial turn is not mistaken for a completed one.
+	// Tool calls are dropped because the aborted turn never executes them and a
+	// replay without their results would be rejected by the provider.
+	response.Finish = ""
+	response.Usage = nil
+	response.ToolCalls = nil
+	message, buildErr := c.buildAssistant(response, true)
+	if buildErr != nil {
+		return session.Message{}, err
+	}
+	message.Interrupted = true
+	// The partial message is returned alongside the original error so callers
+	// can persist what arrived and still surface the interruption.
+	return message, err
 }
 
 func (c *Client) Complete(ctx context.Context, messages []session.Message, tools []Tool, maxTokens int) (session.Message, error) {
@@ -76,7 +103,14 @@ func (c *Client) Complete(ctx context.Context, messages []session.Message, tools
 // preserve the reasoning trace and the original ordering so future formats
 // and tooling can replay the turn exactly.
 func (c *Client) assistant(response Response) (session.Message, error) {
-	if response.Text == "" && len(response.ToolCalls) == 0 {
+	return c.buildAssistant(response, false)
+}
+
+// buildAssistant assembles the durable assistant message. When partial is true
+// an otherwise-empty response is allowed as long as it carries reasoning: an
+// interrupted turn can hold reasoning with no answer text yet.
+func (c *Client) buildAssistant(response Response, partial bool) (session.Message, error) {
+	if response.Text == "" && len(response.ToolCalls) == 0 && !(partial && response.Reasoning != "") {
 		return session.Message{}, errors.New("provider returned an empty assistant message")
 	}
 	message := session.Message{

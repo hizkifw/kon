@@ -56,6 +56,62 @@ func TestAssistantRejectsEmptyResponse(t *testing.T) {
 	if _, err := client.assistant(Response{}); err == nil {
 		t.Fatal("empty response was accepted")
 	}
+	// A completed turn with reasoning but no answer text is still empty from
+	// the wire's point of view and must be rejected; only an interrupted turn
+	// may persist reasoning alone.
+	if _, err := client.assistant(Response{Reasoning: "thinking"}); err == nil {
+		t.Fatal("reasoning-only completed response was accepted")
+	}
+}
+
+func TestAssistantOrPartialPersistsInterruptedTurn(t *testing.T) {
+	client := &Client{modelID: typedid.ExternalModelID("gpt")}
+	cause := errors.New("stream interrupted")
+	message, err := client.assistantOrPartial(Response{Text: "half", Reasoning: "hm", Finish: "stop", Usage: &session.Usage{PromptTokens: 5}}, cause)
+	if !errors.Is(err, cause) {
+		t.Fatalf("interruption not surfaced: %v", err)
+	}
+	if !message.Interrupted || message.Role != session.RoleAssistant || message.Content != "half" {
+		t.Fatalf("partial message = %#v", message)
+	}
+	// Usage and finish are dropped so the partial is never mistaken for a
+	// completed turn.
+	if message.Usage != nil || message.Finish != "" {
+		t.Fatalf("partial kept completion metadata: %#v", message)
+	}
+	if len(message.Parts) != 2 || message.Parts[0].Type != PartReasoning || message.Parts[1].Type != PartText {
+		t.Fatalf("partial parts = %#v", message.Parts)
+	}
+	if err := message.Validate(); err != nil {
+		t.Fatalf("partial message is invalid: %v", err)
+	}
+}
+
+func TestAssistantOrPartialKeepsReasoningOnlyTurn(t *testing.T) {
+	client := &Client{modelID: typedid.ExternalModelID("gpt")}
+	cause := errors.New("interrupted")
+	message, err := client.assistantOrPartial(Response{Reasoning: "still thinking"}, cause)
+	if !errors.Is(err, cause) {
+		t.Fatalf("interruption not surfaced: %v", err)
+	}
+	if message.Role != session.RoleAssistant || !message.Interrupted || len(message.Parts) != 1 || message.Parts[0].Type != PartReasoning {
+		t.Fatalf("reasoning-only partial = %#v", message)
+	}
+	if err := message.Validate(); err != nil {
+		t.Fatalf("reasoning-only partial is invalid: %v", err)
+	}
+}
+
+func TestAssistantOrPartialPassesThroughEmptyFailure(t *testing.T) {
+	client := &Client{}
+	cause := errors.New("connection refused")
+	message, err := client.assistantOrPartial(Response{}, cause)
+	if !errors.Is(err, cause) {
+		t.Fatalf("error not surfaced: %v", err)
+	}
+	if message.Role != "" {
+		t.Fatalf("empty failure produced a message: %#v", message)
+	}
 }
 
 func TestIsContextOverflowMatchesProviderPhrasings(t *testing.T) {

@@ -96,6 +96,23 @@ type Message struct {
 	Usage           *Usage             `json:"usage,omitempty"`
 	Parts           []Part             `json:"parts,omitempty"`
 	ProviderOptions map[string]any     `json:"provider_options,omitempty"`
+	// Interrupted marks an assistant message persisted from a stream that ended
+	// early (user cancellation or a dropped connection) rather than a provider
+	// finish reason. The partial text and reasoning are kept so the turn can be
+	// replayed and continued; a completed turn leaves this false.
+	Interrupted bool `json:"interrupted,omitempty"`
+}
+
+// hasTextPart reports whether any ordered part carries text. An assistant turn
+// that was interrupted mid-stream may hold only reasoning, with no answer text
+// and no tool calls, and must still persist so the partial turn is retained.
+func hasTextPart(m Message) bool {
+	for _, part := range m.Parts {
+		if part.Text != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func (m Message) Validate() error {
@@ -105,8 +122,8 @@ func (m Message) Validate() error {
 			return fmt.Errorf("%s message content must not be empty", m.Role)
 		}
 	case RoleAssistant:
-		if m.Content == "" && len(m.ToolCalls) == 0 {
-			return errors.New("assistant message must contain text or tool calls")
+		if m.Content == "" && len(m.ToolCalls) == 0 && !hasTextPart(m) {
+			return errors.New("assistant message must contain text, reasoning, or tool calls")
 		}
 		seen := make(map[typedid.ToolCallID]bool, len(m.ToolCalls))
 		for _, call := range m.ToolCalls {
