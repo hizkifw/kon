@@ -57,7 +57,60 @@ type Runner struct {
 }
 
 func New(model config.Model, compaction config.Compaction, provider Provider, store *session.Store, executor *tools.Executor) *Runner {
-	return &Runner{contextWindow: model.ContextWindowTokens, compaction: compaction, provider: provider, session: store, tools: executor}
+	r := &Runner{contextWindow: model.ContextWindowTokens, compaction: compaction, provider: provider, session: store, tools: executor}
+	r.seedUsage()
+	return r
+}
+
+// seedUsage restores the most recent provider-reported usage from persisted
+// assistant messages so a resumed session can reuse it for the context indicator
+// and the compaction threshold instead of falling back to a byte estimate. The
+// count recorded is the number of projected messages up to and including the
+// assistant that reported it, matching how Run stamps lastUsageEntries.
+func (r *Runner) seedUsage() {
+	items, err := r.session.Context()
+	if err != nil {
+		return
+	}
+	for i, item := range items {
+		if item.Message.Role != session.RoleAssistant || item.Message.Usage == nil {
+			continue
+		}
+		usage := *item.Message.Usage
+		r.lastUsage = &usage
+		r.lastUsageEntries = i + 1
+	}
+}
+
+// ContextUsage reports the last provider-reported context size in tokens, so a
+// resumed session can reuse it instead of falling back to an unknown value. The
+// second result is false when no reported usage still covers the current
+// context, which is the case for a fresh session before its first turn.
+func (r *Runner) ContextUsage() (int, bool) {
+	items, err := r.session.Context()
+	if err != nil {
+		return 0, false
+	}
+	if r.lastUsage == nil || r.lastUsageEntries != len(items) {
+		return 0, false
+	}
+	return r.lastUsage.PromptTokens + r.lastUsage.CompletionTokens, true
+}
+
+// usageFor prefers provider-reported usage when it still covers the current
+// context, measured by the projected message count, and otherwise estimates
+// serialized bytes.
+func (r *Runner) usageFor(items []session.ContextMessage) (int, bool) {
+	used := estimateContext(items, tools.Definitions())
+	estimated := true
+	if r.lastUsage != nil && r.lastUsageEntries == len(items) {
+		reported := r.lastUsage.PromptTokens + r.lastUsage.CompletionTokens
+		if reported >= used {
+			used = reported
+			estimated = false
+		}
+	}
+	return used, estimated
 }
 
 // KillShell force-kills the shell command the runner is currently executing,
@@ -192,16 +245,7 @@ func (r *Runner) compactIfNeeded(ctx context.Context, force bool, emit func(Even
 	if err != nil {
 		return false, err
 	}
-	estimatedTokens := estimateContext(items, tools.Definitions())
-	used := estimatedTokens
-	estimated := true
-	if r.lastUsage != nil && r.lastUsageEntries == len(items) {
-		reported := r.lastUsage.PromptTokens + r.lastUsage.CompletionTokens
-		if reported >= used {
-			used = reported
-			estimated = false
-		}
-	}
+	used, estimated := r.usageFor(items)
 	threshold := window - r.compaction.ReserveTokens
 	if !force && used <= threshold {
 		return false, nil

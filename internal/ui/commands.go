@@ -362,6 +362,7 @@ func (m Model) resume(args []string) (tea.Model, tea.Cmd) {
 	m.transcript.reset()
 	m.contextTokens = -1
 	m.applyHistory(m.runtime.SessionHistory())
+	m.seedContextUsage()
 	m.input.Reset()
 	m.history.resetPosition()
 	m.syncRuntimeState()

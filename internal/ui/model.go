@@ -29,6 +29,9 @@ type Runtime interface {
 	Sessions() ([]session.Summary, error)
 	SessionID() typedid.SessionID
 	SessionHistory() []session.Entry
+	// ContextUsage reports the last provider-reported context size and whether it
+	// is known, so a resumed session can show it instead of an unknown value.
+	ContextUsage() (int, bool)
 	KillShell() bool
 }
 
@@ -91,6 +94,7 @@ func New(cwd, configPath string, runtime Runtime, historyStore *history.Store, e
 	if history := runtime.SessionHistory(); len(history) > 0 {
 		model.applyHistory(history)
 		model.startAtBottom = true
+		model.seedContextUsage()
 	}
 	return model
 }
@@ -387,6 +391,18 @@ func waitRunEvent(events <-chan tea.Msg) tea.Cmd {
 }
 
 func (m *Model) syncRuntimeState() { m.active = m.runtime.State().Active }
+
+// seedContextUsage adopts the live session's last provider-reported context size
+// so a resumed conversation shows it instead of the unknown placeholder. It
+// leaves contextTokens at -1 when no reported usage applies.
+func (m *Model) seedContextUsage() {
+	if tokens, ok := m.runtime.ContextUsage(); ok {
+		m.contextTokens = tokens
+		m.contextApprox = false
+		return
+	}
+	m.contextTokens = -1
+}
 
 // anchorStartAtBottom consumes the one-shot startup request to scroll to the
 // end of a resumed transcript. It runs once the viewport has a height, so the
