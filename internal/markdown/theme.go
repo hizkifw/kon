@@ -20,7 +20,10 @@
 // structure and inline markdown (emphasis, strong, inline code,
 // strikethrough, links, image alt text, autolinks) both produce tokens, and
 // Text node content is unescaped so entities and backslash escapes render as
-// their literal characters. Spans are emitted after wrapping, annotating
+// their literal characters. Adjacent blocks are separated by a blank line
+// (see appendBlocks), giving headings, paragraphs, lists, tables, quotes,
+// code, and rules room to breathe; the blank lines are output only and never
+// re-enter the parsed source. Spans are emitted after wrapping, annotating
 // whole display lines, so a span never crosses a line break. Raw HTML renders
 // as its literal text (a tag the model wrote shows as written); link
 // destinations are not surfaced (StyleLinkURL is reserved for a later pass).

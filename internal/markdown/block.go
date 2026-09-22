@@ -444,13 +444,12 @@ func (r *blockRenderer) renderBlock(n ast.Node, source []byte, end int) block {
 }
 
 // trimBlankEdges drops blank lines from the start and end of a block's lines.
-// Blank separators between blocks belong to the joiner (kon's transcript
-// joins slabs with a blank line), never to the block itself. Interior blanks
-// (fence content, loose-list item gaps) are content and are kept. This
-// canonicalization is also what makes streaming and from-scratch renders
-// converge: the frozen source range of a block can end just before or just
-// after its trailing blank line depending on when it froze, and the trim
-// erases exactly that difference.
+// Blank separators between blocks belong to the joiner (appendBlocks), never to
+// the block itself. Interior blanks (fence content, loose-list item gaps) are
+// content and are kept. This canonicalization is also what makes streaming and
+// from-scratch renders converge: the frozen source range of a block can end
+// just before or just after its trailing blank line depending on when it
+// froze, and the trim erases exactly that difference.
 func trimBlankEdges(lines []Line) []Line {
 	start, end := 0, len(lines)
 	for start < end && strings.TrimSpace(lines[start].Text) == "" {
@@ -460,6 +459,34 @@ func trimBlankEdges(lines []Line) []Line {
 		end--
 	}
 	return lines[start:end]
+}
+
+// blockSeparatorLines is the blank-line padding inserted between adjacent
+// markdown blocks, so the rendered message breathes: a blank line between
+// paragraphs and around headings, lists, tables, quotes, code, and rules.
+const blockSeparatorLines = 1
+
+// appendBlocks concatenates rendered blocks onto lines, inserting
+// blockSeparatorLines blank lines before each block that follows emitted
+// output. It is the single place inter-block spacing is decided, used by every
+// assembly path (Render, the frozen prefix, the live tail), so the streaming
+// view stays byte-for-byte identical to a from-scratch render. Blank lines are
+// pure output: they never re-enter the source, so freezing and boundaries are
+// unaffected. A block that renders no lines collapses without leaving a
+// separator behind.
+func appendBlocks(lines []Line, blocks []block) []Line {
+	for _, b := range blocks {
+		if len(lines) > 0 && len(b.lines) > 0 {
+			lines = append(lines, separatorLines()...)
+		}
+		lines = append(lines, b.lines...)
+	}
+	return lines
+}
+
+// separatorLines returns blockSeparatorLines blank display lines.
+func separatorLines() []Line {
+	return make([]Line, blockSeparatorLines)
 }
 
 // tableLines renders a GFM table as "cell cell cell" rows. The header row is
@@ -629,12 +656,21 @@ func cloneSpans(spans []Styled) []Styled {
 	return append([]Styled(nil), spans...)
 }
 
+// quoteLines renders a blockquote's inner blocks with a gutter bar prefix,
+// inserting a bar-only blank line between inner blocks so multi-paragraph
+// quotes read with the same breathing room as top-level blocks.
 func quoteLines(inner []block, theme Theme) []Line {
+	bar := "▏"
+	mark := theme.Resolve(StyleQuoteMark)
 	var out []Line
 	for _, blk := range inner {
+		if len(out) > 0 && len(blk.lines) > 0 {
+			for range blockSeparatorLines {
+				out = append(out, Line{Text: bar, Spans: []Styled{{Text: bar, Style: mark}}})
+			}
+		}
 		for _, line := range blk.lines {
-			bar := "▏"
-			spans := append([]Styled{{Text: bar, Style: theme.Resolve(StyleQuoteMark)}}, cloneSpans(line.Spans)...)
+			spans := append([]Styled{{Text: bar, Style: mark}}, cloneSpans(line.Spans)...)
 			out = append(out, Line{Text: bar + " " + line.Text, Spans: spans})
 		}
 	}

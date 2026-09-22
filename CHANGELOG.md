@@ -11,9 +11,11 @@
   emphasis, strong, inline code, strikethrough, and links styled through the
   transcript palette (bold, italic, underline, and dedicated colors). Text
   entities and backslash escapes render as their literal characters, and raw
-  HTML shows as written rather than being interpreted or dropped. The
-  formatting appears incrementally as a message streams and does not shift
-  when the message finalizes into history.
+  HTML shows as written rather than being interpreted or dropped. Adjacent
+  blocks are separated by a blank line, so headings, paragraphs, lists,
+  tables, quotes, code, and rules have breathing room (multi-paragraph quotes
+  get a bar-only separator). The formatting appears incrementally as a message
+  streams and does not shift when the message finalizes into history.
 - A streaming markdown core (`internal/markdown`) backs the transcript
   rendering above, built on goldmark with GFM tables, strikethrough, task
   lists, and autolinks. It renders CommonMark blocks into wrapped display

@@ -76,7 +76,15 @@ func TestRenderBasics(t *testing.T) {
 		}, 40},
 		{"soft break joins", "one\ntwo", []string{"one two"}, 40},
 		{"hard break keeps", "one  \ntwo", []string{"one", "two"}, 40},
-		{"two paragraphs", "first\n\nsecond", []string{"first", "second"}, 40},
+		{"two paragraphs", "first\n\nsecond", []string{"first", "", "second"}, 40},
+		{"heading then para", "# Title\n\nbody text", []string{"Title", "", "body text"}, 40},
+		{"para then list", "intro\n\n- a\n- b", []string{"intro", "", "• a", "• b"}, 40},
+		{"list then para", "- a\n- b\n\nafter", []string{"• a", "• b", "", "after"}, 40},
+		{"para then table", "intro\n\n| a | b |\n|---|---|\n| 1 | 2 |", []string{"intro", "", "a  b", "1  2"}, 40},
+		{"para then quote", "intro\n\n> quoted", []string{"intro", "", "▏ quoted"}, 40},
+		{"para then fence", "intro\n\n```go\nx()\n```", []string{"intro", "", "x()"}, 40},
+		{"quote two paras", "> one\n>\n> two", []string{"▏ one", "▏", "▏ two"}, 40},
+		{"three blocks", "# H\n\npara\n\n- a", []string{"H", "", "para", "", "• a"}, 40},
 		{"setext", "Title\n=====", []string{"Title"}, 40},
 		{"strikethrough para", "~~gone~~", []string{"gone"}, 40},
 		{"table", "| a | b |\n|---|---|\n| 1 | 2 |", []string{"a  b", "1  2"}, 40},
@@ -242,6 +250,52 @@ func TestStripperDropsOSC8(t *testing.T) {
 		}
 		if got := b.String(); got != "ab" {
 			t.Fatalf("chunk=%d got=%q want=%q", chunk, got, "ab")
+		}
+	}
+}
+
+// TestBlockSpacing checks that adjacent top-level blocks are separated by a
+// blank line (and a single block is not padded), covering headings, lists,
+// tables, quotes, code, and rules.
+func TestBlockSpacing(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want []string
+	}{
+		{
+			"heading body list table quote fence",
+			"# H\n\npara\n\n- a\n- b\n\n| x |\n|---|\n| 1 |\n\n> q\n\n```\nc\n```",
+			[]string{"H", "", "para", "", "• a", "• b", "", "x", "1", "", "▏ q", "", "c"},
+		},
+		{"single block no pad", "only one paragraph", []string{"only one paragraph"}},
+		{"rule between paras", "a\n\n---\n\nb", []string{"a", "", strings.Repeat("─", 40), "", "b"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := lineTexts(Render(tc.in, testTheme, 40))
+			if !equalSlices(got, tc.want) {
+				t.Fatalf("input=%q\n got=%q\nwant=%q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestBlockSpacingStreamConverges checks spacing survives streaming: the
+// unfinished view (frozen + pending) equals a from-scratch render at every
+// frame, including the blank lines between blocks.
+func TestBlockSpacingStreamConverges(t *testing.T) {
+	doc := "# H\n\none\n\ntwo\n\n- a\n- b\n\n| x |\n|---|\n| 1 |\n\n> q\n\nend"
+	for _, width := range []int{20, 40} {
+		s := NewStream(testTheme, width)
+		for i := 0; i < len(doc); i++ {
+			end := i + 1
+			s.Write(doc[i:end])
+			got := lineTexts(streamView(s))
+			want := lineTexts(Render(doc[:end], testTheme, width))
+			if !equalSlices(got, want) {
+				t.Fatalf("width=%d offset=%d doc=%q\n got=%q\nwant=%q", width, end, doc[:end], got, want)
+			}
 		}
 	}
 }

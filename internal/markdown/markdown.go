@@ -141,16 +141,18 @@ func (s *Stream) reparse() {
 	} else {
 		closed = r.renderClosed(parse(tail), tail)
 	}
-	for _, b := range closed {
-		b.end += boundary
-		s.blocks = append(s.blocks, b)
-		s.lines = append(s.lines, b.lines...)
+	for i := range closed {
+		closed[i].end += boundary
 	}
+	s.blocks = append(s.blocks, closed...)
+	s.lines = appendBlocks(s.lines, closed)
 	s.frozenN = len(s.lines)
 }
 
 // tailLines renders the still-open portion after the frozen prefix. After
-// Finish the tail is empty: everything froze.
+// Finish the tail is empty: everything froze. A separator precedes the tail
+// when the frozen prefix already emitted output, so the concatenation
+// Lines()+Pending() keeps the same inter-block spacing as a lone join.
 func (s *Stream) tailLines() []Line {
 	if s.done {
 		return nil
@@ -160,9 +162,9 @@ func (s *Stream) tailLines() []Line {
 		return nil
 	}
 	r := newBlockRenderer(s.theme, s.width)
-	var lines []Line
-	for _, b := range r.renderAll(parse(tail), tail) {
-		lines = append(lines, b.lines...)
+	lines := appendBlocks(nil, r.renderAll(parse(tail), tail))
+	if len(lines) > 0 && len(s.lines) > 0 {
+		lines = append(separatorLines(), lines...)
 	}
 	return lines
 }
@@ -174,10 +176,7 @@ func (s *Stream) tailLines() []Line {
 func Render(text string, theme Theme, width int) []Line {
 	r := newBlockRenderer(theme, width)
 	source := []byte(text)
-	var lines []Line
-	for _, b := range r.renderAll(parse(source), source) {
-		lines = append(lines, b.lines...)
-	}
+	lines := appendBlocks(nil, r.renderAll(parse(source), source))
 	if len(lines) == 0 {
 		lines = []Line{Plain("")}
 	}
