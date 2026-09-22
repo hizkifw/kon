@@ -5,15 +5,28 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/hizkifw/kon/internal/app"
 	"github.com/hizkifw/kon/internal/config"
 	"github.com/hizkifw/kon/internal/history"
+	"github.com/hizkifw/kon/internal/typedid"
 	"github.com/hizkifw/kon/internal/ui"
 )
 
 var version = "dev"
+
+const usage = `usage: kon [--resume [<id>]] [--help] [--version]
+
+Start a full-screen kon agent session in the current directory.
+
+  --resume, -r          resume the most recent session in this directory
+  --resume=<id>         resume a specific session
+  --help, -h            show this help
+  --version             print the version
+
+On exit, kon prints the session ID so the session can be resumed later.`
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
@@ -23,17 +36,39 @@ func main() {
 }
 
 func run(args []string) error {
-	if len(args) > 0 {
-		if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") {
-			fmt.Println("usage: kon [--help] [--version]\n\nStart a new full-screen kon agent session in the current directory.")
+	resume := false
+	resumeID := ""
+	for i := 0; i < len(args); i++ {
+		switch arg := args[i]; {
+		case arg == "-h" || arg == "--help":
+			fmt.Println(usage)
 			return nil
-		}
-		if len(args) == 1 && args[0] == "--version" {
+		case arg == "--version":
 			fmt.Println("kon " + version)
 			return nil
+		case arg == "--resume" || arg == "-r":
+			resume = true
+			// A bare session ID may follow the flag: "kon --resume ses_...".
+			if i+1 < len(args) && strings.HasPrefix(args[i+1], "ses_") {
+				i++
+				resumeID = args[i]
+			}
+		case strings.HasPrefix(arg, "--resume="):
+			resume, resumeID = true, strings.TrimPrefix(arg, "--resume=")
+		default:
+			return fmt.Errorf("unknown argument %q (try --help)", args[0])
 		}
-		return fmt.Errorf("unknown argument %q (try --help)", args[0])
 	}
+
+	var id typedid.SessionID
+	if resumeID != "" {
+		parsed, err := typedid.ParseSessionID(resumeID)
+		if err != nil {
+			return err
+		}
+		id = parsed
+	}
+
 	paths, err := config.ResolvePaths()
 	if err != nil {
 		return err
@@ -55,12 +90,27 @@ func run(args []string) error {
 		return err
 	}
 
-	runtime, err := app.New(cfg, paths, cwd, version)
+	var runtime *app.Runtime
+	switch {
+	case resumeID != "":
+		runtime, err = app.NewResumedID(cfg, paths, cwd, version, id)
+	case resume:
+		runtime, err = app.NewResumed(cfg, paths, cwd, version)
+	default:
+		runtime, err = app.New(cfg, paths, cwd, version)
+	}
 	if err != nil {
 		return err
 	}
 	model := ui.New(cwd, paths.ConfigFile, runtime, historyStore, historyEntries)
 	program := tea.NewProgram(model)
 	_, runErr := program.Run()
-	return errors.Join(runErr, runtime.Close())
+	// Capture the session ID before closing the runtime; Close releases the
+	// store that owns the header.
+	sessionID := runtime.SessionID()
+	closeErr := runtime.Close()
+	if !sessionID.IsZero() {
+		fmt.Fprintf(os.Stderr, "\nresume with: kon --resume %s\n", sessionID)
+	}
+	return errors.Join(runErr, closeErr)
 }

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/hizkifw/kon/internal/typedid"
 )
 
 // argument describes one positional argument accepted by a slash command.
@@ -211,6 +212,18 @@ func defaultRegistry() *registry {
 			return m.switchModel(args[0])
 		},
 	})
+	registry.register(slashCommand{
+		name:    "resume",
+		summary: "resume a previous session",
+		arguments: []argument{{
+			name:     "id",
+			optional: true,
+			complete: completeSessionIDs,
+		}},
+		run: func(m Model, args []string) (tea.Model, tea.Cmd) {
+			return m.resume(args)
+		},
+	})
 	return registry
 }
 
@@ -275,6 +288,90 @@ func (m Model) switchModel(name string) (tea.Model, tea.Cmd) {
 	m.input.Reset()
 	m.status = "model: " + name + " (saved to config)"
 	m.transcript.add(block{kind: blockModel, text: m.active.Name + "  " + m.active.Provider + "/" + m.active.ExternalID})
+	m.refreshTranscript(true)
+	return m, nil
+}
+
+// completeSessionIDs suggests resumable sessions for this workspace, newest
+// first, with a short creation time as the description.
+func completeSessionIDs(m Model, prefix string) []menuItem {
+	summaries, err := m.runtime.Sessions()
+	if err != nil {
+		return nil
+	}
+	var candidates []menuItem
+	for _, summary := range summaries {
+		id := summary.ID.String()
+		if !strings.HasPrefix(id, prefix) {
+			continue
+		}
+		candidates = append(candidates, menuItem{
+			Value:       id,
+			Description: summary.CreatedAt.Local().Format("2006-01-02 15:04"),
+		})
+	}
+	return candidates
+}
+
+// resume switches to a persisted session. With no argument it lists the
+// candidates; with an ID it resumes that session and replays it into the
+// transcript.
+func (m Model) resume(args []string) (tea.Model, tea.Cmd) {
+	if len(args) == 0 {
+		return m.listSessions()
+	}
+	id, err := typedid.ParseSessionID(args[0])
+	if err != nil {
+		m.input.Reset()
+		m.status = "error: " + err.Error()
+		return m, nil
+	}
+	if current := m.runtime.SessionID(); current == id {
+		m.input.Reset()
+		m.status = "already on " + id.String()
+		return m, nil
+	}
+	if err := m.runtime.Resume(id); err != nil {
+		m.input.Reset()
+		m.status = "error: " + err.Error()
+		return m, nil
+	}
+	m.transcript.reset()
+	m.contextTokens = -1
+	m.applyHistory(m.runtime.SessionHistory())
+	m.input.Reset()
+	m.history.resetPosition()
+	m.syncRuntimeState()
+	m.status = "resumed " + id.String()
+	m.refreshTranscript(true)
+	m.viewport.GotoBottom()
+	return m, nil
+}
+
+// listSessions renders the resumable sessions for this workspace.
+func (m Model) listSessions() (tea.Model, tea.Cmd) {
+	summaries, err := m.runtime.Sessions()
+	if err != nil {
+		m.input.Reset()
+		m.status = "error: " + err.Error()
+		return m, nil
+	}
+	m.input.Reset()
+	current := m.runtime.SessionID().String()
+	if len(summaries) == 0 {
+		m.status = "no sessions to resume"
+		return m, nil
+	}
+	lines := make([]string, 0, len(summaries))
+	for _, summary := range summaries {
+		marker := "  "
+		if summary.ID.String() == current {
+			marker = "* "
+		}
+		lines = append(lines, marker+summary.ID.String()+"  "+summary.CreatedAt.Local().Format("2006-01-02 15:04"))
+	}
+	m.transcript.add(block{kind: blockModels, text: strings.Join(lines, "\n")})
+	m.status = "resume with /resume [id]"
 	m.refreshTranscript(true)
 	return m, nil
 }

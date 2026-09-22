@@ -18,7 +18,9 @@ app runtime ────── agent runner ───── provider layer
 ## Runtime flow
 
 1. Resolve configuration and data roots. Create only missing files.
-2. Create a cwd-scoped session and persist the exact system prompt.
+2. Create a cwd-scoped session and persist the exact system prompt. With
+   `--resume`, open the newest existing session for the directory (or a named
+   one) instead of creating a session, and replay its active path for display.
 3. Render the alternate-screen TUI. No provider request occurs during startup.
 4. Persist a submitted user message before starting network work.
 5. Stream one assistant message. A completed message is persisted atomically as
@@ -35,7 +37,9 @@ kon owns orchestration, persistence, and compaction.
 The app runtime is the sole owner of the live store and runner. A new session is
 fully prepared before it replaces the current one, so creation failures leave
 the current session usable. Its explicit phase distinguishes ready, running,
-configuration-required, and closed states.
+configuration-required, and closed states. Resume follows the same rule: the
+target session is opened and validated before the current store is closed, and
+only sessions in the working directory's session folder are eligible.
 
 The UI and runtime communicate through typed events and operations. Typed
 transcript blocks own labels and rendering, prompt history owns recall state,

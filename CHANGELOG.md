@@ -12,6 +12,13 @@
   Commands are only recognized at the start of the prompt.
 - The suggestion popup is a reusable `ui.menu` widget driven by a `menuSource`,
   so future pickers can reuse the same rendering and key handling.
+- Sessions can be resumed. `kon --resume` reopens the newest session for the
+  current directory after replaying its conversation into the transcript;
+  `--resume <id>` opens a specific session. The `/resume` command lists sessions
+  for the current directory and `/resume <id>` switches to one in place, and
+  `/resume <id>` autocompletes from stored session IDs.
+- On exit kon prints a `kon --resume <id>` hint so the conversation can be
+  picked up again later.
 
 ### Changed
 

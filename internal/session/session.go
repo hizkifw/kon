@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -17,6 +18,10 @@ import (
 )
 
 const SchemaVersion = 1
+
+// fileSuffix ends every persisted session file. Names begin with a fixed-width
+// UTC timestamp, so lexical order is creation order.
+const fileSuffix = ".jsonl"
 
 type Usage struct {
 	PromptTokens     int `json:"prompt_tokens"`
@@ -160,13 +165,15 @@ type Store struct {
 }
 
 func New(root, cwd, appVersion, systemPrompt string) (*Store, error) {
+	dir, err := directoryFor(root, cwd)
+	if err != nil {
+		return nil, err
+	}
 	absCWD, err := filepath.Abs(cwd)
 	if err != nil {
 		return nil, fmt.Errorf("resolve working directory: %w", err)
 	}
 	absCWD = filepath.Clean(absCWD)
-	digest := sha256.Sum256([]byte(absCWD))
-	dir := filepath.Join(root, hex.EncodeToString(digest[:12]))
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("create session directory: %w", err)
 	}
@@ -176,7 +183,7 @@ func New(root, cwd, appVersion, systemPrompt string) (*Store, error) {
 		return nil, err
 	}
 	now := time.Now().UTC()
-	name := now.Format("20060102T150405.000Z") + "_" + sessionID.String() + ".jsonl"
+	name := now.Format("20060102T150405.000Z") + "_" + sessionID.String() + fileSuffix
 	path := filepath.Join(dir, name)
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
@@ -274,8 +281,141 @@ func Open(path string) (*Store, error) {
 	return s, nil
 }
 
+// Summary describes a persisted session without opening it for append.
+type Summary struct {
+	ID        typedid.SessionID
+	Path      string
+	CWD       string
+	CreatedAt time.Time
+	Entries   int
+}
+
+// Discover lists every readable session recorded for cwd, newest first. The
+// cwd-scoped directory is derived the same way New derives its target, so a
+// session is visible here exactly when a future New in cwd would be able to
+// resume it. Files that are not valid sessions are skipped.
+func Discover(root, cwd string) ([]Summary, error) {
+	dir, err := directoryFor(root, cwd)
+	if err != nil {
+		return nil, err
+	}
+	dirEntries, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("list sessions: %w", err)
+	}
+	names := make([]string, 0, len(dirEntries))
+	for _, entry := range dirEntries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), fileSuffix) {
+			names = append(names, entry.Name())
+		}
+	}
+	// Timestamp-prefixed names sort chronologically; newest first matches how
+	// "/resume" presents choices.
+	sort.Sort(sort.Reverse(sort.StringSlice(names)))
+	summaries := make([]Summary, 0, len(names))
+	for _, name := range names {
+		summary, err := readSummary(filepath.Join(dir, name))
+		if err != nil {
+			// A single unreadable file must not hide the rest of the sessions.
+			continue
+		}
+		summaries = append(summaries, summary)
+	}
+	return summaries, nil
+}
+
+// Latest returns the most recently created session for cwd.
+func Latest(root, cwd string) (Summary, bool, error) {
+	summaries, err := Discover(root, cwd)
+	if err != nil {
+		return Summary{}, false, err
+	}
+	if len(summaries) == 0 {
+		return Summary{}, false, nil
+	}
+	return summaries[0], true, nil
+}
+
+// Find returns the session for cwd whose ID matches. Only the current working
+// directory is searched because session IDs are meaningful only within it.
+func Find(root, cwd string, id typedid.SessionID) (Summary, error) {
+	summaries, err := Discover(root, cwd)
+	if err != nil {
+		return Summary{}, err
+	}
+	for _, summary := range summaries {
+		if summary.ID == id {
+			return summary, nil
+		}
+	}
+	return Summary{}, fmt.Errorf("session %s not found for this workspace", id)
+}
+
+// readSummary parses just enough of a session file to describe it. It reads the
+// header directly and counts entries, so it never opens the file for append.
+func readSummary(path string) (Summary, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return Summary{}, err
+	}
+	lines := strings.Split(string(b), "\n")
+	last := len(lines) - 1
+	for last >= 0 && strings.TrimSpace(lines[last]) == "" {
+		last--
+	}
+	if last < 0 {
+		return Summary{}, errors.New("empty session")
+	}
+	var header Header
+	if err := json.Unmarshal([]byte(lines[0]), &header); err != nil {
+		return Summary{}, fmt.Errorf("parse session header: %w", err)
+	}
+	if header.Type != "session" || header.ID.IsZero() || header.Version != SchemaVersion {
+		return Summary{}, errors.New("invalid session header")
+	}
+	count := 0
+	for i := 1; i <= last; i++ {
+		if strings.TrimSpace(lines[i]) != "" {
+			count++
+		}
+	}
+	return Summary{ID: header.ID, Path: path, CWD: header.CWD, CreatedAt: header.Timestamp, Entries: count}, nil
+}
+
+// directoryFor resolves the cwd-scoped session directory used by New.
+func directoryFor(root, cwd string) (string, error) {
+	absCWD, err := filepath.Abs(cwd)
+	if err != nil {
+		return "", fmt.Errorf("resolve working directory: %w", err)
+	}
+	absCWD = filepath.Clean(absCWD)
+	digest := sha256.Sum256([]byte(absCWD))
+	return filepath.Join(root, hex.EncodeToString(digest[:12])), nil
+}
+
 func (s *Store) Path() string { return s.path }
 func (s *Store) CWD() string  { return s.header.CWD }
+
+// ID is the stable session identifier persisted in the header.
+func (s *Store) ID() typedid.SessionID { return s.header.ID }
+
+// CreatedAt is the session's creation time from the header.
+func (s *Store) CreatedAt() time.Time { return s.header.Timestamp }
+
+// ActivePath returns the entries from the root to the active leaf in
+// conversation order. It is a snapshot used for read-only display.
+func (s *Store) ActivePath() []Entry {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	path, err := s.activePathLocked()
+	if err != nil {
+		return nil
+	}
+	return path
+}
 
 func (s *Store) Close() error {
 	s.mu.Lock()
