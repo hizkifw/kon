@@ -34,9 +34,10 @@ func (m *Model) refreshTranscript(toBottom bool) {
 }
 
 func (m Model) View() tea.View {
-	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15")).Background(lipgloss.Color("4")).Width(max(1, m.width))
-	statusStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("7")).Width(max(1, m.width))
-	header := " kon"
+	barBg := lipgloss.Color("#1C1C1C")
+	headerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#C8C8C8")).Background(barBg).Width(max(1, m.width))
+	statusStyle := lipgloss.NewStyle().Foreground(colorFaint).Background(barBg).Width(max(1, m.width))
+	header := accentBrand(" kon")
 	if m.active.Name != "" {
 		header += " · " + m.active.Name
 	}
@@ -63,6 +64,11 @@ func (m Model) View() tea.View {
 	view.MouseMode = tea.MouseModeCellMotion
 	view.WindowTitle = "kon"
 	return view
+}
+
+// accentBrand paints the "kon" wordmark in the muted red accent.
+func accentBrand(s string) string {
+	return lipgloss.NewStyle().Bold(true).Foreground(colorAccent).Render(s)
 }
 
 func fitLine(value string, width int) string {

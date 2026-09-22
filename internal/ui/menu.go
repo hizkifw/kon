@@ -62,8 +62,8 @@ func (m menu) render(width int) string {
 	if !m.open() {
 		return ""
 	}
-	selected := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15")).Background(lipgloss.Color("4"))
-	description := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	selected := lipgloss.NewStyle().Foreground(lipgloss.Color("#DADADA")).Background(lipgloss.Color("#333333"))
+	description := lipgloss.NewStyle().Foreground(colorFaint)
 	// Keep the selected row visible when the list is longer than the window.
 	start := 0
 	if m.index >= maxMenuRows {
