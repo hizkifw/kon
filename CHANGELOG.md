@@ -33,6 +33,10 @@
   boundary, with the summary instructions appended as one trailing user message.
   Only emergency overflow compaction, which no longer fits the window, falls back
   to an isolated request.
+- Resuming a session restores the last provider-reported context size, so the
+  status line shows the real token count instead of `ctx ?` until the next turn.
+  Usage was already persisted on each assistant message; it is now re-seeded when
+  the session is reopened, for both the indicator and the compaction threshold.
 - kon now owns the OpenAI Chat Completions wire format directly and the goai
   dependency is gone. The provider layer builds request messages, parses SSE
   deltas, and assembles tool calls in-tree, and reports usage exactly as the

@@ -167,6 +167,43 @@ func TestResumeSwitchesToPersistedSession(t *testing.T) {
 	}
 }
 
+func TestResumeReportsPersistedContextUsage(t *testing.T) {
+	dir := t.TempDir()
+	paths := config.Paths{Sessions: filepath.Join(dir, "sessions"), ConfigFile: filepath.Join(dir, "config.json")}
+	cwd := t.TempDir()
+	cfg := config.Default()
+	cfg.Models[0].ModelID = "gpt-4o"
+	runtime, err := New(cfg, paths, cwd, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+
+	other, err := session.New(paths.Sessions, cwd, "test", "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := other.ID()
+	if _, err := other.AppendMessage(session.Message{Role: session.RoleUser, Content: "resume me"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := other.AppendMessage(session.Message{
+		Role: session.RoleAssistant, Content: "done",
+		Usage: &session.Usage{PromptTokens: 1200, CompletionTokens: 30, TotalTokens: 1230},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	other.Close()
+
+	if err := runtime.Resume(target); err != nil {
+		t.Fatal(err)
+	}
+	tokens, ok := runtime.ContextUsage()
+	if !ok || tokens != 1230 {
+		t.Fatalf("ContextUsage = (%d, %v), want (1230, true)", tokens, ok)
+	}
+}
+
 func TestResumeUnknownSessionKeepsCurrent(t *testing.T) {
 	dir := t.TempDir()
 	paths := config.Paths{Sessions: filepath.Join(dir, "sessions"), ConfigFile: filepath.Join(dir, "config.json")}

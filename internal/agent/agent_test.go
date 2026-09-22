@@ -68,6 +68,53 @@ func TestRunnerCompactsOlderTurnsBeforeRequest(t *testing.T) {
 	}
 }
 
+func TestNewSeedsUsageFromPersistedAssistantMessages(t *testing.T) {
+	dir := t.TempDir()
+	store, err := session.New(dir, dir, "test", "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := store.Path()
+	if _, err := store.AppendMessage(session.Message{Role: session.RoleUser, Content: "hi"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AppendMessage(session.Message{
+		Role: session.RoleAssistant, Content: "answer",
+		Usage: &session.Usage{PromptTokens: 900, CompletionTokens: 40, TotalTokens: 940},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	store.Close()
+
+	reopened, err := session.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	cfg := config.Default()
+	runner := New(cfg.Models[0], cfg.Compaction, &fakeProvider{}, reopened, tools.New(t.TempDir()))
+	tokens, ok := runner.ContextUsage()
+	if !ok || tokens != 940 {
+		t.Fatalf("ContextUsage = (%d, %v), want (940, true)", tokens, ok)
+	}
+}
+
+func TestContextUsageUnknownBeforeFirstReport(t *testing.T) {
+	store, err := session.New(t.TempDir(), t.TempDir(), "test", "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if _, err := store.AppendMessage(session.Message{Role: session.RoleUser, Content: "hi"}); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	runner := New(cfg.Models[0], cfg.Compaction, &fakeProvider{}, store, tools.New(t.TempDir()))
+	if tokens, ok := runner.ContextUsage(); ok {
+		t.Fatalf("ContextUsage = (%d, true), want unknown", tokens)
+	}
+}
+
 type reasoningProvider struct{}
 
 func (reasoningProvider) Stream(_ context.Context, _ []session.Message, _ []provider.Tool, emit func(provider.Event)) (session.Message, error) {

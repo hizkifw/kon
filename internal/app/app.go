@@ -321,6 +321,18 @@ func (r *Runtime) SessionHistory() []session.Entry {
 	return r.store.ActivePath()
 }
 
+// ContextUsage reports the current context size in tokens and whether that value
+// is known. A resumed session carries the last provider-reported count so the
+// status line shows it instead of an unknown placeholder.
+func (r *Runtime) ContextUsage() (int, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.runner == nil {
+		return 0, false
+	}
+	return r.runner.ContextUsage()
+}
+
 // Resume replaces the live session with the persisted session named by id. The
 // replacement is fully opened and validated before the current session is
 // closed, so a failure leaves the current session usable.

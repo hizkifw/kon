@@ -15,13 +15,15 @@ import (
 )
 
 type fakeRuntime struct {
-	state     app.State
-	models    []app.Model
-	kills     int
-	killFails bool
-	sessions  []session.Summary
-	entries   []session.Entry
-	id        typedid.SessionID
+	state         app.State
+	models        []app.Model
+	kills         int
+	killFails     bool
+	sessions      []session.Summary
+	entries       []session.Entry
+	id            typedid.SessionID
+	contextTokens int
+	contextKnown  bool
 }
 
 func (f *fakeRuntime) Models() []app.Model                                  { return f.models }
@@ -34,6 +36,7 @@ func (f *fakeRuntime) Resume(id typedid.SessionID) error                    { f.
 func (f *fakeRuntime) Sessions() ([]session.Summary, error)                 { return f.sessions, nil }
 func (f *fakeRuntime) SessionID() typedid.SessionID                         { return f.id }
 func (f *fakeRuntime) SessionHistory() []session.Entry                      { return f.entries }
+func (f *fakeRuntime) ContextUsage() (int, bool)                            { return f.contextTokens, f.contextKnown }
 func (f *fakeRuntime) SwitchModel(name string) error {
 	for _, model := range f.models {
 		if model.Name == name {
@@ -690,6 +693,31 @@ func TestResumeCommandReplaysSession(t *testing.T) {
 	}
 	if got.status != "resumed "+id.String() {
 		t.Fatalf("status = %q", got.status)
+	}
+}
+
+func TestResumeAdoptsPersistedContextUsage(t *testing.T) {
+	id, err := typedid.ParseSessionID("ses_00000000000000000000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	models := []app.Model{{Name: "fast", Provider: "openai", ExternalID: "gpt"}}
+	runtime := &fakeRuntime{
+		state:         app.State{Active: models[0], Phase: app.PhaseReady},
+		models:        models,
+		sessions:      []session.Summary{{ID: id}},
+		entries:       []session.Entry{{Message: &session.Message{Role: session.RoleUser, Content: "hi"}}},
+		contextTokens: 4321,
+		contextKnown:  true,
+	}
+	m := New("/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
+	m.width, m.height = 80, 24
+	m.resize()
+
+	updated, _ := m.resume([]string{id.String()})
+	got := updated.(Model)
+	if got.contextTokens != 4321 {
+		t.Fatalf("contextTokens = %d, want 4321", got.contextTokens)
 	}
 }
 
