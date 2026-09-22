@@ -19,6 +19,8 @@
   `/resume <id>` autocompletes from stored session IDs.
 - On exit kon prints a `kon --resume <id>` hint so the conversation can be
   picked up again later.
+- The `/compact` command summarizes older context on demand, using the same
+  boundary rules and durable summary entry as automatic compaction.
 
 ### Changed
 

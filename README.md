@@ -112,7 +112,8 @@ with owner-only permissions where the platform supports them.
 profile without starting a new session. Model changes are written to the
 session log. `/resume` lists the sessions recorded for the working directory,
 and `/resume <id>` reopens one and replays its conversation into the transcript.
-Unknown slash commands are never sent to a provider.
+`/compact` summarizes older context immediately instead of waiting for the
+automatic threshold. Unknown slash commands are never sent to a provider.
 
 Typing `/` at the start of the prompt opens a popup listing the available
 commands, with the first entry already selected. Tab (or Enter) fills in the
@@ -149,7 +150,10 @@ When context exceeds `context_window_tokens - reserve_tokens`, kon summarizes
 older complete turns and keeps approximately `keep_recent_tokens`. Summaries
 are stored as new session entries; original entries are never deleted. A failed
 compaction stops the run instead of discarding context. Provider-reported
-context-overflow errors cause one compaction and one retry.
+context-overflow errors cause one compaction and one retry. `/compact` triggers
+the same summarization on demand regardless of the threshold; when the
+conversation is too short to split safely it reports that there is nothing to
+compact.
 
 See [Architecture](docs/architecture.md), [Development](docs/development.md),
 and [Session format](docs/session-format.md) for implementation contracts.

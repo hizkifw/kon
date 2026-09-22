@@ -22,6 +22,7 @@ type Runtime interface {
 	Models() []app.Model
 	State() app.State
 	Run(context.Context, string, func(agent.Event)) error
+	Compact(context.Context, func(agent.Event)) error
 	SwitchModel(string) error
 	NewSession() error
 	Resume(typedid.SessionID) error
@@ -121,11 +122,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case runDoneMsg:
 		m.busy, m.runCancel, m.runEvents, m.cancelRequested = false, nil, nil, false
-		if msg.err == nil {
+		switch {
+		case msg.err == nil:
 			m.status = "ready"
-		} else if errors.Is(msg.err, context.Canceled) {
+		case errors.Is(msg.err, context.Canceled):
 			m.status = "cancelled"
-		} else {
+		case errors.Is(msg.err, agent.ErrNothingToCompact):
+			m.status = "nothing to compact"
+		default:
 			m.status = "error: " + msg.err.Error()
 			m.transcript.add(block{kind: blockError, text: msg.err.Error()})
 		}
@@ -349,13 +353,23 @@ func (m Model) submit() (tea.Model, tea.Cmd) {
 	// Submitting is the user's own action: always show the new prompt, even
 	// if they were scrolled up reading the transcript.
 	m.viewport.GotoBottom()
-	m.busy, m.status, m.cancelRequested = true, "thinking…", false
+	return m.startRun("thinking…", func(ctx context.Context, emit func(agent.Event)) error {
+		return m.runtime.Run(ctx, text, emit)
+	})
+}
+
+// startRun marks the model busy and drives a runtime operation on a goroutine,
+// forwarding agent events into the transcript. It is shared by prompt
+// submission and manual compaction so both report progress and cancel the same
+// way.
+func (m Model) startRun(status string, fn func(context.Context, func(agent.Event)) error) (tea.Model, tea.Cmd) {
+	m.busy, m.status, m.cancelRequested = true, status, false
 	ctx, cancel := context.WithCancel(context.Background())
 	m.runCancel = cancel
 	m.runEvents = make(chan tea.Msg)
 	events := m.runEvents
 	go func() {
-		err := m.runtime.Run(ctx, text, func(event agent.Event) { events <- runEventMsg{event: event} })
+		err := fn(ctx, func(event agent.Event) { events <- runEventMsg{event: event} })
 		events <- runDoneMsg{err: err}
 		close(events)
 	}()

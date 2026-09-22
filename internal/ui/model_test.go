@@ -27,6 +27,7 @@ type fakeRuntime struct {
 func (f *fakeRuntime) Models() []app.Model                                  { return f.models }
 func (f *fakeRuntime) State() app.State                                     { return f.state }
 func (f *fakeRuntime) Run(context.Context, string, func(agent.Event)) error { return nil }
+func (f *fakeRuntime) Compact(context.Context, func(agent.Event)) error     { return nil }
 func (f *fakeRuntime) NewSession() error                                    { return nil }
 func (f *fakeRuntime) KillShell() bool                                      { f.kills++; return !f.killFails }
 func (f *fakeRuntime) Resume(id typedid.SessionID) error                    { f.id = id; return nil }
@@ -245,7 +246,11 @@ func newMultiModel(t testing.TB, names ...string) Model {
 func TestRegistryCompleteDispatchesToArgument(t *testing.T) {
 	m := newMultiModel(t, "fast", "review", "reason")
 
-	got := m.commands.completion(m, "/mo")
+	got := m.commands.completion(m, "/c")
+	if len(got) != 1 || got[0].Value != "/compact" {
+		t.Fatalf("command completion = %#v", got)
+	}
+	got = m.commands.completion(m, "/mo")
 	if len(got) != 1 || got[0].Value != "/model" {
 		t.Fatalf("command completion = %#v", got)
 	}
@@ -261,7 +266,7 @@ func TestRegistryCompleteDispatchesToArgument(t *testing.T) {
 func TestRegistryCompletesAllCommandsOnBareSlash(t *testing.T) {
 	m := newTestModel(t)
 	got := m.commands.completion(m, "/")
-	if len(got) != 3 || got[0].Value != "/new" || got[1].Value != "/model" || got[2].Value != "/resume" {
+	if len(got) != 4 || got[0].Value != "/new" || got[1].Value != "/model" || got[2].Value != "/resume" || got[3].Value != "/compact" {
 		t.Fatalf("bare slash completion = %#v", got)
 	}
 }
@@ -373,7 +378,7 @@ func TestMenuPopupAppearsOnLeadingSlashAndClears(t *testing.T) {
 	m := newTestModel(t)
 	typed, _ := m.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
 	m = typed.(Model)
-	if !m.menu.open() || len(m.menu.items) != 3 {
+	if !m.menu.open() || len(m.menu.items) != 4 {
 		t.Fatalf("popup did not open on slash: %#v", m.menu)
 	}
 	// Typing ordinary text mid-prompt closes the popup and offers nothing.
@@ -743,6 +748,44 @@ func TestFreshSessionDoesNotForceBottom(t *testing.T) {
 	m := newTestModel(t)
 	if m.startAtBottom {
 		t.Fatal("a fresh session requested an initial scroll to the bottom")
+	}
+}
+
+func TestCompactCommandStartsBusyRun(t *testing.T) {
+	m := newTestModel(t)
+	m.input.SetValue("/compact")
+	updated, cmd := m.submit()
+	got := updated.(Model)
+	if !got.busy || got.status != "compacting…" || got.runEvents == nil {
+		t.Fatalf("compact did not start a run: busy=%v status=%q", got.busy, got.status)
+	}
+	if cmd == nil {
+		t.Fatal("compact did not return a wait command")
+	}
+	if got.input.Value() != "" {
+		t.Fatalf("compact left input behind: %q", got.input.Value())
+	}
+}
+
+func TestCompactCommandRefusesWhileBusy(t *testing.T) {
+	m := newTestModel(t)
+	m.busy = true
+	updated, _ := m.compact()
+	if got := updated.(Model); got.status != "agent is busy; Ctrl+C cancels" {
+		t.Fatalf("status = %q", got.status)
+	}
+}
+
+func TestNothingToCompactIsNotAnError(t *testing.T) {
+	m := newTestModel(t)
+	m.busy = true
+	updated, _ := m.Update(runDoneMsg{err: agent.ErrNothingToCompact})
+	got := updated.(Model)
+	if got.status != "nothing to compact" {
+		t.Fatalf("status = %q", got.status)
+	}
+	if strings.Contains(plain(got.viewport.View()), "error") {
+		t.Fatalf("nothing-to-compact rendered as an error: %q", plain(got.viewport.View()))
 	}
 }
 

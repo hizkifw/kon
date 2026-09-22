@@ -229,6 +229,24 @@ func TestNewResumedWithoutSessionsStartsFresh(t *testing.T) {
 	}
 }
 
+func TestCompactRefusesWhileRunning(t *testing.T) {
+	store := testStore(t)
+	runtime := &Runtime{
+		active: config.Model{Name: "default", Provider: "openai", ModelID: "model"},
+		store:  store, phase: PhaseRunning,
+	}
+	if err := runtime.Compact(context.Background(), func(agent.Event) {}); !errors.Is(err, ErrBusy) {
+		t.Fatalf("Compact error = %v, want ErrBusy", err)
+	}
+}
+
+func TestCompactAfterCloseReportsClosed(t *testing.T) {
+	runtime := &Runtime{phase: PhaseClosed}
+	if err := runtime.Compact(context.Background(), func(agent.Event) {}); !errors.Is(err, ErrClosed) {
+		t.Fatalf("Compact error = %v, want ErrClosed", err)
+	}
+}
+
 func testStore(t *testing.T) *session.Store {
 	t.Helper()
 	store, err := session.New(t.TempDir(), t.TempDir(), "test", "system")

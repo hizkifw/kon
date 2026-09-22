@@ -72,6 +72,9 @@ compaction entry points to the first retained entry. Context projection combines
 
 Repeated compaction summarizes the previous summary together with newly aged
 messages. Original entries remain available for future tree navigation.
+Automatic compaction runs at the context threshold; the `/compact` command
+forces the same routine on demand, so both paths share one boundary policy and
+one durable summary entry format.
 
 Provider prompt usage is preferred when it covers the current context. Otherwise
 kon estimates serialized text and tool-schema bytes at four bytes per token and

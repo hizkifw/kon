@@ -19,6 +19,11 @@ type Provider interface {
 	Complete(context.Context, []session.Message, int) (session.Message, error)
 }
 
+// ErrNothingToCompact reports that the conversation has no safe cut point yet,
+// so a forced compaction (manual /compact or context-overflow recovery) cannot
+// make progress. It is not an operational failure.
+var ErrNothingToCompact = errors.New("nothing to compact")
+
 type EventKind int
 
 const (
@@ -158,6 +163,24 @@ func (r *Runner) messages() ([]session.Message, error) {
 		messages = append(messages, item.Message)
 	}
 	return messages, nil
+}
+
+// Compact forces a compaction of the current context regardless of the
+// configured threshold, appending a summary entry. It is the manual /compact
+// path. When the conversation is too short or too large to split safely it
+// returns ErrNothingToCompact.
+func (r *Runner) Compact(ctx context.Context, emit func(Event)) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	compacted, err := r.compactIfNeeded(ctx, true, emit)
+	if err != nil {
+		return err
+	}
+	if !compacted {
+		return ErrNothingToCompact
+	}
+	return nil
 }
 
 func (r *Runner) compactIfNeeded(ctx context.Context, force bool, emit func(Event)) (bool, error) {
