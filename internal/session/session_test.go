@@ -141,14 +141,98 @@ func TestCompactionProjectsRetainedMessages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(context) != 4 {
+		t.Fatalf("context has %d messages, want 4", len(context))
+	}
+	if context[0].Message.Content != "system prompt" {
+		t.Fatalf("system message was rewritten: %q", context[0].Message.Content)
+	}
+	if !context[1].Summary || !strings.Contains(context[1].Message.Content, "old work summary") {
+		t.Fatalf("compaction summary not projected as its own message: %#v", context[1])
+	}
+	if context[2].Message.Content != "new question" || context[3].Message.Content != "new answer" {
+		t.Fatalf("wrong retained messages: %#v", context)
+	}
+}
+
+// TestCompactionKeepsSystemPromptStable guards the prompt-cache contract: the
+// system message must stay byte-identical across repeated compactions so the
+// cached leading prefix survives.
+func TestCompactionKeepsSystemPromptStable(t *testing.T) {
+	store, err := New(t.TempDir(), t.TempDir(), "test", "stable system prompt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	for _, content := range []string{"q1", "a1", "q2", "a2"} {
+		role := RoleUser
+		if strings.HasPrefix(content, "a") {
+			role = RoleAssistant
+		}
+		if _, err := store.AppendMessage(Message{Role: role, Content: content}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	kept, err := store.AppendMessage(Message{Role: RoleUser, Content: "q3"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AppendCompaction("first summary", kept, 1000, false, nil); err != nil {
+		t.Fatal(err)
+	}
+	first, err := store.Context()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first[0].Message.Content != "stable system prompt" {
+		t.Fatalf("system prompt changed after first compaction: %q", first[0].Message.Content)
+	}
+	if _, err := store.AppendCompaction("second summary", kept, 2000, false, nil); err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.Context()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second[0].Message.Content != first[0].Message.Content {
+		t.Fatalf("system prompt changed between compactions: %q then %q", first[0].Message.Content, second[0].Message.Content)
+	}
+	if !strings.Contains(second[1].Message.Content, "second summary") {
+		t.Fatalf("newest summary not projected: %q", second[1].Message.Content)
+	}
+}
+
+// TestCompactionKeepsSummaryPrefixBeforeRetainedTail verifies the newest
+// compaction's summary is the first conversation message after the system
+// prompt, ahead of the retained tail.
+func TestCompactionKeepsSummaryPrefixBeforeRetainedTail(t *testing.T) {
+	store, err := New(t.TempDir(), t.TempDir(), "test", "system prompt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if _, err := store.AppendMessage(Message{Role: RoleUser, Content: "old"}); err != nil {
+		t.Fatal(err)
+	}
+	kept, err := store.AppendMessage(Message{Role: RoleUser, Content: "kept"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AppendCompaction("summary text", kept, 500, false, nil); err != nil {
+		t.Fatal(err)
+	}
+	context, err := store.Context()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(context) != 3 {
 		t.Fatalf("context has %d messages, want 3", len(context))
 	}
-	if !strings.Contains(context[0].Message.Content, "old work summary") {
-		t.Fatalf("system message lacks summary: %q", context[0].Message.Content)
+	if !context[1].Summary || !strings.Contains(context[1].Message.Content, "summary text") {
+		t.Fatalf("summary is not the first projected message: %#v", context[1])
 	}
-	if context[1].Message.Content != "new question" || context[2].Message.Content != "new answer" {
-		t.Fatalf("wrong retained messages: %#v", context)
+	if context[2].Message.Content != "kept" {
+		t.Fatalf("retained tail = %q, want %q", context[2].Message.Content, "kept")
 	}
 }
 

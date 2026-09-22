@@ -246,7 +246,7 @@ func TestChatCompleteMapsMessageAndUsage(t *testing.T) {
 			"usage": {"prompt_tokens": 50, "completion_tokens": 25, "total_tokens": 75}
 		}`)
 	})
-	response, err := model.Complete(context.Background(), []session.Message{{Role: session.RoleUser, Content: "hi"}}, 4096)
+	response, err := model.Complete(context.Background(), []session.Message{{Role: session.RoleUser, Content: "hi"}}, nil, 4096)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -264,12 +264,48 @@ func TestChatCompleteMapsMessageAndUsage(t *testing.T) {
 	}
 }
 
+func TestChatCompleteSendsToolsWithToolChoiceNone(t *testing.T) {
+	var body chatRequest
+	model := newTestModel(t, func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"choices":[{"index":0,"message":{"role":"assistant","content":"summary"},"finish_reason":"stop"}]}`)
+	})
+	toolList := []Tool{{Name: "read", Description: "read a file", Parameters: json.RawMessage(`{"type":"object"}`)}}
+	if _, err := model.Complete(context.Background(), []session.Message{{Role: session.RoleUser, Content: "hi"}}, toolList, 0); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Tools) != 1 || body.Tools[0].Function.Name != "read" {
+		t.Fatalf("tools = %#v", body.Tools)
+	}
+	if body.ToolChoice != "none" {
+		t.Fatalf("tool_choice = %q, want none", body.ToolChoice)
+	}
+}
+
+func TestChatCompleteOmitsToolsWhenEmpty(t *testing.T) {
+	var body chatRequest
+	model := newTestModel(t, func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"choices":[{"index":0,"message":{"role":"assistant","content":"summary"},"finish_reason":"stop"}]}`)
+	})
+	if _, err := model.Complete(context.Background(), []session.Message{{Role: session.RoleUser, Content: "hi"}}, nil, 0); err != nil {
+		t.Fatal(err)
+	}
+	if body.Tools != nil || body.ToolChoice != "" {
+		t.Fatalf("request = %#v", body)
+	}
+}
+
 func TestChatCompleteDerivesTotalTokens(t *testing.T) {
 	model := newTestModel(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"choices":[{"index":0,"message":{"role":"assistant","content":"done"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5}}`)
 	})
-	response, err := model.Complete(context.Background(), nil, 0)
+	response, err := model.Complete(context.Background(), nil, nil, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -283,7 +319,7 @@ func TestChatCompleteSynthesizesMissingToolCallBits(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"choices":[{"index":0,"message":{"role":"assistant","tool_calls":[{"id":"","type":"function","function":{"name":"shell","arguments":""}}]},"finish_reason":"tool_calls"}]}`)
 	})
-	response, err := model.Complete(context.Background(), nil, 0)
+	response, err := model.Complete(context.Background(), nil, nil, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -297,7 +333,7 @@ func TestChatCompleteRejectsMalformedArguments(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"choices":[{"index":0,"message":{"role":"assistant","tool_calls":[{"id":"call-1","type":"function","function":{"name":"read","arguments":"{oops"}}]},"finish_reason":"tool_calls"}]}`)
 	})
-	if _, err := model.Complete(context.Background(), nil, 0); err == nil {
+	if _, err := model.Complete(context.Background(), nil, nil, 0); err == nil {
 		t.Fatal("malformed tool arguments were accepted")
 	}
 }
@@ -319,7 +355,7 @@ func TestChatCompleteRetriesWithMaxCompletionTokens(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"choices":[{"index":0,"message":{"role":"assistant","content":"summary"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}`)
 	})
-	response, err := model.Complete(context.Background(), []session.Message{{Role: session.RoleUser, Content: "hi"}}, 4096)
+	response, err := model.Complete(context.Background(), []session.Message{{Role: session.RoleUser, Content: "hi"}}, nil, 4096)
 	if err != nil {
 		t.Fatal(err)
 	}

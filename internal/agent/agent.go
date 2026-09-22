@@ -16,7 +16,7 @@ import (
 
 type Provider interface {
 	Stream(context.Context, []session.Message, []provider.Tool, func(provider.Event)) (session.Message, error)
-	Complete(context.Context, []session.Message, int) (session.Message, error)
+	Complete(context.Context, []session.Message, []provider.Tool, int) (session.Message, error)
 }
 
 // ErrNothingToCompact reports that the conversation has no safe cut point yet,
@@ -208,19 +208,16 @@ func (r *Runner) compactIfNeeded(ctx context.Context, force bool, emit func(Even
 	}
 
 	cut := selectCut(items, r.compaction.KeepRecentTokens)
-	if cut <= 1 || cut >= len(items) || items[cut].EntryID.IsZero() {
+	if cut <= 1 || cut >= len(items) || items[cut].EntryID.IsZero() || items[cut].Summary {
 		return false, errors.New("active turn is too large to compact safely")
 	}
-	transcript := serializeForSummary(items[1:cut])
-	if previous := extractSummary(items[0].Message.Content); previous != "" {
-		transcript = "Previous summary:\n" + previous + "\n\nNewer conversation to merge:\n" + transcript
+	historyStart := 1
+	var previous string
+	if len(items) > 1 && items[1].Summary {
+		previous = projectedSummary(items[1].Message.Content)
+		historyStart = 2
 	}
-	request := []session.Message{
-		{Role: session.RoleSystem, Content: `Summarize the supplied coding-agent conversation for continuation. Preserve the goal, constraints, decisions, completed work, current state, important command results, file paths, and exact next steps. Omit chatter. Use concise Markdown with: Goal, Constraints, Progress, Decisions, Next Steps, Critical Context.`},
-		{Role: session.RoleUser, Content: transcript},
-	}
-	maxSummary := min(4096, r.compaction.ReserveTokens/2)
-	response, err := r.provider.Complete(ctx, request, maxSummary)
+	response, err := r.summarize(ctx, items, historyStart, cut, used, previous)
 	if err != nil {
 		return false, err
 	}
@@ -238,6 +235,50 @@ func (r *Runner) compactIfNeeded(ctx context.Context, force bool, emit func(Even
 	return true, nil
 }
 
+// CompactSummaryRequest is appended as the trailing user message of a
+// cache-preserving compaction request. Instructions live here rather than in a
+// system message because the request must reuse the live turn's exact system
+// prompt and prefix to stay cacheable.
+const CompactSummaryRequest = `Context is running low. Summarize the work done so far so this conversation can continue once older turns are dropped. If a previous summary appears above, update it rather than starting over. Preserve the goal, constraints, decisions, completed work, current state, important command results, file paths, and exact next steps. Omit chatter. Reply with concise Markdown using these sections: Goal, Constraints, Progress, Decisions, Next Steps, Critical Context.`
+
+// isolatedSummaryPrompt is the system message for the fallback request used when
+// the live context no longer fits the window.
+const isolatedSummaryPrompt = `You are a context summarization assistant. Summarize the supplied coding-agent conversation for continuation. Preserve the goal, constraints, decisions, completed work, current state, important command results, file paths, and exact next steps. Omit chatter. Use concise Markdown with: Goal, Constraints, Progress, Decisions, Next Steps, Critical Context.`
+
+// summarize asks the provider for a compaction summary.
+//
+// The preferred, cache-preserving form sends the live turn's exact prefix — the
+// system prompt, projected prior summary, every message, and the tool roster —
+// with the summary request appended as one trailing user message. Everything but
+// that trailing message then reads the provider prompt cache the last streaming
+// turn populated. The live prefix is only known to be unusable once the context
+// has already reached the window; the isolated form is used then, and as a
+// fallback if the provider still rejects the larger request as too long.
+func (r *Runner) summarize(ctx context.Context, items []session.ContextMessage, historyStart, cut, used int, previous string) (session.Message, error) {
+	maxSummary := min(4096, r.compaction.ReserveTokens/2)
+	if r.contextWindow <= 0 || used < r.contextWindow {
+		request := make([]session.Message, 0, len(items)+1)
+		for _, item := range items {
+			request = append(request, item.Message)
+		}
+		request = append(request, session.Message{Role: session.RoleUser, Content: CompactSummaryRequest})
+		response, err := r.provider.Complete(ctx, request, tools.Definitions(), maxSummary)
+		if err == nil || !provider.IsContextOverflow(err) {
+			return response, err
+		}
+		// The prefix did not fit after all; fall through to the isolated form.
+	}
+	transcript := serializeForSummary(items[historyStart:cut])
+	if previous != "" {
+		transcript = "Previous summary:\n" + previous + "\n\nNewer conversation to merge:\n" + transcript
+	}
+	request := []session.Message{
+		{Role: session.RoleSystem, Content: isolatedSummaryPrompt},
+		{Role: session.RoleUser, Content: transcript},
+	}
+	return r.provider.Complete(ctx, request, nil, maxSummary)
+}
+
 func estimateContext(items []session.ContextMessage, definitions []provider.Tool) int {
 	bytes := 0
 	for _, item := range items {
@@ -253,7 +294,9 @@ func estimateContext(items []session.ContextMessage, definitions []provider.Tool
 	return (bytes + 3) / 4
 }
 
-// selectCut keeps complete turns where possible. A turn starts at a user message.
+// selectCut keeps complete turns where possible. A turn starts at a user
+// message. Synthetic compaction-summary messages are never boundaries: they
+// carry the previous summary and must stay on the summarized side.
 func selectCut(items []session.ContextMessage, keepTokens int) int {
 	if len(items) <= 2 {
 		return -1
@@ -267,17 +310,17 @@ func selectCut(items []session.ContextMessage, keepTokens int) int {
 			break
 		}
 	}
-	for candidate > 1 && items[candidate].Message.Role != session.RoleUser {
+	for candidate > 1 && (items[candidate].Summary || items[candidate].Message.Role != session.RoleUser) {
 		candidate--
 	}
-	if candidate > 1 {
+	if candidate > 1 && !items[candidate].Summary {
 		return candidate
 	}
 	// A single oversized turn can split before an assistant/tool-call group.
 	accumulated = 0
 	for i := len(items) - 1; i >= 2; i-- {
 		accumulated += estimateContext(items[i:i+1], nil)
-		if accumulated >= keepTokens && items[i].Message.Role == session.RoleAssistant {
+		if accumulated >= keepTokens && !items[i].Summary && items[i].Message.Role == session.RoleAssistant {
 			return i
 		}
 	}
@@ -305,17 +348,12 @@ func serializeForSummary(items []session.ContextMessage) string {
 	return out.String()
 }
 
-func extractSummary(system string) string {
-	const start = "<conversation-summary>\n"
-	const end = "\n</conversation-summary>"
-	startAt := strings.LastIndex(system, start)
-	if startAt < 0 {
+// projectedSummary unwraps a compaction summary from the synthetic user message
+// produced by session.Store.Context.
+func projectedSummary(content string) string {
+	if !strings.HasPrefix(content, session.CompactionSummaryPrefix) {
 		return ""
 	}
-	value := system[startAt+len(start):]
-	endAt := strings.Index(value, end)
-	if endAt < 0 {
-		return ""
-	}
-	return value[:endAt]
+	value := strings.TrimPrefix(content, session.CompactionSummaryPrefix)
+	return strings.TrimSuffix(value, session.CompactionSummarySuffix)
 }

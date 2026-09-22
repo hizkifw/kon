@@ -23,6 +23,15 @@ const SchemaVersion = 1
 // UTC timestamp, so lexical order is creation order.
 const fileSuffix = ".jsonl"
 
+// A projected compaction summary is delivered as a user message wrapped in
+// these markers rather than folded into the system prompt. Keeping the system
+// prompt byte-identical across compactions preserves the stable prefix that
+// provider prompt caches key on.
+const (
+	CompactionSummaryPrefix = "The conversation history before this point was compacted into the following summary:\n\n<summary>\n"
+	CompactionSummarySuffix = "\n</summary>"
+)
+
 type Usage struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
@@ -152,6 +161,9 @@ type ModelSelection struct {
 type ContextMessage struct {
 	EntryID typedid.EntryID
 	Message Message
+	// Summary marks a synthetic message projected from a compaction entry. It
+	// carries no entry of its own and is never a valid compaction cut point.
+	Summary bool
 }
 
 type Store struct {
@@ -497,6 +509,13 @@ func (s *Store) writeLine(value any) error {
 }
 
 // Context walks parent links and applies the newest compaction on that path.
+//
+// The newest compaction summary is projected as a user message immediately
+// after the untouched system message, followed by the retained tail and any
+// messages appended after the compaction. Keeping the system prompt verbatim
+// across compactions is deliberate: provider prompt caches key on a stable
+// leading prefix, and folding the summary into the system message would force a
+// full cache miss on every compaction.
 func (s *Store) Context() ([]ContextMessage, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -522,9 +541,7 @@ func (s *Store) Context() ([]ContextMessage, error) {
 	if path[0].Type != EntryTypeMessage || path[0].Message == nil || path[0].Message.Role != RoleSystem {
 		return nil, errors.New("session has no root system message")
 	}
-	system := *path[0].Message
-	system.Content += "\n\n<conversation-summary>\n" + comp.Summary + "\n</conversation-summary>"
-	out = append(out, ContextMessage{EntryID: path[0].ID, Message: system})
+	out = append(out, ContextMessage{EntryID: path[0].ID, Message: *path[0].Message})
 
 	kept := -1
 	for i := 1; i < latestCompaction; i++ {
@@ -536,6 +553,11 @@ func (s *Store) Context() ([]ContextMessage, error) {
 	if kept < 0 {
 		return nil, fmt.Errorf("compaction %q refers to missing entry %v", comp.ID, comp.FirstKeptEntryID)
 	}
+	out = append(out, ContextMessage{
+		EntryID: comp.ID,
+		Message: Message{Role: RoleUser, Content: CompactionSummaryPrefix + comp.Summary + CompactionSummarySuffix},
+		Summary: true,
+	})
 	out = append(out, messagesFromEntries(path[kept:latestCompaction])...)
 	out = append(out, messagesFromEntries(path[latestCompaction+1:])...)
 	return out, nil

@@ -24,7 +24,7 @@ func (f *fakeProvider) Stream(_ context.Context, _ []session.Message, _ []provid
 	return session.Message{Role: session.RoleAssistant, Content: "done", Finish: "stop", Usage: &session.Usage{PromptTokens: 100, CompletionTokens: 1, TotalTokens: 101}}, nil
 }
 
-func (f *fakeProvider) Complete(_ context.Context, _ []session.Message, _ int) (session.Message, error) {
+func (f *fakeProvider) Complete(_ context.Context, _ []session.Message, _ []provider.Tool, _ int) (session.Message, error) {
 	f.completeCalls++
 	return session.Message{Role: session.RoleAssistant, Content: "summary", Usage: &session.Usage{PromptTokens: 50, CompletionTokens: 5, TotalTokens: 55}}, nil
 }
@@ -60,7 +60,10 @@ func TestRunnerCompactsOlderTurnsBeforeRequest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(contextMessages[0].Message.Content, "summary") {
+	if contextMessages[0].Summary {
+		t.Fatal("system message was replaced by a summary")
+	}
+	if !containsSummary(contextMessages) {
 		t.Fatal("compaction summary missing from projected context")
 	}
 }
@@ -73,7 +76,7 @@ func (reasoningProvider) Stream(_ context.Context, _ []session.Message, _ []prov
 	return session.Message{Role: session.RoleAssistant, Content: "answer", Finish: "stop"}, nil
 }
 
-func (reasoningProvider) Complete(_ context.Context, _ []session.Message, _ int) (session.Message, error) {
+func (reasoningProvider) Complete(_ context.Context, _ []session.Message, _ []provider.Tool, _ int) (session.Message, error) {
 	return session.Message{Role: session.RoleAssistant, Content: "summary"}, nil
 }
 
@@ -151,9 +154,23 @@ func TestCompactForcesCompactionBelowThreshold(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(contextMessages[0].Message.Content, "summary") {
+	if contextMessages[0].Summary {
+		t.Fatal("system message was replaced by a summary")
+	}
+	if !containsSummary(contextMessages) {
 		t.Fatal("compaction summary missing from projected context")
 	}
+}
+
+// containsSummary reports whether any projected message carries a compaction
+// summary, which is now a standalone message rather than system-prompt text.
+func containsSummary(messages []session.ContextMessage) bool {
+	for _, message := range messages {
+		if message.Summary && strings.Contains(message.Message.Content, "summary") {
+			return true
+		}
+	}
+	return false
 }
 
 func TestCompactWithoutHistoryReportsNothingToCompact(t *testing.T) {
@@ -171,6 +188,121 @@ func TestCompactWithoutHistoryReportsNothingToCompact(t *testing.T) {
 	if fake.completeCalls != 0 {
 		t.Fatalf("complete calls = %d, want 0", fake.completeCalls)
 	}
+}
+
+func TestCompactFallsBackToIsolatedSummaryWhenLiveContextWouldOverflow(t *testing.T) {
+	store, err := session.New(t.TempDir(), t.TempDir(), "test", "system prompt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	for i := 0; i < 3; i++ {
+		if _, err := store.AppendMessage(session.Message{Role: session.RoleUser, Content: strings.Repeat("question ", 80)}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.AppendMessage(session.Message{Role: session.RoleAssistant, Content: strings.Repeat("answer ", 80)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	provider := &recordingProvider{}
+	cfg := config.Default()
+	model := cfg.Models[0]
+	// A tiny window with a large reserve forces the isolated fallback once usage
+	// plus the reserve no longer fits.
+	model.ContextWindowTokens = 200
+	cfg.Compaction.ReserveTokens = 150
+	cfg.Compaction.KeepRecentTokens = 1
+	runner := New(model, cfg.Compaction, provider, store, tools.New(t.TempDir()))
+	if err := runner.Compact(context.Background(), func(Event) {}); err != nil {
+		t.Fatal(err)
+	}
+	if len(provider.requests) != 1 {
+		t.Fatalf("complete requests = %d, want 1", len(provider.requests))
+	}
+	request := provider.requests[0]
+	if len(request) != 2 || request[0].Role != session.RoleSystem {
+		t.Fatalf("fallback request is not the isolated two-message shape: %#v", request)
+	}
+	if len(provider.tools[0]) != 0 {
+		t.Fatal("fallback request should not send the live tool roster")
+	}
+	if !strings.Contains(request[1].Content, "[user]") {
+		t.Fatalf("fallback request should carry the serialized history: %q", request[1].Content)
+	}
+}
+
+func TestCompactUsesPreviousSummaryWithoutReSummarizingIt(t *testing.T) {
+	store, err := session.New(t.TempDir(), t.TempDir(), "test", "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	for _, content := range []string{"old question", "old answer"} {
+		role := session.RoleUser
+		if content == "old answer" {
+			role = session.RoleAssistant
+		}
+		if _, err := store.AppendMessage(session.Message{Role: role, Content: content}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	kept, err := store.AppendMessage(session.Message{Role: session.RoleUser, Content: "kept question"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AppendCompaction("existing summary", kept, 100, false, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AppendMessage(session.Message{Role: session.RoleUser, Content: strings.Repeat("more ", 200)}); err != nil {
+		t.Fatal(err)
+	}
+
+	provider := &recordingProvider{}
+	cfg := config.Default()
+	model := cfg.Models[0]
+	model.ContextWindowTokens = 1_000_000
+	cfg.Compaction.KeepRecentTokens = 1
+	runner := New(model, cfg.Compaction, provider, store, tools.New(t.TempDir()))
+	if err := runner.Compact(context.Background(), func(Event) {}); err != nil {
+		t.Fatal(err)
+	}
+	if len(provider.requests) != 1 {
+		t.Fatalf("complete requests = %d, want 1", len(provider.requests))
+	}
+	request := provider.requests[0]
+	// The summary request is the live prefix plus one trailing user message, so
+	// the provider can reuse the cache the streaming turn populated.
+	if request[0].Role != session.RoleSystem || request[0].Content != "system" {
+		t.Fatalf("system prompt not reused verbatim: %#v", request[0])
+	}
+	if len(request) != 5 {
+		t.Fatalf("request has %d messages, want the live prefix plus the trailing request", len(request))
+	}
+	last := request[len(request)-1]
+	if last.Role != session.RoleUser || !strings.Contains(last.Content, "Context is running low") {
+		t.Fatalf("trailing summary request missing: %#v", last)
+	}
+	if !strings.Contains(request[1].Content, "existing summary") {
+		t.Fatalf("previous summary missing from projected prefix: %q", request[1].Content)
+	}
+	if len(provider.tools[0]) == 0 {
+		t.Fatal("tool roster not sent, so the cached prefix would not match the live turn")
+	}
+}
+
+type recordingProvider struct {
+	requests [][]session.Message
+	tools    [][]provider.Tool
+}
+
+func (p *recordingProvider) Stream(context.Context, []session.Message, []provider.Tool, func(provider.Event)) (session.Message, error) {
+	return session.Message{Role: session.RoleAssistant, Content: "done"}, nil
+}
+
+func (p *recordingProvider) Complete(_ context.Context, messages []session.Message, toolList []provider.Tool, _ int) (session.Message, error) {
+	p.requests = append(p.requests, messages)
+	p.tools = append(p.tools, toolList)
+	return session.Message{Role: session.RoleAssistant, Content: "summary"}, nil
 }
 
 func newTestEntryID(t *testing.T) typedid.EntryID {

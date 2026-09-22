@@ -24,7 +24,7 @@ func (p *blockingProvider) Stream(ctx context.Context, _ []session.Message, _ []
 	return session.Message{}, ctx.Err()
 }
 
-func (*blockingProvider) Complete(context.Context, []session.Message, int) (session.Message, error) {
+func (*blockingProvider) Complete(context.Context, []session.Message, []provider.Tool, int) (session.Message, error) {
 	return session.Message{}, errors.New("unexpected completion")
 }
 

@@ -24,6 +24,15 @@
 
 ### Changed
 
+- Compaction no longer rewrites the system prompt. The newest summary is
+  projected as its own user message right after a byte-identical system prompt,
+  so each compaction preserves the stable leading prefix that provider prompt
+  caches key on instead of forcing a full cache miss.
+- Summary generation reuses the live prompt-cache prefix: the request carries the
+  live system prompt, tool roster, and message history up to the compaction
+  boundary, with the summary instructions appended as one trailing user message.
+  Only emergency overflow compaction, which no longer fits the window, falls back
+  to an isolated request.
 - kon now owns the OpenAI Chat Completions wire format directly and the goai
   dependency is gone. The provider layer builds request messages, parses SSE
   deltas, and assembles tool calls in-tree, and reports usage exactly as the
