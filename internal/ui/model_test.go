@@ -696,6 +696,38 @@ func TestResumeCommandReplaysSession(t *testing.T) {
 	}
 }
 
+func TestResumeCommandReplaysThinking(t *testing.T) {
+	id, err := typedid.ParseSessionID("ses_00000000000000000000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	models := []app.Model{{Name: "fast", Provider: "openai", ExternalID: "gpt"}}
+	runtime := &fakeRuntime{
+		state:    app.State{Active: models[0], Phase: app.PhaseReady},
+		models:   models,
+		sessions: []session.Summary{{ID: id}},
+		entries: []session.Entry{
+			{Message: &session.Message{Role: session.RoleSystem, Content: "system"}},
+			{Message: &session.Message{Role: session.RoleUser, Content: "earlier question"}},
+			{Message: &session.Message{
+				Role:    session.RoleAssistant,
+				Content: "earlier answer",
+				Parts:   []session.Part{{Type: "reasoning", Text: "let me think"}},
+			}},
+		},
+	}
+	m := New("/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
+	m.width, m.height = 80, 24
+	m.resize()
+
+	updated, _ := m.resume([]string{id.String()})
+	got := updated.(Model)
+	rendered := plain(got.viewport.View())
+	if !strings.Contains(rendered, "let me think") {
+		t.Fatalf("resumed transcript missing reasoning: %q", rendered)
+	}
+}
+
 func TestResumeAdoptsPersistedContextUsage(t *testing.T) {
 	id, err := typedid.ParseSessionID("ses_00000000000000000000")
 	if err != nil {

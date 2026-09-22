@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/hizkifw/kon/internal/agent"
+	"github.com/hizkifw/kon/internal/provider"
 	"github.com/hizkifw/kon/internal/session"
 )
 
@@ -95,7 +96,7 @@ func (m *Model) applyHistory(entries []session.Entry) {
 			m.transcript.add(block{kind: blockUser, text: sanitize(entry.Message.Content)})
 		case session.RoleAssistant:
 			for _, part := range entry.Message.Parts {
-				if part.Type == "thinking" && part.Text != "" {
+				if part.Type == provider.PartReasoning && part.Text != "" {
 					m.transcript.add(block{kind: blockThinking, text: sanitize(part.Text)})
 				}
 			}
