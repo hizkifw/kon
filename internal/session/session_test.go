@@ -448,3 +448,47 @@ func TestModelChangeIsDurableButExcludedFromContext(t *testing.T) {
 		t.Fatal("model change missing from session log")
 	}
 }
+
+func TestImagePartRoundTripsThroughPersistence(t *testing.T) {
+	dir := t.TempDir()
+	store, err := New(dir, dir, "test", "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := store.Path()
+	uri := "data:image/png;base64,aGVsbG8="
+	if _, err := store.AppendMessage(Message{Role: RoleUser, Content: "look"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AppendMessage(Message{
+		Role: RoleTool, Content: "loaded image", ToolCallID: "call-1", Name: "read",
+		Parts: []Part{{Type: PartImage, Text: uri}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	items, err := reopened.Context()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, item := range items {
+		if item.Message.Role != RoleTool {
+			continue
+		}
+		if len(item.Message.Parts) != 1 || item.Message.Parts[0].Type != PartImage || item.Message.Parts[0].Text != uri {
+			t.Fatalf("tool parts = %#v", item.Message.Parts)
+		}
+		found = true
+	}
+	if !found {
+		t.Fatal("tool result was not persisted")
+	}
+}

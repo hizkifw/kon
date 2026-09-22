@@ -84,6 +84,16 @@ type Part struct {
 	ProviderOptions map[string]any     `json:"provider_options,omitempty"`
 }
 
+// Content part types. Parts carry provider-native blocks that the plain string
+// fields cannot express; an image part holds base64-encoded bytes in Text.
+const (
+	PartReasoning  = "reasoning"
+	PartText       = "text"
+	PartToolCall   = "tool_call"
+	PartImage      = "image"
+	PartToolResult = "tool_result"
+)
+
 // Message is provider-neutral while preserving opaque data needed for replay.
 type Message struct {
 	Role            Role               `json:"role"`

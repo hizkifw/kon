@@ -46,7 +46,9 @@ The `message` object uses provider-neutral roles while keeping provider metadata
 Assistant tool calls are stored as structured `tool_calls`, with their arguments
 as JSON rather than an escaped provider string. The optional ordered `parts`
 array preserves reasoning blocks, tool-call metadata, and other opaque values
-needed to replay provider-native conversations.
+needed to replay provider-native conversations. An `image` part holds one
+base64 `data:` URI in `text` — an image attached to a tool result by the read
+tool for models configured with vision; text-only mappings skip it.
 
 A turn that is interrupted before completion (user cancellation or a dropped
 connection) is written with `interrupted: true`, carrying whatever answer text

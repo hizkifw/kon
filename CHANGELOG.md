@@ -2,8 +2,37 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Tools are refactored around a central registry inside `internal/tools`,
+  mirroring the slash-command registry in `internal/ui`. Every tool implements
+  a common `Tool` interface (`Definition`, `Run`, and `Interrupt`) in its own
+  file (`read.go`, `write.go`, `edit.go`, `shell.go`) and registers itself once
+  in `defaultRegistry`; `executor.go` resolves model tool calls against the
+  registry instead of a hardcoded switch.
+- Cancellation escalation is tool-agnostic. The harness counts consecutive
+  `Ctrl+C` presses during a run and forwards the count through
+  `Runtime.Interrupt` → `agent.Runner.Interrupt` → `tools.Registry.InterruptAll`
+  to every registered tool. Synchronous tools report nothing to interrupt; the
+  shell tool interrupts its command on the first press and force-kills it on
+  the second.
+
 ### Added
 
+- The `read` tool loads image files (png, jpeg, gif, webp, up to 5 MB) as
+  image content for models configured with `"vision": true`, so screenshots
+  and diagrams in the workspace can be asked about directly. Images are
+  detected from the file's bytes rather than its extension, so any image
+  loads whatever it is named, and known-but-unsendable formats (BMP, TIFF,
+  ICO, HEIF, AVIF) get a convert-it hint instead of a confusing failure.
+  Without the flag, reading an image returns a text notice instead of bytes.
+  Images persist as `image` parts on the tool result and map to chat
+  completions `image_url` content; text-only configurations keep plain text.
+- Context estimation no longer guesses image token costs from the base64
+  payload, which overcounted by orders of magnitude and compacted after every
+  image read. The provider's own `prompt_tokens` — which includes the true
+  vision cost from the first response on — drives compaction, with the
+  context-overflow retry as the backstop for oversized turns.
 - Slash commands are registered in a central registry inside `internal/ui`.
   Each command declares its positional arguments and, per argument, an
   autocomplete handler.

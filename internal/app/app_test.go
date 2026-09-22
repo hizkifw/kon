@@ -87,7 +87,7 @@ func TestCloseCancelsAndWaitsForActiveRun(t *testing.T) {
 	provider := &blockingProvider{started: make(chan struct{})}
 	runtime := &Runtime{
 		active: profile, store: store, phase: PhaseReady,
-		runner: agent.New(profile, config.Default().Compaction, provider, store, tools.New(t.TempDir())),
+		runner: agent.New(profile, config.Default().Compaction, provider, store, tools.New(t.TempDir(), false)),
 	}
 	runDone := make(chan error, 1)
 	go func() { runDone <- runtime.Run(context.Background(), "work", func(agent.Event) {}) }()

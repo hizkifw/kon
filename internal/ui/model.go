@@ -32,7 +32,9 @@ type Runtime interface {
 	// ContextUsage reports the last provider-reported context size and whether it
 	// is known, so a resumed session can show it instead of an unknown value.
 	ContextUsage() (int, bool)
-	KillShell() bool
+	// Interrupt escalates cancellation of the running tool call. attempt is
+	// the number of consecutive Ctrl+C presses; see agent.Runner.Interrupt.
+	Interrupt(attempt int) bool
 }
 
 type runDoneMsg struct{ err error }
@@ -54,8 +56,11 @@ type Model struct {
 	busy                    bool
 	runCancel               context.CancelFunc
 	runEvents               chan tea.Msg
-	cancelRequested         bool
-	flushPending            bool
+	// ctrlCPresses counts consecutive Ctrl+C presses while a run is in
+	// flight, so the harness can escalate: the first press cancels the run
+	// (interrupting a running command), the second kills it.
+	ctrlCPresses int
+	flushPending bool
 	// startAtBottom asks the first sized frame to scroll to the end, so a
 	// resumed conversation opens on its latest messages instead of at the top.
 	startAtBottom bool
@@ -125,7 +130,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshTranscript(true)
 		return m, nil
 	case runDoneMsg:
-		m.busy, m.runCancel, m.runEvents, m.cancelRequested = false, nil, nil, false
+		m.busy, m.runCancel, m.runEvents, m.ctrlCPresses = false, nil, nil, 0
 		// An interrupted stream never received its done event, so finalize the
 		// live stream here to freeze the partial answer and reasoning that were
 		// already displayed. A cleanly finished run has nothing pending.
@@ -183,15 +188,15 @@ func (m Model) handleKey(key string) (tea.Model, tea.Cmd, bool) {
 	case "ctrl+c":
 		if m.busy && m.runCancel != nil {
 			// The first press cancels the run, which interrupts a running
-			// shell command so it can stop cleanly. The second press kills
-			// the command outright in case it ignored the interrupt.
-			if !m.cancelRequested {
-				m.cancelRequested = true
-				m.runCancel()
+			// tool call so it can stop cleanly. The second press escalates
+			// to a kill for tools that ignored the interrupt.
+			m.ctrlCPresses++
+			m.runCancel()
+			if m.ctrlCPresses == 1 {
 				m.status = "cancelling… press Ctrl+C again to kill the command"
 				return m, nil, true
 			}
-			if m.runtime.KillShell() {
+			if m.runtime.Interrupt(m.ctrlCPresses) {
 				m.status = "killed the command"
 			} else {
 				m.status = "no command to kill; waiting for the run to cancel"
@@ -234,10 +239,10 @@ func (m Model) handleKey(key string) (tea.Model, tea.Cmd, bool) {
 			return m, nil, true
 		}
 		if m.busy && m.runCancel != nil {
-			// Esc interrupts a stream in flight. Unlike Ctrl+C it does not
-			// escalate to killing a running shell command; it only cancels the
-			// generation so the partial turn is kept.
-			m.cancelRequested = true
+			// Esc interrupts a stream in flight. Unlike Ctrl+C it never
+			// escalates to killing a running tool and does not count toward
+			// the Ctrl+C sequence; it only cancels the generation so the
+			// partial turn is kept.
 			m.runCancel()
 			m.status = "interrupting…"
 			return m, nil, true
@@ -380,7 +385,7 @@ func (m Model) submit() (tea.Model, tea.Cmd) {
 // submission and manual compaction so both report progress and cancel the same
 // way.
 func (m Model) startRun(status string, fn func(context.Context, func(agent.Event)) error) (tea.Model, tea.Cmd) {
-	m.busy, m.status, m.cancelRequested = true, status, false
+	m.busy, m.status, m.ctrlCPresses = true, status, 0
 	ctx, cancel := context.WithCancel(context.Background())
 	m.runCancel = cancel
 	m.runEvents = make(chan tea.Msg)

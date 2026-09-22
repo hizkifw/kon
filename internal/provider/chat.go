@@ -100,9 +100,52 @@ type chatStreamOptions struct {
 
 type chatMessage struct {
 	Role       string         `json:"role"`
-	Content    *string        `json:"content,omitempty"`
+	Content    any            `json:"content,omitempty"`
 	ToolCalls  []chatToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string         `json:"tool_call_id,omitempty"`
+}
+
+// chatImageURL carries one image reference; the wire form is
+// {"url": "data:..."} and data URIs carry base64 bytes for vision models.
+type chatImageURL struct {
+	URL string `json:"url"`
+}
+
+// chatContentPart is one typed piece of multimodal message content.
+type chatContentPart struct {
+	Type string `json:"type"`
+	Text string `json:"text,omitempty"`
+	// ImageURL is set only on image parts.
+	ImageURL *chatImageURL `json:"image_url,omitempty"`
+}
+
+// contentParts renders content for models that accept multimodal input: an
+// ordered list of text and image parts. It returns nil when the message holds
+// no image parts, so plain-text messages keep the compact string form.
+func contentParts(message session.Message) *[]chatContentPart {
+	hasImage := false
+	for _, part := range message.Parts {
+		if part.Type == session.PartImage && part.Text != "" {
+			hasImage = true
+			break
+		}
+	}
+	if !hasImage {
+		return nil
+	}
+	parts := make([]chatContentPart, 0, len(message.Parts)+1)
+	if message.Content != "" {
+		parts = append(parts, chatContentPart{Type: "text", Text: message.Content})
+	}
+	for _, part := range message.Parts {
+		if part.Type == session.PartImage && part.Text != "" {
+			parts = append(parts, chatContentPart{Type: "image_url", ImageURL: &chatImageURL{URL: part.Text}})
+		}
+	}
+	if len(parts) == 0 {
+		return nil
+	}
+	return &parts
 }
 
 type chatToolCall struct {
@@ -139,7 +182,13 @@ func toChatMessages(messages []session.Message) ([]chatMessage, error) {
 	for i, message := range messages {
 		switch message.Role {
 		case session.RoleSystem, session.RoleUser:
-			out = append(out, chatMessage{Role: string(message.Role), Content: &message.Content})
+			wire := chatMessage{Role: string(message.Role), Content: &message.Content}
+			// Image parts are honored on user messages (and tool messages
+			// below); the system prompt is plain text by construction.
+			if parts := contentParts(message); parts != nil && message.Role == session.RoleUser {
+				wire.Content = parts
+			}
+			out = append(out, wire)
 		case session.RoleAssistant:
 			// A partial turn interrupted before any answer text carries only
 			// reasoning. This wire format has no reasoning field, so there is
@@ -163,8 +212,15 @@ func toChatMessages(messages []session.Message) ([]chatMessage, error) {
 			out = append(out, wire)
 		case session.RoleTool:
 			// Tool messages always carry content, even when a tool returned
-			// nothing: the field is required for the role.
-			out = append(out, chatMessage{Role: string(message.Role), Content: &message.Content, ToolCallID: message.ToolCallID.String()})
+			// nothing: the field is required for the role. Image parts from
+			// tools like read upgrade the content to multimodal form.
+			wire := chatMessage{Role: string(message.Role), ToolCallID: message.ToolCallID.String()}
+			if parts := contentParts(message); parts != nil {
+				wire.Content = parts
+			} else {
+				wire.Content = &message.Content
+			}
+			out = append(out, wire)
 		default:
 			return nil, fmt.Errorf("message %d has role %q which this wire format cannot send", i, message.Role)
 		}

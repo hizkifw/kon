@@ -16,11 +16,14 @@ import (
 	"github.com/hizkifw/kon/internal/typedid"
 )
 
-// Part types persisted on assistant messages for exact replay of a turn.
+// Part types persisted on assistant messages for exact replay of a turn. They
+// alias the session constants so callers can use either spelling; image parts
+// are produced by tools (see tools/read.go) and consumed by wire mappings.
 const (
-	PartText      = "text"
-	PartReasoning = "reasoning"
-	PartToolCall  = "tool_call"
+	PartText      = session.PartText
+	PartReasoning = session.PartReasoning
+	PartToolCall  = session.PartToolCall
+	PartImage     = session.PartImage
 )
 
 // Client drives one configured model. It is the kon-facing half of the

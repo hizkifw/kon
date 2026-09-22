@@ -48,6 +48,7 @@ type Event struct {
 
 type Runner struct {
 	contextWindow    int
+	vision           bool
 	compaction       config.Compaction
 	provider         Provider
 	session          *session.Store
@@ -57,7 +58,7 @@ type Runner struct {
 }
 
 func New(model config.Model, compaction config.Compaction, provider Provider, store *session.Store, executor *tools.Executor) *Runner {
-	r := &Runner{contextWindow: model.ContextWindowTokens, compaction: compaction, provider: provider, session: store, tools: executor}
+	r := &Runner{contextWindow: model.ContextWindowTokens, vision: model.Vision, compaction: compaction, provider: provider, session: store, tools: executor}
 	r.seedUsage()
 	return r
 }
@@ -101,7 +102,7 @@ func (r *Runner) ContextUsage() (int, bool) {
 // context, measured by the projected message count, and otherwise estimates
 // serialized bytes.
 func (r *Runner) usageFor(items []session.ContextMessage) (int, bool) {
-	used := estimateContext(items, tools.Definitions())
+	used := estimateContext(items, r.tools.Definitions())
 	estimated := true
 	if r.lastUsage != nil && r.lastUsageEntries == len(items) {
 		reported := r.lastUsage.PromptTokens + r.lastUsage.CompletionTokens
@@ -113,10 +114,12 @@ func (r *Runner) usageFor(items []session.ContextMessage) (int, bool) {
 	return used, estimated
 }
 
-// KillShell force-kills the shell command the runner is currently executing,
-// if any, and reports whether a command was killed.
-func (r *Runner) KillShell() bool {
-	return r.tools.KillShell()
+// Interrupt escalates cancellation of the tool call in flight. The UI sends
+// the number of consecutive Ctrl+C presses; the runner forwards them to every
+// registered tool, whose shells are interrupted on the first press and
+// force-killed on the second if they ignored the interrupt.
+func (r *Runner) Interrupt(attempt int) bool {
+	return r.tools.Interrupt(attempt)
 }
 
 func SystemPrompt(cwd, instructions string) string {
@@ -147,7 +150,7 @@ func (r *Runner) Run(ctx context.Context, prompt string, emit func(Event)) error
 		if err != nil {
 			return err
 		}
-		assistant, err := r.provider.Stream(ctx, messages, tools.Definitions(), func(event provider.Event) {
+		assistant, err := r.provider.Stream(ctx, messages, r.tools.Definitions(), func(event provider.Event) {
 			if event.Text == "" {
 				return
 			}
@@ -202,12 +205,18 @@ func (r *Runner) Run(ctx context.Context, prompt string, emit func(Event)) error
 			emit(Event{Kind: EventToolStart, Tool: call.Function.Name, Arguments: arguments})
 			result, isError := r.tools.Execute(ctx, call.Function.Name, call.Function.Arguments)
 			message := session.Message{
-				Role: session.RoleTool, Content: result, ToolCallID: call.ID, Name: call.Function.Name,
+				Role: session.RoleTool, Content: result.Content, ToolCallID: call.ID, Name: call.Function.Name,
+			}
+			// Image attachments ride along as parts. They persist for exact
+			// replay and convert to wire image content for vision models; a
+			// non-vision mapping ignores them and the text stands alone.
+			for _, uri := range tools.EncodeImages(result.Images) {
+				message.Parts = append(message.Parts, session.Part{Type: session.PartImage, Text: uri})
 			}
 			if _, err := r.session.AppendMessage(message); err != nil {
 				return err
 			}
-			emit(Event{Kind: EventToolDone, Tool: call.Function.Name, Arguments: arguments, Text: result, IsError: isError})
+			emit(Event{Kind: EventToolDone, Tool: call.Function.Name, Arguments: arguments, Text: result.Content, IsError: isError})
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
@@ -315,7 +324,7 @@ func (r *Runner) summarize(ctx context.Context, items []session.ContextMessage, 
 			request = append(request, item.Message)
 		}
 		request = append(request, session.Message{Role: session.RoleUser, Content: CompactSummaryRequest})
-		response, err := r.provider.Complete(ctx, request, tools.Definitions(), maxSummary)
+		response, err := r.provider.Complete(ctx, request, r.tools.Definitions(), maxSummary)
 		if err == nil || !provider.IsContextOverflow(err) {
 			return response, err
 		}
@@ -340,6 +349,13 @@ func estimateContext(items []session.ContextMessage, definitions []provider.Tool
 		for _, call := range message.ToolCalls {
 			bytes += len(call.ID.String()) + len(call.Function.Name) + len(call.Function.Arguments) + 32
 		}
+		// Image parts are deliberately left out. Their true cost is decided by
+		// the model's vision encoder — dimensions and tiling, not byte size —
+		// and guessing from the base64 payload overcounts by two orders of
+		// magnitude, which forced compaction on every image. The provider
+		// reports the real cost in PromptTokens from the first response on;
+		// a turn that genuinely exceeds the window is caught by the context
+		// overflow retry in Run instead.
 	}
 	for _, definition := range definitions {
 		bytes += len(definition.Name) + len(definition.Description) + len(definition.Parameters) + 32

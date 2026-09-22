@@ -31,7 +31,7 @@ func (f *fakeRuntime) State() app.State                                     { re
 func (f *fakeRuntime) Run(context.Context, string, func(agent.Event)) error { return nil }
 func (f *fakeRuntime) Compact(context.Context, func(agent.Event)) error     { return nil }
 func (f *fakeRuntime) NewSession() error                                    { return nil }
-func (f *fakeRuntime) KillShell() bool                                      { f.kills++; return !f.killFails }
+func (f *fakeRuntime) Interrupt(attempt int) bool                           { f.kills++; return !f.killFails }
 func (f *fakeRuntime) Resume(id typedid.SessionID) error                    { f.id = id; return nil }
 func (f *fakeRuntime) Sessions() ([]session.Summary, error)                 { return f.sessions, nil }
 func (f *fakeRuntime) SessionID() typedid.SessionID                         { return f.id }
@@ -541,7 +541,7 @@ func TestSecondCtrlCKillsRunningCommand(t *testing.T) {
 	model.runCancel = func() {}
 	first, _, handled := model.handleKey("ctrl+c")
 	firstModel := first.(Model)
-	if !handled || !firstModel.cancelRequested || !strings.Contains(firstModel.status, "cancelling") {
+	if !handled || firstModel.ctrlCPresses != 1 || !strings.Contains(firstModel.status, "cancelling") {
 		t.Fatalf("first ctrl+c did not cancel the run: status %q", firstModel.status)
 	}
 	second, _, _ := firstModel.handleKey("ctrl+c")
@@ -578,7 +578,7 @@ func TestEscInterruptsBusyRun(t *testing.T) {
 	model.runCancel = func() { canceled = true }
 	updated, _, handled := model.handleKey("esc")
 	got := updated.(Model)
-	if !handled || !canceled || !got.cancelRequested {
+	if !handled || !canceled {
 		t.Fatalf("esc did not interrupt the run: handled=%v canceled=%v status=%q", handled, canceled, got.status)
 	}
 	if !strings.Contains(got.status, "interrupt") {
@@ -593,8 +593,8 @@ func TestEscClosesMenuBeforeInterrupting(t *testing.T) {
 	model.menu.items = []menuItem{{Value: "/model", Description: "pick"}}
 	updated, _, handled := model.handleKey("esc")
 	got := updated.(Model)
-	if !handled || got.menu.open() || got.cancelRequested {
-		t.Fatalf("esc did not close the menu first: handled=%v open=%v cancel=%v", handled, got.menu.open(), got.cancelRequested)
+	if !handled || got.menu.open() {
+		t.Fatalf("esc did not close the menu first: handled=%v open=%v", handled, got.menu.open())
 	}
 }
 

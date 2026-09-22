@@ -49,7 +49,7 @@ func TestRunnerCompactsOlderTurnsBeforeRequest(t *testing.T) {
 	model.ContextWindowTokens = 500
 	cfg.Compaction.ReserveTokens = 100
 	cfg.Compaction.KeepRecentTokens = 100
-	runner := New(model, cfg.Compaction, fake, store, tools.New(t.TempDir()))
+	runner := New(model, cfg.Compaction, fake, store, tools.New(t.TempDir(), false))
 	if err := runner.Run(context.Background(), "new work", func(Event) {}); err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func TestNewSeedsUsageFromPersistedAssistantMessages(t *testing.T) {
 	}
 	defer reopened.Close()
 	cfg := config.Default()
-	runner := New(cfg.Models[0], cfg.Compaction, &fakeProvider{}, reopened, tools.New(t.TempDir()))
+	runner := New(cfg.Models[0], cfg.Compaction, &fakeProvider{}, reopened, tools.New(t.TempDir(), false))
 	tokens, ok := runner.ContextUsage()
 	if !ok || tokens != 940 {
 		t.Fatalf("ContextUsage = (%d, %v), want (940, true)", tokens, ok)
@@ -109,7 +109,7 @@ func TestContextUsageUnknownBeforeFirstReport(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := config.Default()
-	runner := New(cfg.Models[0], cfg.Compaction, &fakeProvider{}, store, tools.New(t.TempDir()))
+	runner := New(cfg.Models[0], cfg.Compaction, &fakeProvider{}, store, tools.New(t.TempDir(), false))
 	if tokens, ok := runner.ContextUsage(); ok {
 		t.Fatalf("ContextUsage = (%d, true), want unknown", tokens)
 	}
@@ -147,7 +147,7 @@ func TestRunnerPersistsPartialTurnOnInterruptedStream(t *testing.T) {
 	}
 	defer store.Close()
 	fake := &interruptingProvider{}
-	runner := New(config.Model{}, config.Compaction{}, fake, store, tools.New(t.TempDir()))
+	runner := New(config.Model{}, config.Compaction{}, fake, store, tools.New(t.TempDir(), false))
 	err = runner.Run(context.Background(), "hello", func(Event) {})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Run error = %v, want context.Canceled", err)
@@ -197,7 +197,7 @@ func TestRunnerEmitsThinkingBeforeText(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	runner := New(config.Model{}, config.Compaction{}, reasoningProvider{}, store, tools.New(t.TempDir()))
+	runner := New(config.Model{}, config.Compaction{}, reasoningProvider{}, store, tools.New(t.TempDir(), false))
 	var kinds []EventKind
 	if err := runner.Run(context.Background(), "hello", func(event Event) { kinds = append(kinds, event.Kind) }); err != nil {
 		t.Fatal(err)
@@ -250,7 +250,7 @@ func TestCompactForcesCompactionBelowThreshold(t *testing.T) {
 	model.ContextWindowTokens = 1_000_000
 	cfg.Compaction.ReserveTokens = 16_384
 	cfg.Compaction.KeepRecentTokens = 100
-	runner := New(model, cfg.Compaction, fake, store, tools.New(t.TempDir()))
+	runner := New(model, cfg.Compaction, fake, store, tools.New(t.TempDir(), false))
 	var compacted []Event
 	if err := runner.Compact(context.Background(), func(event Event) { compacted = append(compacted, event) }); err != nil {
 		t.Fatal(err)
@@ -292,7 +292,7 @@ func TestCompactWithoutHistoryReportsNothingToCompact(t *testing.T) {
 	defer store.Close()
 	fake := &fakeProvider{}
 	cfg := config.Default()
-	runner := New(cfg.Models[0], cfg.Compaction, fake, store, tools.New(t.TempDir()))
+	runner := New(cfg.Models[0], cfg.Compaction, fake, store, tools.New(t.TempDir(), false))
 	if err := runner.Compact(context.Background(), func(Event) {}); !errors.Is(err, ErrNothingToCompact) {
 		t.Fatalf("Compact error = %v, want ErrNothingToCompact", err)
 	}
@@ -323,7 +323,7 @@ func TestCompactFallsBackToIsolatedSummaryWhenLiveContextWouldOverflow(t *testin
 	model.ContextWindowTokens = 200
 	cfg.Compaction.ReserveTokens = 150
 	cfg.Compaction.KeepRecentTokens = 1
-	runner := New(model, cfg.Compaction, provider, store, tools.New(t.TempDir()))
+	runner := New(model, cfg.Compaction, provider, store, tools.New(t.TempDir(), false))
 	if err := runner.Compact(context.Background(), func(Event) {}); err != nil {
 		t.Fatal(err)
 	}
@@ -373,7 +373,7 @@ func TestCompactUsesPreviousSummaryWithoutReSummarizingIt(t *testing.T) {
 	model := cfg.Models[0]
 	model.ContextWindowTokens = 1_000_000
 	cfg.Compaction.KeepRecentTokens = 1
-	runner := New(model, cfg.Compaction, provider, store, tools.New(t.TempDir()))
+	runner := New(model, cfg.Compaction, provider, store, tools.New(t.TempDir(), false))
 	if err := runner.Compact(context.Background(), func(Event) {}); err != nil {
 		t.Fatal(err)
 	}

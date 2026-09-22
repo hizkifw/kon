@@ -57,6 +57,12 @@ set `base_url` for those, and give every profile its own `name` and `model`
 ID). The config file is created with owner-only permissions since it holds a
 literal API key.
 
+Models that accept image input take `"vision": true` in their profile. kon's
+`read` tool then loads image files (png, jpeg, gif, webp, up to 5 MB) as image
+content instead of text, so you can ask about screenshots and diagrams in the
+workspace. Without the flag, reading an image returns a notice the model can
+act on instead of opaque bytes.
+
 ## Resuming work
 
 kon prints a resume hint when it exits:

@@ -97,7 +97,7 @@ func start(cfg config.Config, paths config.Paths, cwd, version string, resume bo
 		if _, err := store.AppendModelChange(selection); err != nil {
 			return nil, err
 		}
-		return agent.New(profile, cfg.Compaction, client, store, tools.New(cwd)), nil
+		return agent.New(profile, cfg.Compaction, client, store, tools.New(cwd, profile.Vision)), nil
 	}
 
 	profile, _ := cfg.Model(cfg.DefaultModel)
@@ -250,15 +250,15 @@ func (r *Runtime) Compact(ctx context.Context, emit func(agent.Event)) error {
 	return runner.Compact(runCtx, emit)
 }
 
-// KillShell force-kills the shell command the agent is currently running, if
-// any, and reports whether a command was killed. The shell tool interrupts a
-// cancelled command first; this is the escalation for commands that ignore
-// the interrupt.
-func (r *Runtime) KillShell() bool {
+// Interrupt escalates cancellation of the tool call the agent is currently
+// running. attempt is the number of consecutive Ctrl+C presses; the runner
+// forwards it to every registered tool. A shell command is interrupted on the
+// first press and force-killed on the second if it ignored the interrupt.
+func (r *Runtime) Interrupt(attempt int) bool {
 	r.mu.Lock()
 	runner, running := r.runner, r.phase == PhaseRunning
 	r.mu.Unlock()
-	return running && runner != nil && runner.KillShell()
+	return running && runner != nil && runner.Interrupt(attempt)
 }
 
 // SwitchModel changes the runner in the current session only after the new
@@ -447,7 +447,7 @@ func (r *Runtime) openStore(path string) (*session.Store, *agent.Runner, error, 
 		_ = store.Close()
 		return nil, nil, nil, err
 	}
-	runner := agent.New(r.active, r.config.Compaction, client, store, tools.New(r.cwd))
+	runner := agent.New(r.active, r.config.Compaction, client, store, tools.New(r.cwd, r.active.Vision))
 	return store, runner, nil, nil
 }
 

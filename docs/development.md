@@ -34,7 +34,7 @@ XDG_CONFIG_HOME="$(mktemp -d)" XDG_DATA_HOME="$(mktemp -d)" go run ./cmd/kon
 | `internal/agent` | model/tool loop and compaction policy | terminal rendering |
 | `internal/provider` | provider `Model` backends and durable-message conversion | session policy |
 | `internal/session` | domain messages and append-only context tree | provider requests |
-| `internal/tools` | bounded tool schemas and execution | agent orchestration |
+| `internal/tools` | tool registry, bounded tool schemas and execution | agent orchestration |
 | `internal/typedid` | identifier construction and parsing | storage or provider policy |
 | `internal/config` | paths, defaults, validation, credentials | runtime mutation |
 | `internal/history` | bounded prompt recall | conversation context |

@@ -122,20 +122,20 @@ func TestChatStreamSendsChatCompletionsBody(t *testing.T) {
 	if len(body.Messages) != 5 {
 		t.Fatalf("messages = %#v", body.Messages)
 	}
-	if body.Messages[0].Role != "system" || *body.Messages[0].Content != "be brief" {
+	if body.Messages[0].Role != "system" || body.Messages[0].Content.(string) != "be brief" {
 		t.Fatalf("system message = %#v", body.Messages[0])
 	}
 	assistant := body.Messages[2]
 	if assistant.Content != nil {
-		t.Fatalf("empty assistant content = %#v, want omitted", *assistant.Content)
+		t.Fatalf("empty assistant content = %#v, want omitted", assistant.Content)
 	}
 	if len(assistant.ToolCalls) != 1 || assistant.ToolCalls[0].ID != "call-9" || assistant.ToolCalls[0].Type != "function" || assistant.ToolCalls[0].Function.Name != "edit" || assistant.ToolCalls[0].Function.Arguments != `{"path":"x"}` {
 		t.Fatalf("assistant tool calls = %#v", assistant.ToolCalls)
 	}
-	if body.Messages[3].Role != "tool" || body.Messages[3].ToolCallID != "call-9" || *body.Messages[3].Content != "done" {
+	if body.Messages[3].Role != "tool" || body.Messages[3].ToolCallID != "call-9" || body.Messages[3].Content.(string) != "done" {
 		t.Fatalf("tool message = %#v", body.Messages[3])
 	}
-	if body.Messages[4].Content == nil || *body.Messages[4].Content != "checking" {
+	if body.Messages[4].Content == nil || body.Messages[4].Content.(string) != "checking" {
 		t.Fatalf("assistant message = %#v", body.Messages[4])
 	}
 	if len(body.Tools) != 1 || body.Tools[0].Type != "function" || body.Tools[0].Function.Name != "edit" || string(body.Tools[0].Function.Parameters) != `{"type":"object"}` {
@@ -447,7 +447,7 @@ func TestToChatMessagesSkipsEmptyContent(t *testing.T) {
 		t.Fatalf("messages = %#v", messages)
 	}
 	// Tool results must always carry a content field, even when empty.
-	if messages[2].Content == nil || *messages[2].Content != "" {
+	if messages[2].Content == nil || *messages[2].Content.(*string) != "" {
 		t.Fatalf("tool content = %#v", messages[2].Content)
 	}
 	if messages[2].ToolCallID != "1" {

@@ -31,6 +31,9 @@ type Model struct {
 	APIKey              string            `json:"api_key"`
 	Headers             map[string]string `json:"headers,omitempty"`
 	ContextWindowTokens int               `json:"context_window_tokens"`
+	// Vision marks models that accept image content. It gates whether the read
+	// tool attaches image parts to its results instead of a text notice.
+	Vision bool `json:"vision,omitempty"`
 }
 
 type Compaction struct {
