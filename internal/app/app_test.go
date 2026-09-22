@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/hizkifw/kon/internal/agent"
@@ -78,6 +79,64 @@ func TestUnconfiguredDefaultIsExplicitState(t *testing.T) {
 	state := runtime.State()
 	if state.Ready() || state.Phase != PhaseNeedsConfiguration || state.Problem == nil || state.Active.Name != "default" {
 		t.Fatalf("unexpected state: %#v", state)
+	}
+}
+
+func TestNewPersistsDiscoveredContextFiles(t *testing.T) {
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, "AGENTS.md"), []byte("workspace rules"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sub := filepath.Join(workspace, "service")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "AGENTS.md"), []byte("service rules"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	paths := config.Paths{Sessions: t.TempDir(), ConfigFile: filepath.Join(t.TempDir(), "config.json")}
+	runtime, err := New(config.Default(), paths, sub, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+
+	entries := runtime.SessionHistory()
+	if len(entries) == 0 || entries[0].Message == nil || entries[0].Message.Role != session.RoleSystem {
+		t.Fatalf("session has no system prompt: %#v", entries)
+	}
+	prompt := entries[0].Message.Content
+	if !strings.Contains(prompt, "workspace rules") || !strings.Contains(prompt, "service rules") {
+		t.Fatalf("context files missing from persisted prompt:\n%s", prompt)
+	}
+	if strings.Index(prompt, "workspace rules") > strings.Index(prompt, "service rules") {
+		t.Fatalf("context files not ordered outermost first:\n%s", prompt)
+	}
+}
+
+func TestNewSkipsContextFilesWhenDisabled(t *testing.T) {
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, "AGENTS.md"), []byte("workspace rules"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	disabled := false
+	cfg := config.Default()
+	cfg.ContextFiles = &disabled
+
+	paths := config.Paths{Sessions: t.TempDir(), ConfigFile: filepath.Join(t.TempDir(), "config.json")}
+	runtime, err := New(cfg, paths, workspace, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+
+	entries := runtime.SessionHistory()
+	if len(entries) == 0 || entries[0].Message == nil {
+		t.Fatalf("session has no system prompt: %#v", entries)
+	}
+	if strings.Contains(entries[0].Message.Content, "workspace rules") {
+		t.Fatalf("disabled context files were still loaded:\n%s", entries[0].Message.Content)
 	}
 }
 

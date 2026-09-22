@@ -10,6 +10,7 @@ import (
 
 	"github.com/hizkifw/kon/internal/agent"
 	"github.com/hizkifw/kon/internal/config"
+	"github.com/hizkifw/kon/internal/contextfiles"
 	"github.com/hizkifw/kon/internal/provider"
 	"github.com/hizkifw/kon/internal/session"
 	"github.com/hizkifw/kon/internal/tools"
@@ -86,7 +87,11 @@ func NewResumedID(cfg config.Config, paths config.Paths, cwd, version string, id
 func start(cfg config.Config, paths config.Paths, cwd, version string, resume bool, id typedid.SessionID) (*Runtime, error) {
 	r := &Runtime{config: cfg, paths: paths, cwd: cwd}
 	r.createSession = func() (*session.Store, error) {
-		return session.New(paths.Sessions, cwd, version, agent.SystemPrompt(cwd, cfg.Instructions))
+		prompt, err := r.systemPrompt()
+		if err != nil {
+			return nil, err
+		}
+		return session.New(paths.Sessions, cwd, version, prompt)
 	}
 	r.openSession = session.Open
 	r.createRunner = func(profile config.Model, store *session.Store) (*agent.Runner, error) {
@@ -421,6 +426,20 @@ func (r *Runtime) Close() error {
 	r.store, r.runner = nil, nil
 	r.mu.Unlock()
 	return err
+}
+
+// systemPrompt resolves the context files that apply to the working directory,
+// when enabled, and builds the durable system prompt for a new session.
+func (r *Runtime) systemPrompt() (string, error) {
+	var files []contextfiles.File
+	if r.config.ContextFilesEnabled() {
+		discovered, err := contextfiles.Load(r.cwd)
+		if err != nil {
+			return "", err
+		}
+		files = discovered
+	}
+	return agent.SystemPrompt(r.cwd, files, r.config.Instructions), nil
 }
 
 func (r *Runtime) prepareSession(profile config.Model) (*session.Store, *agent.Runner, error, error) {

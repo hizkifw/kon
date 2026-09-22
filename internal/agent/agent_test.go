@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/hizkifw/kon/internal/config"
+	"github.com/hizkifw/kon/internal/contextfiles"
 	"github.com/hizkifw/kon/internal/provider"
 	"github.com/hizkifw/kon/internal/session"
 	"github.com/hizkifw/kon/internal/tools"
@@ -423,4 +424,38 @@ func newTestEntryID(t *testing.T) typedid.EntryID {
 		t.Fatal(err)
 	}
 	return id
+}
+
+func TestSystemPromptRendersContextFilesInOrder(t *testing.T) {
+	prompt := SystemPrompt("/work/project", []contextfiles.File{
+		{Path: "/work/AGENTS.md", Content: "outer rules\n"},
+		{Path: "/work/project/AGENTS.md", Content: "inner rules"},
+	}, "")
+	if !strings.Contains(prompt, "<project_instructions path=\"/work/AGENTS.md\">\nouter rules\n</project_instructions>") {
+		t.Fatalf("outer file not rendered with its path:\n%s", prompt)
+	}
+	outer := strings.Index(prompt, "outer rules")
+	inner := strings.Index(prompt, "inner rules")
+	if outer < 0 || inner < 0 || outer > inner {
+		t.Fatalf("context files not rendered outermost first:\n%s", prompt)
+	}
+	if cwd := strings.Index(prompt, "Current working directory: /work/project"); cwd < 0 || cwd < inner {
+		t.Fatalf("cwd should follow the context files:\n%s", prompt)
+	}
+}
+
+func TestSystemPromptOmitsContextSectionWhenEmpty(t *testing.T) {
+	prompt := SystemPrompt("/work", nil, "")
+	if strings.Contains(prompt, "project_instructions") || strings.Contains(prompt, "Project-specific instructions") {
+		t.Fatalf("empty context files produced a section:\n%s", prompt)
+	}
+}
+
+func TestSystemPromptPlacesInstructionsLast(t *testing.T) {
+	prompt := SystemPrompt("/work", []contextfiles.File{{Path: "/work/AGENTS.md", Content: "project rules"}}, "user rules")
+	project := strings.Index(prompt, "project rules")
+	instructions := strings.Index(prompt, "Additional user instructions:\nuser rules")
+	if project < 0 || instructions < 0 || project > instructions {
+		t.Fatalf("configured instructions should come last:\n%s", prompt)
+	}
 }

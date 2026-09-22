@@ -77,6 +77,14 @@ compaction entry points to the first retained entry. Context projection combines
 3. retained ancestors preceding that compaction entry; and
 4. messages appended after it.
 
+The system prompt is built once when the session is created. It carries the
+built-in rules, then any `AGENTS.md`-style project instructions discovered by
+walking up from the working directory (outermost first, tagged with their
+paths), then the working directory, and finally the user's configured
+instructions. Because the prompt is persisted verbatim and never rebuilt, edits
+to an instruction file take effect on a new session rather than a resumed one;
+this is the same byte-stability the compaction design depends on.
+
 The summary is kept out of the system prompt on purpose. Provider prompt caches
 key on a stable leading prefix, so folding the summary into the system message
 would invalidate the cache for the entire retained context on every compaction.

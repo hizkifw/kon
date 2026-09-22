@@ -37,6 +37,7 @@ XDG_CONFIG_HOME="$(mktemp -d)" XDG_DATA_HOME="$(mktemp -d)" go run ./cmd/kon
 | `internal/tools` | tool registry, bounded tool schemas and execution | agent orchestration |
 | `internal/typedid` | identifier construction and parsing | storage or provider policy |
 | `internal/config` | paths, defaults, validation, credentials | runtime mutation |
+| `internal/contextfiles` | AGENTS.md/CLAUDE.md discovery up the directory tree | prompt assembly |
 | `internal/history` | bounded prompt recall | conversation context |
 
 ## Identifier rules

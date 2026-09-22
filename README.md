@@ -63,6 +63,23 @@ content instead of text, so you can ask about screenshots and diagrams in the
 workspace. Without the flag, reading an image returns a notice the model can
 act on instead of opaque bytes.
 
+## Project instructions
+
+kon follows the [AGENTS.md](https://agents.md) convention. On startup it walks
+up from the working directory to the filesystem root and loads the first
+`AGENTS.md` it finds in each directory, using them as project instructions in
+the system prompt. A repository root and nested packages can each contribute
+conventions; inherited files come first and the most specific ones last.
+
+`CLAUDE.md` is accepted as a compatibility alias, and `AGENTS.override.md`
+replaces the plain file in the directory that holds it. Empty files and
+directories whose name begins with `.` are ignored. Set `"context_files": false`
+in the config to disable discovery.
+
+The prompt is recorded when a session is created, so edits to these files apply
+to new sessions (`/new` or a fresh launch); a resumed session keeps the prompt
+it started with.
+
 ## Resuming work
 
 kon prints a resume hint when it exits:

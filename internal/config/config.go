@@ -20,6 +20,16 @@ type Config struct {
 	Models       []Model    `json:"models"`
 	Compaction   Compaction `json:"compaction"`
 	Instructions string     `json:"instructions"`
+	// ContextFiles enables discovery of AGENTS.md and CLAUDE.md files by walking
+	// up from the working directory. It is on by default; set it to false to
+	// keep the system prompt limited to the built-in rules and instructions.
+	ContextFiles *bool `json:"context_files,omitempty"`
+}
+
+// ContextFilesEnabled reports whether AGENTS.md discovery is on. An unset value
+// means enabled, so the default config and older configs behave as expected.
+func (c Config) ContextFilesEnabled() bool {
+	return c.ContextFiles == nil || *c.ContextFiles
 }
 
 // Model is a named profile. Name belongs to kon; ModelID belongs to the provider.

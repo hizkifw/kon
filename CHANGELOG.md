@@ -4,6 +4,18 @@
 
 ### Added
 
+- Project instructions are discovered from `AGENTS.md` files. On startup kon
+  walks up from the working directory to the filesystem root and folds every
+  `AGENTS.md` it finds into the system prompt, outermost first, so a repository
+  root and nested packages can each contribute conventions. `CLAUDE.md` is
+  accepted as a compatibility alias, and `AGENTS.override.md` replaces the
+  plain file in the directory that holds it. Directories whose name begins
+  with `.` are skipped, as are empty files, so an empty `AGENTS.md` does not
+  shadow a non-empty `CLAUDE.md`. The discovered files are tagged with their
+  absolute path in the prompt. Discovery is on by default and can be turned off
+  with `"context_files": false` in the config. Because the prompt is persisted
+  as the session's root message for prompt-cache stability, a change to these
+  files applies to new sessions (`/new` or a fresh launch), not a resumed one.
 - Assistant messages render as markdown in the transcript. Headings (bright
   and bold, with inline emphasis preserved inside), lists, fenced and indented
   code, blockquotes, tables, rules, and task checkboxes (`[ ]` / `[✓]`) now

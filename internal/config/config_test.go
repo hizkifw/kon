@@ -103,6 +103,18 @@ func TestSaveRewritesDefaultModel(t *testing.T) {
 	}
 }
 
+func TestContextFilesEnabledDefaultsTrue(t *testing.T) {
+	if !Default().ContextFilesEnabled() {
+		t.Fatal("context files should be enabled by default")
+	}
+	disabled := false
+	cfg := Default()
+	cfg.ContextFiles = &disabled
+	if cfg.ContextFilesEnabled() {
+		t.Fatal("context files should honor an explicit false")
+	}
+}
+
 func TestValidateNamedModels(t *testing.T) {
 	cfg := Default()
 	cfg.DefaultModel = "review"
