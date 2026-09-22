@@ -200,6 +200,75 @@ func TestContextRendersAsSeparator(t *testing.T) {
 	}
 }
 
+// TestBannerLeadsEveryTranscript guards the welcome banner: it sits at the top
+// of the transcript, padded from the viewport edge by one blank line, before any
+// content; it remains there over later blocks and a live stream, and is never
+// captured as a transcript block.
+func TestBannerLeadsEveryTranscript(t *testing.T) {
+	var tr transcript
+	tr.cwd = "/tmp"
+	tr.banner = welcomeBanner
+	empty := plain(tr.render(80))
+	if !strings.HasPrefix(empty, "\n┌──┐") || !strings.Contains(empty, "harness for foxes") {
+		t.Fatalf("empty transcript did not lead with a padded banner: %q", empty)
+	}
+	if len(tr.blocks) != 0 {
+		t.Fatal("banner leaked into the transcript blocks")
+	}
+	tr.appendStream("hello")
+	streaming := plain(tr.render(80))
+	if !strings.HasPrefix(streaming, "\n┌──┐") || !strings.Contains(streaming, "hello") {
+		t.Fatalf("banner did not lead the streaming transcript: %q", streaming)
+	}
+	tr.finishStream()
+	tr.add(block{kind: blockUser, text: "question"})
+	settled := plain(tr.render(80))
+	if !strings.HasPrefix(settled, "\n┌──┐") || !strings.Contains(settled, "question") {
+		t.Fatalf("banner did not lead the settled transcript: %q", settled)
+	}
+	if strings.Index(settled, "harness for foxes") > strings.Index(settled, "question") {
+		t.Fatalf("banner rendered below the conversation: %q", settled)
+	}
+}
+
+// TestBannerStaysAtTopAcrossWidths ensures the banner remains the first visible
+// line of the cached display lines at every width, so it stays pinned top-left.
+func TestBannerStaysAtTopAcrossWidths(t *testing.T) {
+	var tr transcript
+	tr.banner = welcomeBanner
+	tr.add(block{kind: blockUser, text: "question"})
+	for _, width := range []int{40, 80, 120} {
+		lines := tr.linesFor(width)
+		if len(lines) < 2 || lines[0] != "" || !strings.HasPrefix(plain(lines[1]), "┌──┐") {
+			t.Fatalf("width %d: banner is not the first visible line: %q", width, plain(strings.Join(lines, "\n")))
+		}
+	}
+}
+
+// TestBannerHidesWhenTooNarrow ensures a terminal too narrow for the figure
+// shows nothing rather than a wrapped or truncated mark.
+func TestBannerHidesWhenTooNarrow(t *testing.T) {
+	var tr transcript
+	tr.banner = welcomeBanner
+	if got := plain(tr.render(10)); got != "" {
+		t.Fatalf("narrow render = %q, want empty", got)
+	}
+}
+
+// TestBannerLinesFitWidth pins that every banner line fits the viewport so the
+// mark is never clipped at the right edge.
+func TestBannerLinesFitWidth(t *testing.T) {
+	var tr transcript
+	tr.banner = welcomeBanner
+	for _, width := range []int{40, 80, 120} {
+		for _, line := range tr.linesFor(width) {
+			if got := ansi.StringWidth(line); got > width {
+				t.Fatalf("width %d: banner line width = %d: %q", width, got, line)
+			}
+		}
+	}
+}
+
 func TestRenderRebuildsWhenWidthChanges(t *testing.T) {
 	var tr transcript
 	tr.add(block{kind: blockUser, text: "hello"})

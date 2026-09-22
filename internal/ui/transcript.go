@@ -130,6 +130,10 @@ type transcript struct {
 	dirty bool
 	width int
 	cwd   string
+	// banner is the presentation-only mark that leads every transcript. It is
+	// never a block, so it stays out of session records, but it renders as a
+	// stable prefix above the conversation even on a resumed session.
+	banner string
 }
 
 func (t *transcript) add(value block) {
@@ -344,20 +348,7 @@ func (t *transcript) render(width int) string {
 // text separately. Keeping them apart lets the line cache append only the live
 // portion instead of splitting the whole document on every frame.
 func (t *transcript) assemble(width int) (base, live string) {
-	base = t.joined
-	// A trailing run of tool/result blocks is not folded yet because later
-	// calls may still join it; render it live from the unfolded tail.
-	if t.built < len(t.blocks) {
-		tail := strings.Join(t.renderToolRun(t.blocks[t.built:], width), "\n")
-		if tail != "" {
-			if base == "" {
-				base = tail
-			} else {
-				base += "\n\n" + tail
-			}
-		}
-	}
-	return base, t.pending(width)
+	return t.stableBase(width), t.pending(width)
 }
 
 // linesFor returns the transcript as a slice of display lines, ready for
@@ -412,7 +403,10 @@ func (t *transcript) liveStart() int {
 	return n
 }
 
-// stableBase returns the stable (already-finalized) transcript text.
+// stableBase returns the stable (already-finalized) transcript text: the
+// welcome banner, then the joined chunks and any trailing tool run not yet
+// folded. The banner leads every transcript as a stable prefix so it stays put
+// across a resumed session and never disturbs the caches below it.
 func (t *transcript) stableBase(width int) string {
 	base := t.joined
 	if t.built < len(t.blocks) {
@@ -425,7 +419,15 @@ func (t *transcript) stableBase(width int) string {
 			}
 		}
 	}
-	return base
+	banner := t.bannerText(width)
+	switch {
+	case banner == "":
+		return base
+	case base == "":
+		return banner
+	default:
+		return banner + "\n\n" + base
+	}
 }
 
 // ensureChunks folds every stable block into chunks, appending the rendered

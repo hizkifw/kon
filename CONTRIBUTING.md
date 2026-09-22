@@ -14,7 +14,7 @@ make test-race
 
 Changes to sessions, context projection, SSE parsing, compaction boundaries, or
 tool execution need focused tests. Do not use live provider credentials in the
-test suite. Update `CHANGELOG.md` for user-visible behavior.
+test suite.
 
 Commit `go.mod` and `go.sum` changes together. Review new transitive dependencies
 as code. Release artifacts must remain pure Go and below the documented size

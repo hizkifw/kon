@@ -1,16 +1,22 @@
 # kon
 
-`kon` is a small, fast coding agent that lives in your terminal. Start it in a
-project directory, type what you want, and it reads, edits, and runs commands
-until the work is done.
+`kon` is a terminal coding agent that lives in your project directory. Point it
+at a task and it reads, edits, and runs commands until the work is done.
 
-It is built on a few beliefs: an agent needs few tools, not many — kon gives
-the model exactly four (`read`, `write`, `edit`, `shell`) after
-[pi.dev](https://pi.dev/); it should start instantly, stream promptly, and stay
-out of your way; it should run wherever you do — one static binary, no daemon,
-no account, no plugins; and it should be small enough to read end to end.
-kon aims to be a solid, reliable tool: sessions are plain JSONL files you can
-inspect and keep, and your prompt never disappears behind a database.
+It is built on a few beliefs:
+
+- **Few tools, not many.** kon follows [pi](https://pi.dev/)'s four-tool
+  philosophy: the model gets exactly `read`, `write`, `edit`, and `shell`.
+  Sharper tools mean it spends its context on your code, not on a tool menu.
+- **Instant and snappy.** One static binary that starts immediately and streams
+  its answer as it arrives — no daemon, no warm-up.
+- **Reliable anywhere.** Linux, macOS, and Windows, with no account and no
+  plugins. Run it wherever you are.
+- **No vendor lock-in.** Sessions are plain JSONL files you can read, grep, and
+  keep; any OpenAI-compatible endpoint works. Your prompts never disappear
+  behind a database.
+
+![kon in a terminal](.github/screenshots/kon.png)
 
 ## Install
 

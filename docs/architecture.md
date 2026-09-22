@@ -58,7 +58,11 @@ from the persisted arguments and content, so the transcript never parses tool
 output, and a resumed session replays the identical display. A long-running
 tool publishes live display snapshots while it runs, and the transcript
 replaces the running call's body with the latest one, so shell output streams
-into the view under the same tail policy the finished result uses. Streaming deltas are accumulated immediately but
+into the view under the same tail policy the finished result uses. A
+presentation-only welcome banner leads every transcript as a stable prefix above
+the conversation; the banner is not a block and never reaches session records or
+model context, so it stays at the top across messages and resumed sessions.
+Streaming deltas are accumulated immediately but
 viewport rebuilds are capped at 20 frames per second. The runner owns no
 terminal state, and the UI owns no provider or session serialization.
 

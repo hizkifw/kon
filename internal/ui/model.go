@@ -100,7 +100,7 @@ func New(cwd, configPath string, runtime Runtime, historyStore *history.Store, e
 		viewport: vp, input: input, history: newPromptHistory(historyStore, entries),
 		runtime: runtime, commands: defaultRegistry(),
 		active: state.Active, cwd: cwd, configPath: configPath,
-		transcript: transcript{cwd: cwd},
+		transcript: transcript{cwd: cwd, banner: welcomeBanner},
 		status:     status, contextTokens: -1,
 	}
 	// A resumed session opens with its conversation already in the transcript.
