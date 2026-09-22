@@ -23,8 +23,8 @@ func markdownStyles() map[markdown.Style]part {
 		markdown.StyleListBullet:    {fg: colorToolName},
 		markdown.StyleEmph:          {fg: colorAgentFg, italic: true},
 		markdown.StyleStrong:        {fg: colorAgentFg, bold: true},
-		markdown.StyleLink:          {fg: colorLink, underline: true},
-		markdown.StyleLinkURL:       {fg: colorFaint, underline: true},
+		markdown.StyleLink:          {fg: colorLink},
+		markdown.StyleLinkURL:       {fg: colorFaint},
 		markdown.StyleStrikethrough: {fg: colorFaint, strike: true},
 		markdown.StyleTask:          {fg: colorOK},
 	}
