@@ -23,11 +23,11 @@ func (m *Model) resize() {
 // refreshTranscript updates the viewport contents. When toBottom is set, the
 // transcript follows new output only if the user is already at the bottom;
 // otherwise the scroll position is preserved so reading is not interrupted.
-// The position check must run before SetContent: once the content grows, a
+// The position check must run before SetContentLines: once the content grows, a
 // user who was at the bottom no longer is.
 func (m *Model) refreshTranscript(toBottom bool) {
 	follow := toBottom && m.viewport.AtBottom()
-	m.viewport.SetContent(m.transcript.render(m.width))
+	m.viewport.SetContentLines(m.transcript.linesFor(m.width))
 	if follow {
 		m.viewport.GotoBottom()
 	}
