@@ -3,6 +3,8 @@ package ui
 import (
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 // TestMarkdownAssistantRendersStructure checks that an assistant message
@@ -54,6 +56,40 @@ func TestMarkdownStreamMatchesSettledBlock(t *testing.T) {
 			want := plain(strings.Join(settled.linesFor(width), "\n"))
 			if got != want {
 				t.Fatalf("width=%d input=%q\nstream=%q\nsettle=%q", width, in, got, want)
+			}
+		}
+	}
+}
+
+// TestMarkdownLinesFitViewport guards the width contract end to end: every
+// line the transcript paints is exactly the viewport width (so the slab
+// background spans it) and none is truncated with an ellipsis. Markdown wraps
+// to the slab's content width, and block prefixes (list markers, quote bars)
+// are accounted for, so no line ever overflows into truncation.
+func TestMarkdownLinesFitViewport(t *testing.T) {
+	docs := []string{
+		strings.Repeat("prose words here ", 30),
+		"# " + strings.Repeat("heading ", 20),
+		"- " + strings.Repeat("list ", 30),
+		"1. " + strings.Repeat("ordered ", 20),
+		"- [ ] " + strings.Repeat("task ", 20),
+		"- outer " + strings.Repeat("x ", 40) + "\n  - nested " + strings.Repeat("y ", 40),
+		"> " + strings.Repeat("quoted ", 30),
+		"| a | b |\n|---|---|\n| " + strings.Repeat("cell ", 30) + " | z |",
+		"```\n" + strings.Repeat("code chars here ", 20) + "\n```",
+	}
+	for _, width := range []int{20, 40, 60, 100} {
+		for _, doc := range docs {
+			var tr transcript
+			tr.cwd = "/tmp"
+			tr.add(block{kind: blockAssistant, text: doc})
+			for _, line := range tr.linesFor(width) {
+				if strings.Contains(line, "…") {
+					t.Fatalf("width=%d doc=%q: line truncated: %q", width, doc[:12], plain(line))
+				}
+				if got := ansi.StringWidth(line); got != width {
+					t.Fatalf("width=%d doc=%q: line width %d: %q", width, doc[:12], got, plain(line))
+				}
 			}
 		}
 	}

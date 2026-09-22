@@ -254,6 +254,36 @@ func TestStripperDropsOSC8(t *testing.T) {
 	}
 }
 
+// TestLinesFitWidth is the width invariant: every line the package emits fits
+// the width it was given, so a caller painting into a fixed-width slab never
+// has to truncate (which would silently drop text). It covers the prefix
+// cases -- list markers, ordered markers, checkboxes, nested indents, quote
+// gutters, headings, tables -- at several widths, including the multi-line
+// wrapping of a single long list item.
+func TestLinesFitWidth(t *testing.T) {
+	docs := []string{
+		"a long paragraph of ordinary prose that must wrap rather than overflow the width it is given here",
+		"# " + strings.Repeat("heading words ", 12),
+		"- " + strings.Repeat("list words ", 12),
+		"1. " + strings.Repeat("ordered words ", 12),
+		"- [x] " + strings.Repeat("task words ", 12),
+		"- outer item " + strings.Repeat("words ", 10) + "\n  - nested item " + strings.Repeat("words ", 10),
+		"> " + strings.Repeat("quoted words ", 12),
+		"> para one " + strings.Repeat("words ", 8) + "\n>\n> para two " + strings.Repeat("words ", 8),
+		"| col one | col two is quite long here |\n|---|---|\n| " + strings.Repeat("cell ", 8) + " | x |",
+		"```\n" + strings.Repeat("code line words ", 10) + "\n```",
+	}
+	for _, doc := range docs {
+		for _, width := range []int{8, 16, 30, 41, 80} {
+			for _, l := range Render(doc, testTheme, width) {
+				if w := displayWidth(l.Text); w > width {
+					t.Fatalf("width=%d doc=%q\n line width %d > %d: %q", width, doc, w, width, l.Text)
+				}
+			}
+		}
+	}
+}
+
 // TestBlockSpacing checks that adjacent top-level blocks are separated by a
 // blank line (and a single block is not padded), covering headings, lists,
 // tables, quotes, code, and rules.

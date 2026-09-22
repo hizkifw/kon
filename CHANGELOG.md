@@ -14,8 +14,11 @@
   HTML shows as written rather than being interpreted or dropped. Adjacent
   blocks are separated by a blank line, so headings, paragraphs, lists,
   tables, quotes, code, and rules have breathing room (multi-paragraph quotes
-  get a bar-only separator). The formatting appears incrementally as a message
-  streams and does not shift when the message finalizes into history.
+  get a bar-only separator). Every line wraps to fit the transcript width --
+  including list markers, blockquote gutters, wide tables, and code -- so no
+  text is cut off with an ellipsis at the right edge. The formatting appears
+  incrementally as a message streams and does not shift when the message
+  finalizes into history.
 - A streaming markdown core (`internal/markdown`) backs the transcript
   rendering above, built on goldmark with GFM tables, strikethrough, task
   lists, and autolinks. It renders CommonMark blocks into wrapped display

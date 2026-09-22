@@ -33,6 +33,12 @@ func markdownStyles() map[markdown.Style]part {
 // markdownPalette is the resolved style table, built once.
 var markdownPalette = markdownStyles()
 
+// markdownContentWidth is the text width available inside a slab: the slab
+// paints one cell of left padding and one of right padding, so markdown must
+// wrap to two cells less than the viewport. Wrapping to the full width would
+// make every maxed-out line overflow and get truncated with an ellipsis.
+func markdownContentWidth(width int) int { return max(1, width-2) }
+
 // renderMarkdownBlock paints markdown lines into transcript display lines:
 // every line is padded to the viewport width with the slab background, and
 // each styled span is painted over it carrying the same background, so a
@@ -168,7 +174,7 @@ type markdownLive struct {
 
 func newMarkdownLive(bg, fg color.Color, width int) *markdownLive {
 	return &markdownLive{
-		stream: markdown.NewStream(markdown.Theme{}, width),
+		stream: markdown.NewStream(markdown.Theme{}, markdownContentWidth(width)),
 		bg:     bg,
 		fg:     fg,
 		width:  width,

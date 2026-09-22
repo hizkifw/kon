@@ -28,6 +28,16 @@ func newBlockRenderer(theme Theme, width int) *blockRenderer {
 	return &blockRenderer{theme: theme, width: width}
 }
 
+// indented returns a copy of the renderer whose wrapping width is reduced by
+// the given number of columns. It is used for content that will have prefix
+// columns added after wrapping (a list marker, a blockquote bar), so the
+// prefixed line still fits the renderer's width instead of overflowing.
+func (r *blockRenderer) indented(by int) *blockRenderer {
+	c := *r
+	c.width = max(1, r.width-by)
+	return &c
+}
+
 // subtreeStop returns the largest segment stop in the node's subtree, or -1
 // when the subtree carries no segments (e.g. ThematicBreak, List).
 func subtreeStop(n ast.Node) int {
@@ -429,7 +439,9 @@ func (r *blockRenderer) renderBlock(n ast.Node, source []byte, end int) block {
 	case ast.KindFencedCodeBlock, ast.KindCodeBlock, ast.KindHTMLBlock:
 		b.lines = r.codeLines(n.Lines(), source)
 	case ast.KindBlockquote:
-		b.lines = quoteLines(r.renderAll(n, source), r.theme)
+		// The gutter ("▏ ") sits before each inner line, so inner blocks
+		// wrap two cells narrower.
+		b.lines = quoteLines(r.indented(2).renderAll(n, source), r.theme)
 	case ast.KindList:
 		b.lines = r.listLines(n.(*ast.List), source)
 	case extast.KindTable:
@@ -489,28 +501,34 @@ func separatorLines() []Line {
 	return make([]Line, blockSeparatorLines)
 }
 
-// tableLines renders a GFM table as "cell cell cell" rows. The header row is
-// distinguished by a heading-style span so callers can style it apart. Cell
-// content walks the same inline path as prose, so inline styles work in
-// cells and text is unescaped identically.
+// tableLines renders a GFM table as "cell cell cell" rows wrapped to the
+// renderer width, so a wide table wraps instead of being truncated with an
+// ellipsis. The header row carries a zero-width StyleHeading lead span (the
+// same marker headings use) so callers can style it apart. Cell content walks
+// the same inline path as prose, so inline styles work in cells and text is
+// unescaped identically.
 func (r *blockRenderer) tableLines(n ast.Node, source []byte) []Line {
 	var out []Line
 	for row := n.FirstChild(); row != nil; row = row.NextSibling() {
-		var cells []string
 		isHeader := row.Kind() == extast.KindTableHeader
+		var pieces []piece
 		for cell := row.FirstChild(); cell != nil; cell = cell.NextSibling() {
-			var b strings.Builder
-			for _, p := range inlinePieces(cell, source, r.theme) {
-				b.WriteString(p.text)
+			if len(pieces) > 0 {
+				pieces = append(pieces, piece{text: "  "})
 			}
-			cells = append(cells, strings.TrimSpace(b.String()))
+			pieces = append(pieces, inlinePieces(cell, source, r.theme)...)
 		}
-		text := strings.Join(cells, "  ")
-		line := Plain(text)
+		// Trailing separator spaces are trimmed by the wrapper's own rules,
+		// but cell text may still carry surrounding spaces; trim the piece
+		// text edges so a cell never starts a line with padding.
+		lines := wrapPieces(pieces, r.width)
 		if isHeader {
-			line = Line{Text: text, Spans: []Styled{{Text: text, Style: r.theme.Resolve(StyleHeading)}}}
+			style := r.theme.Resolve(StyleHeading)
+			for i := range lines {
+				lines[i].Spans = append([]Styled{{Text: "", Style: style}}, lines[i].Spans...)
+			}
 		}
-		out = append(out, line)
+		out = append(out, lines...)
 	}
 	return out
 }
@@ -538,6 +556,7 @@ func (r *blockRenderer) headingLines(h *ast.Heading, source []byte) []Line {
 // Implemented in inline.go (wrapPieces over the inline walk).
 
 func (r *blockRenderer) codeLines(segments *text.Segments, source []byte) []Line {
+	style := r.theme.Resolve(StyleCodeBlock)
 	var out []Line
 	for i := 0; i < segments.Len(); i++ {
 		seg := segments.At(i)
@@ -547,7 +566,11 @@ func (r *blockRenderer) codeLines(segments *text.Segments, source []byte) []Line
 		}
 		content := strings.TrimSuffix(string(r.buf), "\n")
 		for _, raw := range strings.Split(content, "\n") {
-			out = append(out, Line{Text: raw, Spans: []Styled{{Text: raw, Style: r.theme.Resolve(StyleCodeBlock)}}})
+			// Code hard-wraps at the width rather than overflowing: a caller
+			// painting a fixed-width slab would otherwise truncate the line
+			// and silently drop code. Hard wrapping preserves the line's
+			// characters (indentation, runs of spaces) exactly.
+			out = append(out, hardWrapPieces(piece{text: raw, style: style}, r.width)...)
 		}
 	}
 	return out
@@ -593,28 +616,35 @@ func (r *blockRenderer) listLines(l *ast.List, source []byte) []Line {
 	for item := l.FirstChild(); item != nil; item = item.NextSibling() {
 		marker := bulletMarker(l, number)
 		number++
-		indent := strings.Repeat(" ", len(marker)+1)
 		// A task checkbox renders as a "[ ]"/"[✓]" marker at the start of
 		// the item's first content line. GFM places the checkbox inside the
 		// first content block (a TextBlock for a tight list, a Paragraph for
 		// a loose one), not as a direct child of the item.
 		checkbox := taskCheckbox(item)
+		// The marker ("• ", "1. ") plus any checkbox sits before the content
+		// on the first line, and the marker column alone indents continuation
+		// lines, so content must wrap to a width reduced by the first line's
+		// prefix to keep every emitted line within the renderer's width.
+		firstPrefix := displayWidth(marker) + 1 + displayWidth(checkbox)
+		contIndent := strings.Repeat(" ", displayWidth(marker)+1)
+		content := r.indented(firstPrefix)
+		// Nested lists render at the parent content width minus the two cells
+		// their own indent adds, so nested lines stay within the width too.
+		nested := r.indented(2)
 		first := true
 		for sub := item.FirstChild(); sub != nil; sub = sub.NextSibling() {
 			if _, ok := sub.(*extast.TaskCheckBox); ok {
 				continue
 			}
 			if sub.Kind() == ast.KindList {
-				// Nested list: indent under the parent marker column. The
-				// nested renderer already emits its own bullets two cells
-				// in, so only two more cells are added per level.
-				for _, nl := range r.renderBlock(sub, source, 0).lines {
+				// Nested list: indent under the parent marker column.
+				for _, nl := range nested.renderBlock(sub, source, 0).lines {
 					out = append(out, Line{Text: "  " + nl.Text})
 				}
 				first = false
 				continue
 			}
-			for _, line := range r.renderBlock(sub, source, 0).lines {
+			for _, line := range content.renderBlock(sub, source, 0).lines {
 				text := line.Text
 				spans := cloneSpans(line.Spans)
 				if first && checkbox != "" {
@@ -630,7 +660,7 @@ func (r *blockRenderer) listLines(l *ast.List, source []byte) []Line {
 					continue
 				}
 				out = append(out, Line{
-					Text:  indent + text,
+					Text:  contIndent + text,
 					Spans: spans,
 				})
 			}

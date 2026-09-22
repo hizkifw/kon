@@ -20,9 +20,13 @@
 // structure and inline markdown (emphasis, strong, inline code,
 // strikethrough, links, image alt text, autolinks) both produce tokens, and
 // Text node content is unescaped so entities and backslash escapes render as
-// their literal characters. Adjacent blocks are separated by a blank line
-// (see appendBlocks), giving headings, paragraphs, lists, tables, quotes,
-// code, and rules room to breathe; the blank lines are output only and never
+// their literal characters. Every emitted line fits the width given to Render
+// or NewStream (guarded by TestLinesFitWidth): prose, headings, code, and
+// tables wrap, and block prefixes (list markers, quote gutters) are accounted
+// for in the wrap width, so a caller painting a fixed-width slab never has to
+// truncate text away. Adjacent blocks are separated by a blank line (see
+// appendBlocks), giving headings, paragraphs, lists, tables, quotes, code,
+// and rules room to breathe; the blank lines are output only and never
 // re-enter the parsed source. Spans are emitted after wrapping, annotating
 // whole display lines, so a span never crosses a line break. Raw HTML renders
 // as its literal text (a tag the model wrote shows as written); link

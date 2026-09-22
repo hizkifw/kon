@@ -266,7 +266,7 @@ func (t *transcript) pending(width int) string {
 		if t.active != nil && !t.activeThinking {
 			return t.active.pending()
 		}
-		return strings.Join(renderMarkdownBlock(markdown.Render(string(t.stream), markdown.Theme{}, width), colorAgentBg, colorAgentFg, width), "\n")
+		return strings.Join(renderMarkdownBlock(markdown.Render(string(t.stream), markdown.Theme{}, markdownContentWidth(width)), colorAgentBg, colorAgentFg, width), "\n")
 	default:
 		return ""
 	}
@@ -467,7 +467,7 @@ func (t *transcript) renderBlock(b block, width int) []string {
 	case blockUser:
 		return messageSlab(normalizeText(b.text), colorUserBg, colorUserFg, width)
 	case blockAssistant:
-		return renderMarkdownBlock(markdown.Render(b.text, markdown.Theme{}, width), colorAgentBg, colorAgentFg, width)
+		return renderMarkdownBlock(markdown.Render(b.text, markdown.Theme{}, markdownContentWidth(width)), colorAgentBg, colorAgentFg, width)
 	case blockThinking:
 		return thinkingLines(normalizeText(b.text), width)
 	case blockError:
