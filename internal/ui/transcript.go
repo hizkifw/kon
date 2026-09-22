@@ -85,9 +85,11 @@ type part struct {
 // Markdown palette additions: colors used only by markdown roles.
 var (
 	colorHeadingFg = lipgloss.Color("#FFFFFF")
-	colorCodeFg    = lipgloss.Color("#C2A878")
-	colorQuoteFg   = lipgloss.Color("#B0B0B0")
-	colorLink      = lipgloss.Color("#7FB3D5")
+	// Code shares the kon brand accent so code and the wordmark read as one
+	// family; the muted red is legible on both the default and tool slabs.
+	colorCodeFg  = colorAccent
+	colorQuoteFg = lipgloss.Color("#B0B0B0")
+	colorLink    = lipgloss.Color("#7FB3D5")
 
 	// Table tints: subtle neutral backgrounds so a table reads as a distinct
 	// block without borders. The row band makes wide or wrapped tables easy to
