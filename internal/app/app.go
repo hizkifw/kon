@@ -208,6 +208,48 @@ func (r *Runtime) Run(ctx context.Context, prompt string, emit func(agent.Event)
 	return runner.Run(runCtx, prompt, emit)
 }
 
+// Compact forces a manual compaction of the live session. Like Run it occupies
+// the busy phase so it cannot race an active request, and it can be cancelled
+// with Ctrl+C through the same context.
+func (r *Runtime) Compact(ctx context.Context, emit func(agent.Event)) error {
+	r.mu.Lock()
+	if r.phase == PhaseClosed {
+		r.mu.Unlock()
+		return ErrClosed
+	}
+	if r.phase == PhaseRunning {
+		r.mu.Unlock()
+		return ErrBusy
+	}
+	if r.phase == PhaseNeedsConfiguration {
+		problem := r.problem
+		r.mu.Unlock()
+		return fmt.Errorf("%w: %v in %s", ErrNotReady, problem, r.paths.ConfigFile)
+	}
+	runner := r.runner
+	if runner == nil {
+		r.mu.Unlock()
+		return ErrNotReady
+	}
+	runCtx, cancel := context.WithCancel(ctx)
+	r.phase = PhaseRunning
+	r.runCancel = cancel
+	r.runDone = make(chan struct{})
+	done := r.runDone
+	r.mu.Unlock()
+
+	defer func() {
+		cancel()
+		r.mu.Lock()
+		r.phase = PhaseReady
+		r.runCancel = nil
+		r.runDone = nil
+		close(done)
+		r.mu.Unlock()
+	}()
+	return runner.Compact(runCtx, emit)
+}
+
 // KillShell force-kills the shell command the agent is currently running, if
 // any, and reports whether a command was killed. The shell tool interrupts a
 // cancelled command first; this is the escalation for commands that ignore

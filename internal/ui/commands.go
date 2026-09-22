@@ -224,6 +224,13 @@ func defaultRegistry() *registry {
 			return m.resume(args)
 		},
 	})
+	registry.register(slashCommand{
+		name:    "compact",
+		summary: "summarize older context now",
+		run: func(m Model, _ []string) (tea.Model, tea.Cmd) {
+			return m.compact()
+		},
+	})
 	return registry
 }
 
@@ -290,6 +297,22 @@ func (m Model) switchModel(name string) (tea.Model, tea.Cmd) {
 	m.transcript.add(block{kind: blockModel, text: m.active.Name + "  " + m.active.Provider + "/" + m.active.ExternalID})
 	m.refreshTranscript(true)
 	return m, nil
+}
+
+// compact forces a manual context compaction. It refuses to run while another
+// operation is in flight and reports when there is nothing safe to compact.
+func (m Model) compact() (tea.Model, tea.Cmd) {
+	if m.busy {
+		m.status = "agent is busy; Ctrl+C cancels"
+		return m, nil
+	}
+	state := m.runtime.State()
+	if !state.Ready() {
+		m.status = state.Problem.Error() + " in " + m.configPath
+		return m, nil
+	}
+	m.input.Reset()
+	return m.startRun("compacting…", m.runtime.Compact)
 }
 
 // completeSessionIDs suggests resumable sessions for this workspace, newest
