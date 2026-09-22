@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -120,6 +121,16 @@ func (t readTool) Run(_ context.Context, env Env, raw json.RawMessage) (Result, 
 	if err != nil {
 		return Result{}, err
 	}
+	// A file larger than any mode can accept is rejected from its size and a
+	// short prefix, never loaded whole: reading a multi-gigabyte file just to
+	// refuse it would spike memory for nothing. The prefix still carries the
+	// image magic, so an oversized image is named as such rather than as an
+	// oversized text file.
+	if info, statErr := os.Stat(path); statErr == nil && info.Mode().IsRegular() && info.Size() > maxImageBytes {
+		if err := rejectOversize(path); err != nil {
+			return Result{}, err
+		}
+	}
 	// Read once and route by content, not extension: any real image is an
 	// image whatever it is named (or not named), and binary data never reaches
 	// the text limits or the UTF-8 check with a confusing message.
@@ -134,6 +145,39 @@ func (t readTool) Run(_ context.Context, env Env, raw json.RawMessage) (Result, 
 		return Result{}, fmt.Errorf("%s is a %s image; kon can attach png, jpeg, gif, or webp images — convert it first", path, format)
 	}
 	return t.readText(args, path, b)
+}
+
+// rejectOversize fails a file too large for any read mode, naming it as an
+// unsupported image when its prefix is a known-but-unsendable format and as an
+// oversized text file otherwise. It reads only a short prefix, so a huge file is
+// never loaded to be refused.
+func rejectOversize(path string) error {
+	prefix, err := readPrefix(path, 512)
+	if err != nil {
+		return err
+	}
+	if _, format := detectUnsendableImageMIME(prefix); format != "" {
+		return fmt.Errorf("%s is a %s image; kon can attach png, jpeg, gif, or webp images — convert it first", path, format)
+	}
+	if mime := detectImageMIME(prefix); mime != "" {
+		return fmt.Errorf("%s is larger than %d bytes", path, maxImageBytes)
+	}
+	return fmt.Errorf("file is larger than %d bytes", maxReadBytes)
+}
+
+// readPrefix reads at most n leading bytes of a file.
+func readPrefix(path string, n int) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	buf := make([]byte, n)
+	read, err := io.ReadFull(f, buf)
+	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+		return nil, err
+	}
+	return buf[:read], nil
 }
 
 // imageResult attaches the whole file as an image part. Offset and limit do

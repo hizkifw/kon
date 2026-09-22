@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -133,6 +134,52 @@ func TestReadTextFileWithImageExtensionReadsAsText(t *testing.T) {
 	result, failed := New(dir, false).Execute(context.Background(), "read", raw(map[string]any{"path": "notes.png"}), nil)
 	if failed || !strings.Contains(result.Content, "just text") {
 		t.Fatalf("text read = %q, failed=%v", result.Content, failed)
+	}
+}
+
+// An oversize file is refused from its size without being loaded, and a large
+// unsupported image is still named as an image (from its prefix) rather than
+// as an oversized text file.
+func TestReadRejectsOversizeFromStatWithoutLoading(t *testing.T) {
+	dir := t.TempDir()
+	big := filepath.Join(dir, "big.txt")
+	f, err := os.Create(big)
+	if err != nil {
+		t.Fatal(err)
+	}
+	chunk := make([]byte, 1<<20)
+	for i := range chunk {
+		chunk[i] = 'a'
+	}
+	for i := 0; i < 40; i++ {
+		if _, err := f.Write(chunk); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f.Close()
+
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	result, failed := New(dir, true).Execute(context.Background(), "read", raw(map[string]any{"path": "big.txt"}), nil)
+	runtime.ReadMemStats(&after)
+	if !failed || !strings.Contains(result.Content, "larger than") {
+		t.Fatalf("oversize read = %q, failed=%v", result.Content, failed)
+	}
+	// The whole file is 40 MiB; rejecting it must not load it. Allow generous
+	// slack for GC noise while still catching a full read.
+	if grew := after.TotalAlloc - before.TotalAlloc; grew > 10<<20 {
+		t.Fatalf("oversize read allocated %d bytes; it should be refused from its size", grew)
+	}
+
+	// A large BMP is refused as an unsupported image, not as oversized text.
+	bmp := filepath.Join(dir, "huge.bmp")
+	if err := os.WriteFile(bmp, append([]byte("BM"), make([]byte, 6*1024*1024)...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, failed = New(dir, true).Execute(context.Background(), "read", raw(map[string]any{"path": "huge.bmp"}), nil)
+	if !failed || !strings.Contains(result.Content, "BMP") {
+		t.Fatalf("oversize BMP read = %q, failed=%v", result.Content, failed)
 	}
 }
 
