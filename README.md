@@ -30,7 +30,9 @@ go install github.com/hizkifw/kon/cmd/kon@latest
 
 Run `kon` from the directory where you want the agent to work. On first launch
 it creates a config file and opens the editor directly at the prompt — nothing
-is sent anywhere until you ask.
+is sent anywhere until you ask. Until a model is configured, kon greets you in
+the transcript with a short welcome that names the config file and the basic
+keys (`/` for commands, `Ctrl+D` to exit).
 
 1. Open the config at `~/.config/kon/config.json` (Windows: `%APPDATA%\kon\config.json`)
    and add a model. Any OpenAI-compatible endpoint works:

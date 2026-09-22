@@ -92,9 +92,11 @@ func New(cwd, configPath string, runtime Runtime, historyStore *history.Store, e
 	// only consumes the mouse wheel.
 	vp := newScrollView()
 	state := runtime.State()
+	// An unconfigured launch explains itself in the transcript below, so the
+	// status stays a short pointer rather than repeating the whole problem.
 	status := "ready"
 	if !state.Ready() {
-		status = state.Problem.Error() + " in " + configPath
+		status = "needs configuration"
 	}
 	model := Model{
 		viewport: vp, input: input, history: newPromptHistory(historyStore, entries),
@@ -110,6 +112,11 @@ func New(cwd, configPath string, runtime Runtime, historyStore *history.Store, e
 		model.applyHistory(history)
 		model.startAtBottom = true
 		model.seedContextUsage()
+	}
+	// An unconfigured launch introduces itself as an assistant turn so a first
+	// run reads as a conversation instead of a bare error state.
+	if !state.Ready() {
+		model.transcript.add(block{kind: blockAssistant, text: welcomeMessage(configPath)})
 	}
 	return model
 }

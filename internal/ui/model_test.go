@@ -912,6 +912,37 @@ func TestNothingToCompactIsNotAnError(t *testing.T) {
 	}
 }
 
+// TestUnconfiguredLaunchGreetsInTranscript guards the first-run experience: an
+// unconfigured launch introduces itself as an assistant message in the
+// transcript (naming the config file and the key tips) instead of only a status
+// line, and the status stays a short pointer. A configured launch shows no such
+// message.
+func TestUnconfiguredLaunchGreetsInTranscript(t *testing.T) {
+	runtime := &fakeRuntime{state: app.State{
+		Phase:   app.PhaseNeedsConfiguration,
+		Problem: app.ErrNotReady,
+		Active:  app.Model{Name: "default"},
+	}}
+	m := New("/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
+	if m.status != "needs configuration" {
+		t.Fatalf("status = %q", m.status)
+	}
+	if len(m.transcript.blocks) != 1 || m.transcript.blocks[0].kind != blockAssistant {
+		t.Fatalf("unconfigured launch did not greet in the transcript: %#v", m.transcript.blocks)
+	}
+	greeting := m.transcript.blocks[0].text
+	for _, want := range []string{"/tmp/config.json", "`/`", "Ctrl+D"} {
+		if !strings.Contains(greeting, want) {
+			t.Fatalf("greeting missing %q: %q", want, greeting)
+		}
+	}
+
+	ready := &fakeRuntime{state: app.State{Phase: app.PhaseReady}}
+	if got := New("/tmp", "/tmp/config.json", ready, history.New(t.TempDir()+"/history.jsonl"), nil); len(got.transcript.blocks) != 0 {
+		t.Fatalf("configured launch greeted: %#v", got.transcript.blocks)
+	}
+}
+
 func newTestModel(t testing.TB) Model {
 	t.Helper()
 	model := app.Model{Name: "fast", Provider: "openai", ExternalID: "gpt", ContextWindow: 100}
