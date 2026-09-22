@@ -45,13 +45,15 @@ keys (`/` for commands, `Ctrl+D` to exit).
          "name": "fast",
          "provider": "openai",
          "model": "gpt-5-mini",
-         "api_key": "sk-..."
+         "api_key": "sk-...",
+         "context_window_tokens": 128000
        },
        {
          "name": "local",
          "provider": "ollama",
          "model": "qwen3-coder",
-         "base_url": "http://localhost:11434"
+         "base_url": "http://localhost:11434",
+         "context_window_tokens": 32768
        }
      ]
    }
@@ -64,6 +66,12 @@ That's the whole setup. Providers are `openai`, `openrouter`, `ollama`, and
 set `base_url` for those, and give every profile its own `name` and `model`
 ID). The config file is created with owner-only permissions since it holds a
 literal API key.
+
+Set `context_window_tokens` on every model. kon uses it to show context usage in
+the header and to start compaction before the window fills. A value of `0`
+(unknown) disables proactive compaction, so a long session then relies only on
+the provider's own overflow error to trigger a summary — fine for a short chat,
+but set the real window size for real work. The numbers above are examples.
 
 Models that accept image input take `"vision": true` in their profile. kon's
 `read` tool then loads image files (png, jpeg, gif, webp, up to 5 MB) as image
