@@ -300,11 +300,12 @@ func (r *Runtime) Sessions() ([]session.Summary, error) {
 }
 
 // SessionID is the identifier of the live session, or the zero ID when none is
-// open. It is printed on exit so the user can resume later.
+// open. A session that is still empty is excluded: it is discarded on close
+// rather than kept as a resume target, so it is never reported.
 func (r *Runtime) SessionID() typedid.SessionID {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.store == nil {
+	if r.store == nil || r.store.Empty() {
 		return typedid.SessionID{}
 	}
 	return r.store.ID()

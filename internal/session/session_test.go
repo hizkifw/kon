@@ -2,12 +2,80 @@ package session
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"strings"
 	"testing"
 
 	"github.com/hizkifw/kon/internal/typedid"
 )
+
+func TestEmptySessionIsDiscardedOnClose(t *testing.T) {
+	root, cwd := t.TempDir(), t.TempDir()
+	store, err := New(root, cwd, "test", "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := store.Path()
+	if !store.Empty() {
+		t.Fatal("new session is not empty")
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("empty session file still exists: %v", err)
+	}
+	if summaries, err := Discover(root, cwd); err != nil || len(summaries) != 0 {
+		t.Fatalf("Discover = (%#v, %v), want no sessions", summaries, err)
+	}
+}
+
+func TestModelChangeAloneKeepsSessionEmpty(t *testing.T) {
+	root, cwd := t.TempDir(), t.TempDir()
+	store, err := New(root, cwd, "test", "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := store.Path()
+	if _, err := store.AppendModelChange(ModelSelection{Name: "review", Provider: "anthropic", ExternalID: typedid.ExternalModelID("claude")}); err != nil {
+		t.Fatal(err)
+	}
+	if !store.Empty() {
+		t.Fatal("a model change alone should leave the session empty")
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("empty session file still exists: %v", err)
+	}
+}
+
+func TestSessionWithMessageIsKeptOnClose(t *testing.T) {
+	root, cwd := t.TempDir(), t.TempDir()
+	store, err := New(root, cwd, "test", "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AppendMessage(Message{Role: RoleUser, Content: "hello"}); err != nil {
+		t.Fatal(err)
+	}
+	if store.Empty() {
+		t.Fatal("session with a message is still marked empty")
+	}
+	id := store.ID()
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	summaries, err := Discover(root, cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(summaries) != 1 || summaries[0].ID != id {
+		t.Fatalf("Discover = %#v, want the kept session", summaries)
+	}
+}
 
 func TestDiscoverFindsSessionsNewestFirst(t *testing.T) {
 	root, cwd := t.TempDir(), t.TempDir()
@@ -24,6 +92,9 @@ func TestDiscoverFindsSessionsNewestFirst(t *testing.T) {
 		t.Fatal(err)
 	}
 	secondID := second.ID()
+	if _, err := second.AppendMessage(Message{Role: RoleUser, Content: "two"}); err != nil {
+		t.Fatal(err)
+	}
 	second.Close()
 
 	// Another workspace must not leak into this one's results.
@@ -43,8 +114,8 @@ func TestDiscoverFindsSessionsNewestFirst(t *testing.T) {
 	if summaries[0].ID != secondID {
 		t.Fatalf("newest session = %s, want %s", summaries[0].ID, secondID)
 	}
-	if summaries[0].Entries != 1 {
-		t.Fatalf("entry count = %d, want 1 (the system message)", summaries[0].Entries)
+	if summaries[0].Entries != 2 {
+		t.Fatalf("entry count = %d, want 2 (system message and prompt)", summaries[0].Entries)
 	}
 	if summaries[0].CWD == "" {
 		t.Fatal("summary is missing its working directory")
@@ -61,6 +132,9 @@ func TestLatestAndFind(t *testing.T) {
 		t.Fatal(err)
 	}
 	firstID := first.ID()
+	if _, err := first.AppendMessage(Message{Role: RoleUser, Content: "keep me"}); err != nil {
+		t.Fatal(err)
+	}
 	first.Close()
 
 	latest, ok, err := Latest(root, cwd)
@@ -87,6 +161,9 @@ func TestDiscoverSkipsUnreadableFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := store.Path()
+	if _, err := store.AppendMessage(Message{Role: RoleUser, Content: "content"}); err != nil {
+		t.Fatal(err)
+	}
 	store.Close()
 	if err := os.WriteFile(path[:len(path)-len(".jsonl")]+"-corrupt.jsonl", []byte("not a session\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -242,6 +319,9 @@ func TestOpenRepairsMalformedTrailingLine(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := store.Path()
+	if _, err := store.AppendMessage(Message{Role: RoleUser, Content: "content"}); err != nil {
+		t.Fatal(err)
+	}
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -276,6 +356,9 @@ func TestSessionSerializesTypedPrefixes(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := store.Path()
+	if _, err := store.AppendMessage(Message{Role: RoleUser, Content: "content"}); err != nil {
+		t.Fatal(err)
+	}
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
