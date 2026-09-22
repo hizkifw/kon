@@ -195,6 +195,35 @@ produces immutable snapshots. The model sends it events and receives
 "snapshot ready" messages, which is the concurrency-safe form of moving
 streaming off the update goroutine.
 
+## Phase 5 — Keep the banner out of the frame's change key (implemented)
+
+Phases 2b/3 claimed a flat per-frame refresh, but the guarding benchmark
+(`BenchmarkViewportRefresh`) built transcripts with no banner, while production
+transcripts always carry the welcome mark. That hid an O(history) per-frame cost:
+`stableBase` returned `banner + "\n\n" + base`, concatenating the whole document
+on every frame, and `linesFor` then compared that fresh string against
+`cacheBase`. Without a banner the concatenation is skipped and the memoized
+`joined` string short-circuits the compare, so the benchmark looked flat while
+the real UI paid for the whole history each frame.
+
+Measured per-frame refresh + `scrollView.View` with the banner present:
+
+| blocks | before |    after |
+| -----: | -----: | -------: |
+|    100 |  47 µs | **2.2 µs** |
+|    500 | 116 µs | **2.4 µs** |
+|   2000 | 445 µs | **2.3 µs** |
+|   5000 | 1.32 ms | **2.5 µs** |
+
+- `stableBase` is split into `bodyBase` (chunks plus the unfolded tail) and the
+  banner-leading composition. `linesFor` caches the banner and the body
+  separately, so a frame that changes neither copies nothing and the change check
+  compares the memoized body rather than a fresh concatenation.
+- `bannerText` depends only on the mark and the width, so it is memoized; it runs
+  on every frame and otherwise re-rendered the mark through lipgloss each time.
+- `BenchmarkViewportRefresh` now sets the production banner, so the guarding
+  benchmark measures the real frame.
+
 ## Verification
 
 - Keep the `internal/ui` benchmarks and record before/after numbers here.

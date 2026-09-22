@@ -127,22 +127,28 @@ type transcript struct {
 
 	// lines is the transcript rendered as a flat slice of display lines, so the
 	// viewport never has to split the joined string again. cacheBase records the
-	// stable text it was built from; sepDone/liveFin track the append-only live
-	// tail (blank separator, finalized lines) so only the current line is
-	// repainted each frame.
-	lines     []string
-	cacheBase string
-	stableN   int
-	sepDone   bool
-	liveFin   int
+	// stable text it was built from and cacheBanner the banner prefix, kept
+	// separate so a frame that changes neither never re-concatenates the
+	// document; sepDone/liveFin track the append-only live tail (blank
+	// separator, finalized lines) so only the current line is repainted.
+	lines       []string
+	cacheBase   string
+	cacheBanner string
+	stableN     int
+	sepDone     bool
+	liveFin     int
 
 	dirty bool
 	width int
 	cwd   string
 	// banner is the presentation-only mark that leads every transcript. It is
 	// never a block, so it stays out of session records, but it renders as a
-	// stable prefix above the conversation even on a resumed session.
-	banner string
+	// stable prefix above the conversation even on a resumed session. Its
+	// rendering depends only on the mark and the width, so it is memoized.
+	banner      string
+	bannerCache string
+	bannerWidth int
+	bannerValid bool
 }
 
 func (t *transcript) add(value block) {
@@ -259,6 +265,7 @@ func (t *transcript) reset() {
 	t.strip = ansiStripper{}
 	t.lines = nil
 	t.cacheBase = ""
+	t.cacheBanner = ""
 	t.stableN = 0
 	t.sepDone = false
 	t.liveFin = 0
@@ -320,6 +327,7 @@ func (t *transcript) prepare(width int) string {
 		t.dirty = true
 		t.lines = nil
 		t.cacheBase = ""
+		t.cacheBanner = ""
 		t.stableN = 0
 		t.sepDone = false
 		t.liveFin = 0
@@ -368,13 +376,26 @@ func (t *transcript) assemble(width int) (base, live string) {
 // must not be modified.
 func (t *transcript) linesFor(width int) []string {
 	t.prepare(width)
-	base := t.stableBase(width)
-	if t.lines == nil || base != t.cacheBase {
+	// The banner is a fixed prefix that only changes with width, so it is
+	// compared separately from the body. Folding it into the change key would
+	// concatenate the whole document on every frame and turn the cache hit into
+	// an O(history) copy and compare — the per-frame cost that the tests below
+	// once hid by measuring banner-less transcripts.
+	body := t.bodyBase(width)
+	banner := t.bannerText(width)
+	if t.lines == nil || body != t.cacheBase || banner != t.cacheBanner {
 		t.lines = t.lines[:0]
-		if base != "" {
-			t.lines = append(t.lines, strings.Split(base, "\n")...)
+		if banner != "" {
+			t.lines = append(t.lines, strings.Split(banner, "\n")...)
 		}
-		t.cacheBase = base
+		if body != "" {
+			if banner != "" {
+				t.lines = append(t.lines, "")
+			}
+			t.lines = append(t.lines, strings.Split(body, "\n")...)
+		}
+		t.cacheBase = body
+		t.cacheBanner = banner
 		t.stableN = len(t.lines)
 		t.sepDone = false
 		t.liveFin = 0
@@ -414,9 +435,27 @@ func (t *transcript) liveStart() int {
 
 // stableBase returns the stable (already-finalized) transcript text: the
 // welcome banner, then the joined chunks and any trailing tool run not yet
-// folded. The banner leads every transcript as a stable prefix so it stays put
-// across a resumed session and never disturbs the caches below it.
+// folded. It is the from-scratch reference; the cached line path in linesFor
+// keeps the banner separate so a frame that changes neither never re-copies the
+// document.
 func (t *transcript) stableBase(width int) string {
+	base := t.bodyBase(width)
+	banner := t.bannerText(width)
+	switch {
+	case banner == "":
+		return base
+	case base == "":
+		return banner
+	default:
+		return banner + "\n\n" + base
+	}
+}
+
+// bodyBase returns the stable transcript body without the banner: the joined
+// chunks plus any trailing tool run not yet folded into them. It returns the
+// memoized join whenever nothing is left unfolded, so a caller comparing it
+// across frames pays nothing.
+func (t *transcript) bodyBase(width int) string {
 	base := t.joined
 	if t.built < len(t.blocks) {
 		tail := strings.Join(t.renderToolRun(t.blocks[t.built:], width), "\n")
@@ -428,15 +467,7 @@ func (t *transcript) stableBase(width int) string {
 			}
 		}
 	}
-	banner := t.bannerText(width)
-	switch {
-	case banner == "":
-		return base
-	case base == "":
-		return banner
-	default:
-		return banner + "\n\n" + base
-	}
+	return base
 }
 
 // ensureChunks folds every stable block into chunks, appending the rendered

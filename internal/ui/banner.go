@@ -33,8 +33,18 @@ harness for foxes =˄▾˄=`
 // left edge, or "" when there is nothing to show. A single blank line pads the
 // mark from the top of the viewport, the figure carries the brand accent, and
 // the trailing caption is drawn faintly, so the mark reads as a header rather
-// than content.
+// than content. The result depends only on the banner and the width, so it is
+// memoized; bannerText runs on every frame.
 func (t *transcript) bannerText(width int) string {
+	if t.bannerValid && t.bannerWidth == width {
+		return t.bannerCache
+	}
+	t.bannerValid, t.bannerWidth = true, width
+	t.bannerCache = t.renderBanner(width)
+	return t.bannerCache
+}
+
+func (t *transcript) renderBanner(width int) string {
 	if t.banner == "" {
 		return ""
 	}

@@ -123,7 +123,9 @@ func BenchmarkTranscriptRenderFull(b *testing.B) {
 }
 
 // BenchmarkViewportRefresh measures the remaining per-frame cost once the
-// transcript cache is warm: the viewport still rescans the whole document.
+// transcript cache is warm: the viewport still rescans the whole document. The
+// transcript carries the production welcome banner, whose prefix must not turn a
+// cache hit into an O(history) copy — see linesFor.
 func BenchmarkViewportRefresh(b *testing.B) {
 	for _, n := range []int{100, 500, 2000} {
 		b.Run(fmt.Sprintf("n=%d", n), func(b *testing.B) {
@@ -131,6 +133,7 @@ func BenchmarkViewportRefresh(b *testing.B) {
 			m.width, m.height = 120, 40
 			m.resize()
 			m.transcript = *benchTranscript(n)
+			m.transcript.banner = welcomeBanner
 			m.refreshTranscript(false)
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
