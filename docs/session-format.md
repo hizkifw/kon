@@ -69,6 +69,12 @@ The entry is a child of the context it summarizes. `first_kept_entry_id` points
 to an ancestor whose message and following ancestors remain verbatim. The
 summary call's usage is separate from normal assistant usage.
 
+At request time the newest summary is projected as a standalone user message
+immediately after the byte-identical system prompt, followed by the retained
+tail and later messages. It is never folded into the system message: keeping the
+system prompt stable preserves the leading prefix that provider prompt caches
+key on, so compaction does not invalidate the cache for the retained context.
+
 ## Durability
 
 kon marshals, appends, and syncs each complete line before continuing. On open,

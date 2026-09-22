@@ -85,6 +85,7 @@ type chatRequest struct {
 	Model         string             `json:"model"`
 	Messages      []chatMessage      `json:"messages"`
 	Tools         []chatTool         `json:"tools,omitempty"`
+	ToolChoice    string             `json:"tool_choice,omitempty"`
 	Stream        bool               `json:"stream,omitempty"`
 	StreamOptions *chatStreamOptions `json:"stream_options,omitempty"`
 	MaxTokens     int                `json:"max_tokens,omitempty"`
@@ -222,13 +223,20 @@ func (m *chatModel) stream(ctx context.Context, payload chatRequest, emit func(E
 	return result, nil
 }
 
-// Complete runs one non-streamed generation.
-func (m *chatModel) Complete(ctx context.Context, messages []session.Message, maxTokens int) (Response, error) {
+// Complete runs one non-streamed generation. tools, when non-empty, is sent
+// with tool_choice "none": the request matches the streaming turn's tool roster
+// so it can reuse the provider's cached prefix, while the summary itself can
+// never become a tool call.
+func (m *chatModel) Complete(ctx context.Context, messages []session.Message, tools []Tool, maxTokens int) (Response, error) {
 	wireMessages, err := toChatMessages(messages)
 	if err != nil {
 		return Response{}, err
 	}
 	payload := chatRequest{Model: m.model, Messages: wireMessages, MaxTokens: maxTokens}
+	if len(tools) > 0 {
+		payload.Tools = toChatTools(tools)
+		payload.ToolChoice = "none"
+	}
 	response, err := m.complete(ctx, payload)
 	if isMaxTokensError(err) {
 		// Newer OpenAI reasoning models reject the legacy max_tokens field.

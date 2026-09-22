@@ -63,8 +63,8 @@ func (c *Client) Stream(ctx context.Context, messages []session.Message, tools [
 	return c.assistant(response)
 }
 
-func (c *Client) Complete(ctx context.Context, messages []session.Message, maxTokens int) (session.Message, error) {
-	response, err := c.model.Complete(ctx, messages, maxTokens)
+func (c *Client) Complete(ctx context.Context, messages []session.Message, tools []Tool, maxTokens int) (session.Message, error) {
+	response, err := c.model.Complete(ctx, messages, tools, maxTokens)
 	if err != nil {
 		return session.Message{}, err
 	}

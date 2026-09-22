@@ -65,16 +65,30 @@ Compaction selects a legal boundary while preserving complete user turns when
 possible and never separates an assistant tool call from its results. A
 compaction entry points to the first retained entry. Context projection combines:
 
-1. the original system prompt;
-2. the newest compaction summary;
+1. the original system prompt, byte-identical across compactions;
+2. the newest compaction summary, projected as its own user message;
 3. retained ancestors preceding that compaction entry; and
 4. messages appended after it.
+
+The summary is kept out of the system prompt on purpose. Provider prompt caches
+key on a stable leading prefix, so folding the summary into the system message
+would invalidate the cache for the entire retained context on every compaction.
 
 Repeated compaction summarizes the previous summary together with newly aged
 messages. Original entries remain available for future tree navigation.
 Automatic compaction runs at the context threshold; the `/compact` command
 forces the same routine on demand, so both paths share one boundary policy and
 one durable summary entry format.
+
+Summary generation reuses the live prefix cache. The preferred request sends the
+live system prompt and tool roster plus every message up to the compaction
+boundary verbatim, appending only one trailing user message that asks for the
+summary. The provider then reads the prompt cache the last streaming turn wrote
+and bills only the trailing message as new input. Instructions live in that
+trailing message rather than a system message so the prefix stays byte-identical.
+When the context plus the reserve no longer fits the window, the request is
+instead built in isolation from only the history being dropped, so emergency
+overflow recovery still works.
 
 Provider prompt usage is preferred when it covers the current context. Otherwise
 kon estimates serialized text and tool-schema bytes at four bytes per token and

@@ -18,8 +18,11 @@ type Model interface {
 	// deltas through emit as they arrive, and returns the assembled response.
 	Stream(ctx context.Context, messages []session.Message, tools []Tool, emit func(Event)) (Response, error)
 	// Complete runs one non-streamed generation. maxTokens caps the completion
-	// when positive; zero means the provider default.
-	Complete(ctx context.Context, messages []session.Message, maxTokens int) (Response, error)
+	// when positive; zero means the provider default. tools carries the live
+	// tool roster so a one-shot request (such as a compaction summary) keeps the
+	// same cached prefix as the streaming turn; a Model that receives tools must
+	// forbid tool calls in its response.
+	Complete(ctx context.Context, messages []session.Message, tools []Tool, maxTokens int) (Response, error)
 }
 
 // Tool is a tool definition advertised to the model.
