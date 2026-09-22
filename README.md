@@ -1,99 +1,88 @@
 # kon
 
-`kon` is a small, full-screen coding-agent harness for foxes. It starts directly
-in a prompt, streams a configured model, and gives that model four tools:
-`read`, `write`, `edit`, and `shell`.
+`kon` is a small, fast coding agent that lives in your terminal. Start it in a
+project directory, type what you want, and it reads, edits, and runs commands
+until the work is done.
 
-The project favors a small product surface and readable Go over frameworks and
-hidden state. Sessions and prompt history are ordinary JSONL files. There is no
-database, daemon, account system, or plugin loader.
-
-Provider wire formats are owned in-tree: kon speaks the OpenAI Chat
-Completions format directly and keeps full control of message construction,
-streaming, and token accounting. A small `provider.Model` interface isolates
-each wire format so others can be added later. kon also owns its durable agent
-loop, context policy, tools, and terminal UX.
-
-Owned identifiers are Stripe-style typed IDs: sessions use `ses_…` and entries
-use `ent_…`. Provider-owned model and tool-call IDs are kept in separate opaque
-types and are preserved exactly.
+It is built on a few beliefs: an agent needs few tools, not many — kon gives
+the model exactly four (`read`, `write`, `edit`, `shell`) after
+[pi.dev](https://pi.dev/); it should start instantly, stream promptly, and stay
+out of your way; it should run wherever you do — one static binary, no daemon,
+no account, no plugins; and it should be small enough to read end to end.
+kon aims to be a solid, reliable tool: sessions are plain JSONL files you can
+inspect and keep, and your prompt never disappears behind a database.
 
 ## Install
 
-Download a release archive for Linux, macOS, or Windows, or build from source:
+Grab a release archive for Linux, macOS, or Windows, or install with Go:
 
 ```sh
 go install github.com/hizkifw/kon/cmd/kon@latest
 ```
 
-Development requires Go 1.25 or newer:
+## Getting started
 
-```sh
-go build ./cmd/kon
-go test ./...
-```
+Run `kon` from the directory where you want the agent to work. On first launch
+it creates a config file and opens the editor directly at the prompt — nothing
+is sent anywhere until you ask.
 
-## First run
+1. Open the config at `~/.config/kon/config.json` (Windows: `%APPDATA%\kon\config.json`)
+   and add a model. Any OpenAI-compatible endpoint works:
 
-Run `kon` from the directory where the agent should work. The first launch
-creates a config file and storage directories, opens a new session, and renders
-the TUI without contacting a provider.
+   ```json
+   {
+     "default_model": "fast",
+     "models": [
+       {
+         "name": "fast",
+         "provider": "openai",
+         "model": "gpt-5-mini",
+         "api_key": "sk-..."
+       },
+       {
+         "name": "local",
+         "provider": "ollama",
+         "model": "qwen3-coder",
+         "base_url": "http://localhost:11434"
+       }
+     ]
+   }
+   ```
 
-On Linux, macOS, and other POSIX systems, the default paths are:
+2. Restart `kon` and type a prompt.
+
+That's the whole setup. Providers are `openai`, `openrouter`, `ollama`, and
+`openai-compatible` (anything else speaking the OpenAI Chat Completions format;
+set `base_url` for those, and give every profile its own `name` and `model`
+ID). The config file is created with owner-only permissions since it holds a
+literal API key.
+
+## Resuming work
+
+kon prints a resume hint when it exits:
 
 ```text
-~/.config/kon/config.json
-~/.local/share/kon/history.jsonl
-~/.local/share/kon/sessions/
+resume with: kon --resume ses_7Yk2mP9Qa4Zx8Vc1Nd6R
 ```
 
-`XDG_CONFIG_HOME` and `XDG_DATA_HOME` override those roots. On Windows, `%APPDATA%`
-and `%LOCALAPPDATA%` are used when the XDG variables are unset.
+Use that command, or `kon --resume` alone to reopen the most recent session for
+the directory. Inside the app, `/resume` lists sessions for the current
+directory and `/resume <id>` switches to one. Sessions are stored as JSONL
+files under `~/.local/share/kon/sessions/` — see
+[Session format](docs/session-format.md) if you want to read or build on them.
 
-Edit `config.json` before sending the first prompt:
+## Commands
 
-```json
-{
-  "default_model": "fast",
-  "models": [
-    {
-      "name": "fast",
-      "provider": "openai",
-      "model": "gpt-5-mini",
-      "api_key": "sk-...",
-      "context_window_tokens": 128000
-    },
-    {
-      "name": "local",
-      "provider": "ollama",
-      "model": "qwen3-coder",
-      "base_url": "http://localhost:11434",
-      "context_window_tokens": 32768
-    }
-  ],
-  "compaction": {
-    "reserve_tokens": 16384,
-    "keep_recent_tokens": 20000
-  },
-  "instructions": ""
-}
-```
+Type `/` at the start of the prompt to see the available commands:
 
-Each `name` is a unique alias used by `/model`. Supported providers are
-`openai`, `openrouter`, `ollama`, and `openai-compatible`. All of them speak
-the OpenAI Chat Completions format; the last option covers other services that
-expose it and requires `base_url`. Profiles use their standard endpoint unless
-`base_url` overrides it — for `ollama`, a base URL without a path gains `/v1`,
-its OpenAI-compatible endpoint. `api_key` may be empty when the provider uses
-its conventional environment variable or needs no credential. Optional
-`headers` are sent on every provider request. Set `context_window_tokens` to
-`0` to disable automatic compaction for that profile.
+| Command | Action |
+| --- | --- |
+| `/new` | Start a new session with the active model |
+| `/model [name]` | List model profiles, or switch to one |
+| `/resume [id]` | List sessions for this directory, or switch to one |
+| `/compact` | Summarize older context now instead of waiting for the automatic threshold |
 
-Configuration is read once at startup. Invalid files are reported and never
-rewritten. Since a literal API key may be stored in the file, kon creates it
-with owner-only permissions where the platform supports them.
-
-## Controls
+## Keys
 
 | Key | Action |
 | --- | --- |
@@ -101,96 +90,39 @@ with owner-only permissions where the platform supports them.
 | Alt+Enter | Insert a newline |
 | Tab / Shift+Tab | Fill in the selected suggestion |
 | Up/Down | Recall prompts, or move the suggestion selection |
-| Esc | Dismiss the popup |
+| Esc | Dismiss the popup, or cancel generation without killing a running command |
 | Page Up/Page Down | Scroll the transcript |
 | Mouse wheel | Scroll the transcript |
 | Ctrl+C | Cancel active work, or exit while idle |
 | Ctrl+D | Quit when the input is empty |
 
-`/new` closes the current session and starts a new one with the active model.
-`/model` lists configured profiles and `/model <name>` switches the active
-profile without starting a new session. Model changes are written to the
-session log. `/resume` lists the sessions recorded for the working directory,
-and `/resume <id>` reopens one and replays its conversation into the transcript.
-`/compact` summarizes older context immediately instead of waiting for the
-automatic threshold. Unknown slash commands are never sent to a provider.
+The status bar shows the working directory, context usage, and a status
+message; the header shows the active model. `ctx ~12.4k/128k` means usage is
+estimated; a `?` means the provider has not supplied enough information yet.
 
-Typing `/` at the start of the prompt opens a popup listing the available
-commands, with the first entry already selected. Tab (or Enter) fills in the
-selection and Shift+Tab moves it; arrow keys cycle the selection without
-filling it in. Slash commands are only recognized at the very start of the
-prompt, so `/foo` inside a longer message is ordinary text. Commands are
-registered in a central registry in `internal/ui/commands.go`: each
-registration declares its positional arguments and, per argument, an
-autocomplete handler. Adding a command means calling `register` in
-`defaultRegistry`; parsing, usage validation, and completion dispatch are
-handled by the registry. The popup itself is a generic widget
-(`internal/ui/menu.go`) driven by a `menuSource`, so future pickers (file
-mentions, history search, and so on) can reuse it without changing the input
-handling.
-
-The status bar shows the working directory and context usage. `~12.4k` means
-usage is estimated; `?` means the provider has not supplied enough information.
-
-## Agent behavior and safety
+## What the agent can do
 
 Tool calls run serially in the directory where kon was started:
 
-- `read` returns numbered UTF-8 lines, at most 2,000 lines and 1 MiB.
-- `write` atomically creates or replaces a file. It does not create parents.
+- `read` returns numbered file contents, at most 2,000 lines and 1 MiB.
+- `write` atomically creates or replaces a file.
 - `edit` replaces exactly one occurrence and fails on zero or multiple matches.
-- `shell` uses `/bin/sh -c` on POSIX and `%COMSPEC% /d /s /c` on Windows. It
-  times out after 120 seconds and limits returned output to 64 KiB.
+- `shell` runs a command through `/bin/sh` (or the Windows shell) with a
+  model-specified timeout, capped at 600 seconds.
 
-There is no sandbox or confirmation prompt. Relative and absolute paths are
-accepted, and shell commands inherit the user's environment. Run kon with the
-same care as any other coding agent.
+There is no sandbox or confirmation prompt, and shell commands inherit your
+environment. Run kon with the same care you'd give any other coding agent.
 
-When context exceeds `context_window_tokens - reserve_tokens`, kon summarizes
-older complete turns and keeps approximately `keep_recent_tokens`. Summaries
-are stored as new session entries; original entries are never deleted. A failed
-compaction stops the run instead of discarding context. Provider-reported
-context-overflow errors cause one compaction and one retry. `/compact` triggers
-the same summarization on demand regardless of the threshold; when the
-conversation is too short to split safely it reports that there is nothing to
-compact.
+Long conversations take care of themselves: when the context nears the model's
+window, older turns are summarized into a compact recap and the conversation
+continues. Original session entries are never deleted, so nothing is lost.
 
-See [Architecture](docs/architecture.md), [Development](docs/development.md),
-and [Session format](docs/session-format.md) for implementation contracts.
+## Documentation
 
-## Command line
-
-```text
-kon
-kon --help
-kon --version
-kon --resume
-kon --resume <session-id>
-```
-
-Every invocation without `--resume` starts a new session. `--resume` reopens the
-most recent session for the current working directory, and `--resume <session-id>`
-reopens a specific one. When kon exits it prints a resume hint on stderr:
-
-```text
-resume with: kon --resume ses_7Yk2mP9Qa4Zx8Vc1Nd6R
-```
-
-`/resume` lists the sessions for the current directory and `/resume <id>` switches
-to one from inside the running app. Branch navigation, rewind, manual compaction,
-Markdown rendering, and plugins are outside v0.1.0.
-
-## Development
-
-```sh
-make check       # format check, vet, and tests
-make build       # bin/kon
-make release VERSION=v0.1.0
-```
-
-Windows developers can run the underlying Go commands directly; `make` is not
-required. Release builds are pure Go (`CGO_ENABLED=0`) and target Linux, macOS,
-and Windows on amd64 and arm64.
+- [Architecture](docs/architecture.md) — how the pieces fit together
+- [Session format](docs/session-format.md) — the on-disk JSONL contract
+- [Rendering performance](docs/rendering-performance.md) — how the TUI stays fast
+- [Development](docs/development.md) — building and contributing
 
 ## License
 
