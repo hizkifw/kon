@@ -587,6 +587,36 @@ func TestCtrlCWithoutACommandReportsCancellation(t *testing.T) {
 	}
 }
 
+func TestPromptUsesTerminalCursor(t *testing.T) {
+	model := newTestModel(t)
+	view := model.View()
+	if !view.ReportFocus {
+		t.Fatal("view does not request focus reports, so the cursor cannot stop blinking on blur")
+	}
+	if model.input.VirtualCursor() {
+		t.Fatal("prompt uses a virtual cursor that tmux cannot hide in an inactive pane")
+	}
+	want := model.input.Cursor()
+	if view.Cursor == nil || want == nil {
+		t.Fatal("focused prompt does not expose a terminal cursor")
+	}
+	if view.Cursor.X != want.X+1 || view.Cursor.Y <= want.Y {
+		t.Fatalf("terminal cursor is not offset into the prompt: got (%d,%d), textarea (%d,%d)", view.Cursor.X, view.Cursor.Y, want.X, want.Y)
+	}
+}
+
+func TestBlurHidesPromptCursor(t *testing.T) {
+	model := newTestModel(t)
+	blurred, _ := model.Update(tea.BlurMsg{})
+	if cursor := blurred.(Model).View().Cursor; cursor != nil {
+		t.Fatalf("blur left the terminal cursor visible at (%d,%d)", cursor.X, cursor.Y)
+	}
+	focused, _ := blurred.(Model).Update(tea.FocusMsg{})
+	if focused.(Model).View().Cursor == nil {
+		t.Fatal("focus did not restore the terminal cursor")
+	}
+}
+
 func TestEscInterruptsBusyRun(t *testing.T) {
 	model := newTestModel(t)
 	model.busy = true

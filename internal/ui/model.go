@@ -61,6 +61,7 @@ type Model struct {
 	cwd, configPath, status string
 	contextTokens           int
 	contextApprox           bool
+	terminalFocused         bool
 	busy                    bool
 	runCancel               context.CancelFunc
 	runEvents               chan tea.Msg
@@ -103,6 +104,10 @@ func New(cwd, configPath string, runtime Runtime, historyStore *history.Store, e
 	input.MinHeight = 1
 	input.MaxHeight = maxInputLines
 	input.CharLimit = 0
+	// A real terminal cursor is hidden by tmux when another pane is active.
+	// The default virtual cursor is only styled text, so tmux cannot distinguish
+	// it from the rest of the prompt.
+	input.SetVirtualCursor(false)
 	input.Focus()
 	// The transcript renders every line pre-wrapped to the viewport width (see
 	// transcript.linesFor), so the scroll view needs no soft wrap or per-line
@@ -121,7 +126,7 @@ func New(cwd, configPath string, runtime Runtime, historyStore *history.Store, e
 		runtime: runtime, commands: defaultRegistry(),
 		active: state.Active, cwd: cwd, configPath: configPath,
 		transcript: transcript{cwd: cwd, banner: welcomeBanner},
-		status:     status, contextTokens: -1,
+		status:     status, contextTokens: -1, terminalFocused: true,
 	}
 	// A resumed session opens with its conversation already in the transcript.
 	// The viewport has no size until the first resize, so defer the scroll to
@@ -150,6 +155,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshTranscript(false)
 		m.anchorStartAtBottom()
 		return m, nil
+	case tea.FocusMsg:
+		m.terminalFocused = true
+	case tea.BlurMsg:
+		m.terminalFocused = false
 	case runEventMsg:
 		isText := m.applyAgentEvent(msg.event)
 		commands = append(commands, waitRunEvent(m.runEvents))

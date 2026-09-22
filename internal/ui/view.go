@@ -73,11 +73,29 @@ func (m Model) View() tea.View {
 	if menu := m.menu.render(m.width); menu != "" {
 		sections = append(sections, menu)
 	}
+	inputTop := 0
+	for _, section := range sections {
+		inputTop += strings.Count(section, "\n") + 1
+	}
 	sections = append(sections, inputView(m.input.View(), m.width))
 	content := strings.Join(sections, "\n")
 	view := tea.NewView(content)
+	if m.terminalFocused {
+		view.Cursor = m.input.Cursor()
+		if view.Cursor != nil {
+			// inputView adds one cell of left inset except when the terminal is
+			// too narrow to afford it.
+			if m.width > 2 {
+				view.Cursor.X++
+			}
+			view.Cursor.Y += inputTop
+		}
+	}
 	view.AltScreen = true
 	view.MouseMode = tea.MouseModeCellMotion
+	// Focus reports let kon hide the real cursor when the terminal window loses
+	// focus. tmux independently hides the real cursor in inactive panes.
+	view.ReportFocus = true
 	view.WindowTitle = "kon"
 	return view
 }
