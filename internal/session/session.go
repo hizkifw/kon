@@ -191,6 +191,11 @@ type Store struct {
 	entries []Entry
 	byID    map[typedid.EntryID]int
 	leafID  *typedid.EntryID
+	// empty is true while the session holds nothing beyond its root system
+	// message. Such a session is discarded on close so an accidental launch does
+	// not leave a resumable file behind, which would otherwise shadow an earlier
+	// session that actually has content.
+	empty bool
 }
 
 func New(root, cwd, appVersion, systemPrompt string) (*Store, error) {
@@ -223,6 +228,7 @@ func New(root, cwd, appVersion, systemPrompt string) (*Store, error) {
 		path:   path,
 		file:   f,
 		byID:   make(map[typedid.EntryID]int),
+		empty:  true,
 	}
 	if err := s.writeLine(s.header); err != nil {
 		f.Close()
@@ -303,6 +309,15 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("open session for append: %w", err)
 	}
 	s := &Store{header: header, path: path, file: f, entries: entries, byID: byID}
+	// A session holding only its root system message and structural entries has
+	// no conversation to keep.
+	s.empty = true
+	for _, entry := range entries {
+		if entry.Type == EntryTypeCompaction || (entry.Message != nil && entry.Message.Role != RoleSystem) {
+			s.empty = false
+			break
+		}
+	}
 	if len(entries) > 0 {
 		leaf := entries[len(entries)-1].ID
 		s.leafID = &leaf
@@ -406,10 +421,27 @@ func readSummary(path string) (Summary, error) {
 		return Summary{}, errors.New("invalid session header")
 	}
 	count := 0
+	substantive := false
 	for i := 1; i <= last; i++ {
-		if strings.TrimSpace(lines[i]) != "" {
-			count++
+		if strings.TrimSpace(lines[i]) == "" {
+			continue
 		}
+		count++
+		var entry struct {
+			Type    EntryType `json:"type"`
+			Message *Message  `json:"message"`
+		}
+		if json.Unmarshal([]byte(lines[i]), &entry) != nil {
+			continue
+		}
+		if entry.Type == EntryTypeCompaction || (entry.Message != nil && entry.Message.Role != RoleSystem) {
+			substantive = true
+		}
+	}
+	if !substantive {
+		// A session with no conversation is an accidental launch that should have
+		// been discarded; ignore any that survived, e.g. a crash before close.
+		return Summary{}, errors.New("empty session")
 	}
 	return Summary{ID: header.ID, Path: path, CWD: header.CWD, CreatedAt: header.Timestamp, Entries: count}, nil
 }
@@ -430,6 +462,15 @@ func (s *Store) CWD() string  { return s.header.CWD }
 
 // ID is the stable session identifier persisted in the header.
 func (s *Store) ID() typedid.SessionID { return s.header.ID }
+
+// Empty reports whether the session still holds only structural entries (the
+// root system message and model changes), with no conversation to keep. Such a
+// session is deleted when closed.
+func (s *Store) Empty() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.empty
+}
 
 // CreatedAt is the session's creation time from the header.
 func (s *Store) CreatedAt() time.Time { return s.header.Timestamp }
@@ -455,6 +496,13 @@ func (s *Store) Close() error {
 	err := s.file.Sync()
 	closeErr := s.file.Close()
 	s.file = nil
+	// A session that never grew past its root system message is an accidental
+	// launch: remove it so it does not become the newest resume target.
+	if s.empty {
+		if removeErr := os.Remove(s.path); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+			err = errors.Join(err, fmt.Errorf("discard empty session: %w", removeErr))
+		}
+	}
 	return errors.Join(err, closeErr)
 }
 
@@ -504,6 +552,12 @@ func (s *Store) append(entry Entry) (typedid.EntryID, error) {
 	}
 	if err := s.writeLine(entry); err != nil {
 		return typedid.EntryID{}, err
+	}
+	// The root system message is written through this path on creation, and model
+	// changes are structural; neither makes the session worth keeping. The first
+	// appended conversation or compaction entry does.
+	if len(s.entries) > 0 && entry.Type != EntryTypeModelChange {
+		s.empty = false
 	}
 	s.byID[id] = len(s.entries)
 	s.entries = append(s.entries, entry)
