@@ -55,7 +55,7 @@ func TestShellDescribeSuccessWithNoOutputCarriesNoteOnly(t *testing.T) {
 func TestShellDescribeWithoutMarkerShowsAllOutput(t *testing.T) {
 	shell := &shellTool{}
 	d := shell.Describe(dargs(map[string]any{"command": "x"}), "plain text", true, "/tmp")
-	if d.State != StateFailed || d.Note != "" || d.Lines[0] != "plain text" {
+	if d.State != StateFailed || d.Note != "failed" || d.Lines[0] != "plain text" {
 		t.Fatalf("marker-less failure display = %#v", d)
 	}
 }

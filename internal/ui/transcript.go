@@ -456,11 +456,15 @@ func (t *transcript) renderBlock(b block, width int) []string {
 	}
 }
 
+// toolNameWidth is the width of the name column on a tool request line: names
+// are padded so the summaries of a grouped run align.
+const toolNameWidth = 6
+
 // renderToolRun renders a run of consecutive tool and result blocks as one
-// slab. Each pair renders from the display its owning tool resolved: the
-// request line from the blockTool (whose display may be a live streaming
-// snapshot), the body and outcome from the blockResult when it exists.
-// A blockTool without a result yet is still running.
+// slab. Each pair renders from the displays its owning tool resolved: the
+// request line combines the running call's arguments summary with the
+// finished result's outcome note, and the body belongs to the result. A
+// blockTool without a result yet is still running.
 // The pair pointers alias run and are only valid for the duration of the
 // call; callers must not append to the underlying slice until it returns.
 func (t *transcript) renderToolRun(run []block, width int) []string {
@@ -489,59 +493,9 @@ func (t *transcript) renderToolRun(run []block, width int) []string {
 	return lines
 }
 
-// toolRequestLine renders one call's request line: status icon, the owning
-// tool's request summary, and its outcome note when finished.
-func (t *transcript) toolRequestLine(start, done *block, width int) string {
-	display := t.callDisplay(start, done)
-	icon, iconColor := "●", colorRun
-	if done != nil || start == nil {
-		switch display.State {
-		case tools.StateFailed:
-			icon, iconColor = "✗", colorFail
-		case tools.StateDone:
-			icon, iconColor = "✓", colorOK
-		}
-	}
-	segments := []part{
-		{text: icon, fg: iconColor},
-		{text: display.Summary, fg: colorToolName, bold: true},
-	}
-	if display.Note != "" {
-		noteColor := colorToolNote
-		if display.State == tools.StateFailed {
-			noteColor = colorFail
-		}
-		segments = append(segments, part{text: "· " + display.Note, fg: noteColor})
-	}
-	return slabLine(colorToolBg, width, segments...)
-}
-
-// toolBodyLines renders a call's display body: the owning tool's trimmed
-// lines. A running call streams them live; a finished call shows the outcome
-// tail its tool chose to keep.
-func (t *transcript) toolBodyLines(start, done *block, width int) []string {
-	display := t.callDisplay(start, done)
-	fg := colorToolFg
-	switch {
-	case display.State == tools.StateFailed:
-		fg = colorFail
-	case done != nil && done.name == "shell" && start != nil:
-		// Successful shell output gets a fainter voice than the request line.
-		fg = colorToolNote
-	}
-	out := make([]string, 0, len(display.Lines)+1)
-	for _, line := range display.Lines {
-		out = append(out, slabLine(colorToolBg, width, part{text: "  " + line, fg: fg}))
-	}
-	if display.More > 0 {
-		out = append(out, slabLine(colorToolBg, width, part{text: fmt.Sprintf("  … %d more lines", display.More), fg: colorToolNote}))
-	}
-	return out
-}
-
-// callDisplay picks the display for one call: the result's resolved display
-// when the call finished, otherwise the running call's live snapshot, and
-// finally a fallback resolved from empty arguments.
+// callDisplay picks the display that carries a call's outcome: the result's
+// resolved display when the call finished, otherwise the running call's live
+// snapshot, and finally a bare running shell.
 func (t *transcript) callDisplay(start, done *block) tools.Display {
 	if done != nil {
 		return done.display
@@ -550,6 +504,77 @@ func (t *transcript) callDisplay(start, done *block) tools.Display {
 		return start.display
 	}
 	return tools.Display{State: tools.StateRunning}
+}
+
+// toolRequestLine renders one call's request line: status icon, the padded
+// tool name, the summary rendered from the call's arguments, and the outcome
+// note from the finished result when one exists.
+func (t *transcript) toolRequestLine(start, done *block, width int) string {
+	name := ""
+	if start != nil {
+		name = start.name
+	} else if done != nil {
+		name = done.name
+	}
+	summary := ""
+	if start != nil {
+		summary = start.display.Summary
+	} else if done != nil {
+		summary = done.display.Summary
+	}
+	outcome := t.callDisplay(start, done)
+
+	icon, iconColor := "●", colorRun
+	noteColor := colorToolNote
+	if done != nil || start == nil {
+		switch outcome.State {
+		case tools.StateFailed:
+			icon, iconColor, noteColor = "✗", colorFail, colorFail
+		case tools.StateDone:
+			icon, iconColor = "✓", colorOK
+		}
+	}
+	segments := []part{
+		{text: icon, fg: iconColor},
+		{text: padName(name, toolNameWidth), fg: colorToolName, bold: true},
+	}
+	if summary != "" {
+		segments = append(segments, part{text: summary, fg: colorToolFg})
+	}
+	if outcome.Note != "" {
+		segments = append(segments, part{text: "· " + outcome.Note, fg: noteColor})
+	}
+	return slabLine(colorToolBg, width, segments...)
+}
+
+// toolBodyLines renders a call's body: the owning tool's trimmed output
+// lines, the omission marker, and the terminal status line. A running call
+// streams its lines live; a finished call shows the outcome tail its tool
+// chose to keep.
+func (t *transcript) toolBodyLines(start, done *block, width int) []string {
+	display := t.callDisplay(start, done)
+	fg := colorToolFg
+	if display.Quiet {
+		fg = colorToolNote
+	}
+	if display.State == tools.StateFailed {
+		fg = colorFail
+	}
+	var out []string
+	for _, line := range display.Lines {
+		out = append(out, slabLine(colorToolBg, width, part{text: "  " + line, fg: fg}))
+	}
+	if display.More > 0 {
+		out = append(out, slabLine(colorToolBg, width, part{text: fmt.Sprintf("  … %d more lines", display.More), fg: colorToolNote}))
+	}
+	if display.Status != "" {
+		statusColor := colorOK
+		if display.State == tools.StateFailed {
+			statusColor = colorFail
+		}
+		out = append(out, slabLine(colorToolBg, width, part{text: "  " + display.Status, fg: statusColor}))
+	}
+	return out
 }
 
 // messageSlab renders a user, agent, or error message body: word-wrapped and
@@ -636,6 +661,10 @@ func bgSpaces(bg color.Color, n int) string {
 		return ""
 	}
 	return lipgloss.NewStyle().Background(bg).Render(strings.Repeat(" ", n))
+}
+
+func padName(name string, width int) string {
+	return fmt.Sprintf("%-*s", width, name)
 }
 
 // normalizeText prepares a message or reasoning body for display: it unifies

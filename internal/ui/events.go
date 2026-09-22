@@ -1,12 +1,14 @@
 package ui
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/hizkifw/kon/internal/agent"
 	"github.com/hizkifw/kon/internal/provider"
 	"github.com/hizkifw/kon/internal/session"
 	"github.com/hizkifw/kon/internal/tools"
+	"github.com/hizkifw/kon/internal/typedid"
 )
 
 // maxResultChars bounds tool result text kept in the transcript. Display
@@ -85,9 +87,14 @@ func (m *Model) toolResultBlock(event agent.Event) block {
 // resumed conversation is visible before the next prompt. It mirrors the live
 // event stream: user and assistant messages, thinking parts, and tool calls
 // paired with their results. Model-change and compaction entries are structural
-// and are not echoed here. Tool displays are resolved through the owning tools,
-// so replay looks exactly like the live rendering.
+// and are not echoed here. Tool displays are resolved through the owning tools
+// with the call's persisted arguments, so replay looks exactly like the live
+// rendering.
 func (m *Model) applyHistory(entries []session.Entry) {
+	// callArgs maps a tool call ID to its persisted arguments so a tool
+	// result resolves its display from the same arguments the call was made
+	// with.
+	callArgs := make(map[typedid.ToolCallID]json.RawMessage)
 	for _, entry := range entries {
 		if entry.Message == nil {
 			continue
@@ -105,14 +112,14 @@ func (m *Model) applyHistory(entries []session.Entry) {
 				m.transcript.add(block{kind: blockAssistant, text: content})
 			}
 			for _, call := range entry.Message.ToolCalls {
+				callArgs[call.ID] = call.Function.Arguments
 				m.transcript.add(m.toolBlock(call.Function.Name, sanitize(string(call.Function.Arguments))))
 			}
 		case session.RoleTool:
 			// The display comes from the owning tool, resolved against the
-			// persisted content, so a resumed transcript renders exactly like
-			// the live one did. The paired request block, replayed earlier in
-			// the loop, already carries the request line.
-			display := m.runtime.DescribeTool(entry.Message.Name, nil, sanitize(entry.Message.Content), false)
+			// persisted content and the call's arguments, so a resumed
+			// transcript renders exactly like the live one did.
+			display := m.runtime.DescribeTool(entry.Message.Name, callArgs[entry.Message.ToolCallID], sanitize(entry.Message.Content), false)
 			m.transcript.add(block{kind: blockResult, name: entry.Message.Name, display: display})
 		}
 	}

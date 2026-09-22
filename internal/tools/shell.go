@@ -70,17 +70,21 @@ func (t *shellTool) Summarize(raw json.RawMessage, cwd string) string {
 
 // Describe renders the finished call. The persisted result ends with the
 // "exit code: N (took D)" marker the tool appends; the marker becomes the
-// outcome note and the output is trimmed to its tail. Output-carrying results
-// keep a body; summarized results (successful reads and edits are reported by
-// their callers) keep none. A failed call always shows its message.
+// state-colored status line under the output tail. Successful calls with no
+// output collapse to the request line alone. A failed call always shows its
+// message. replay args may be nil when the session did not persist them (old
+// sessions); the command summary is then unknown and only the result shows.
 func (t *shellTool) Describe(raw json.RawMessage, result string, failed bool, cwd string) Display {
-	summary := t.Summarize(raw, cwd)
+	summary := ""
+	if len(raw) > 0 {
+		summary = t.Summarize(raw, cwd)
+	}
 	output, exit, took, hasExit := splitResult(result)
-	note := ""
+	status := ""
 	if hasExit {
-		note = "exit " + exit
+		status = "exit " + exit
 		if took != "" {
-			note += " · took " + took
+			status += " · took " + took
 		}
 	}
 	state := StateDone
@@ -92,10 +96,21 @@ func (t *shellTool) Describe(raw json.RawMessage, result string, failed bool, cw
 	if state == StateDone && output == "" {
 		// Successful calls with nothing to echo carry their outcome on the
 		// request line alone.
-		return Display{State: state, Summary: summary, Note: note}
+		return Display{State: state, Summary: summary, Note: status}
+	}
+	if state == StateFailed {
+		// A failure's message is the primary result; the status line rides
+		// along on the request line so the reason for failure stays adjacent
+		// to the command.
+		note := status
+		if !hasExit {
+			note = "failed"
+		}
+		lines, more := tailLines(output, toolTailLines)
+		return Display{State: state, Summary: summary, Note: note, Lines: lines, More: more}
 	}
 	lines, more := tailLines(output, toolTailLines)
-	return Display{State: state, Summary: summary, Note: note, Lines: lines, More: more}
+	return Display{State: state, Summary: summary, Lines: lines, More: more, Status: status, Quiet: true}
 }
 
 // liveDisplay builds a running-call snapshot from the writer's tail lines.

@@ -25,15 +25,23 @@ const (
 
 // Display is one tool call's presentation snapshot, owned by the tool. The
 // transcript renders it verbatim: Summary and Note are short single-line
-// strings (painted on the request line), Lines is the trimmed body, and More
-// counts the lines Lines omits. Tools build snapshots either from a finished
-// call (Describe) or, for long-running tools, while the call is in flight.
+// strings (painted on the request line), Lines is the trimmed body, Status is
+// a state-colored final line below the body, and More counts the lines Lines
+// omits. Tools build snapshots either from a finished call (Describe) or, for
+// long-running tools, while the call is in flight.
 type Display struct {
 	Summary string       // request-line rendering of the call, e.g. "internal/ui/view.go from 100"
-	Note    string       // outcome tail on the request line, e.g. "12 lines" or "exit 0 · took 1.2s"
+	Note    string       // outcome tail on the request line, e.g. "12 lines"
 	State   DisplayState // running, done, or failed
 	Lines   []string     // body lines below the request line, already trimmed by the tool
 	More    int          // how many body lines Lines omits
+	// Status is the call's terminal status line, rendered below the body in
+	// the state color (green for done, red for failed), e.g. "exit 0 · took
+	// 1.2s". Empty when the call has nothing to report beyond its body.
+	Status string
+	// Quiet marks the body as secondary output: the transcript paints it in a
+	// fainter voice than a primary result.
+	Quiet bool
 }
 
 // Displayer lets a tool own how its calls are presented. Both methods are pure

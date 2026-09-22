@@ -538,7 +538,7 @@ func TestShellResultBlockSplitsCodeAndDuration(t *testing.T) {
 	model := newTestModel(t)
 	b := model.toolResultBlock(event)
 	d := b.display
-	if d.State != tools.StateDone || d.Note != "exit 0 · took 4.2s" || len(d.Lines) != 1 || d.Lines[0] != "warnings here" {
+	if d.State != tools.StateDone || d.Status != "exit 0 · took 4.2s" || len(d.Lines) != 1 || d.Lines[0] != "warnings here" || !d.Quiet {
 		t.Fatalf("toolResultBlock display = %#v", d)
 	}
 }
