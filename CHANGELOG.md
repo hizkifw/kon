@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### Added
+
+- A streaming markdown core (`internal/markdown`) for transcript rendering,
+  built on goldmark with GFM tables, strikethrough, task lists, and autolinks.
+  It renders CommonMark blocks (headings, paragraphs, fenced and indented
+  code, blockquotes, tight/loose/nested/ordered lists, tables, thematic
+  breaks, raw HTML) into wrapped display lines with theme-resolved style
+  spans, and freezes provably closed blocks so per-frame render cost is
+  proportional to the unfrozen tail, not the document. The streaming view is
+  byte-identical to a from-scratch render of the same bytes at every frame
+  (guarded by mid-stream convergence tests and a randomized corpus covering
+  blank-spanning containers and partial-list markers), and `Finish` folds the
+  open tail in one pass when a stream ends. Not yet wired into the
+  transcript; inline emphasis, strikethrough, and link destinations are
+  scoped as the next layer.
+
 ### Changed
 
 - Tools are refactored around a central registry inside `internal/tools`,
