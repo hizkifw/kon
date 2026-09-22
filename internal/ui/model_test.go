@@ -571,6 +571,61 @@ func TestCtrlCWithoutACommandReportsCancellation(t *testing.T) {
 	}
 }
 
+func TestEscInterruptsBusyRun(t *testing.T) {
+	model := newTestModel(t)
+	model.busy = true
+	canceled := false
+	model.runCancel = func() { canceled = true }
+	updated, _, handled := model.handleKey("esc")
+	got := updated.(Model)
+	if !handled || !canceled || !got.cancelRequested {
+		t.Fatalf("esc did not interrupt the run: handled=%v canceled=%v status=%q", handled, canceled, got.status)
+	}
+	if !strings.Contains(got.status, "interrupt") {
+		t.Fatalf("status = %q", got.status)
+	}
+}
+
+func TestEscClosesMenuBeforeInterrupting(t *testing.T) {
+	model := newTestModel(t)
+	model.busy = true
+	model.runCancel = func() {}
+	model.menu.items = []menuItem{{Value: "/model", Description: "pick"}}
+	updated, _, handled := model.handleKey("esc")
+	got := updated.(Model)
+	if !handled || got.menu.open() || got.cancelRequested {
+		t.Fatalf("esc did not close the menu first: handled=%v open=%v cancel=%v", handled, got.menu.open(), got.cancelRequested)
+	}
+}
+
+func TestEscWithoutBusyRunIsUnhandled(t *testing.T) {
+	model := newTestModel(t)
+	if _, _, handled := model.handleKey("esc"); handled {
+		t.Fatal("esc was handled when there was nothing to interrupt")
+	}
+}
+
+func TestInterruptedRunFinalizesStreamedTurn(t *testing.T) {
+	model := newTestModel(t)
+	model.busy = true
+	model.runCancel = func() {}
+	model.transcript.appendThinking("hmm")
+	model.transcript.appendStream("half an answer")
+	updated, _ := model.Update(runDoneMsg{err: context.Canceled})
+	got := updated.(Model)
+	if got.busy || got.status != "interrupted" {
+		t.Fatalf("busy=%v status=%q", got.busy, got.status)
+	}
+	// The partial stream must be frozen into stable blocks so it survives.
+	if got.transcript.thinking != "" || len(got.transcript.stream) != 0 {
+		t.Fatal("interrupted run left the transcript stream open")
+	}
+	rendered := plain(got.viewport.View())
+	if !strings.Contains(rendered, "half an answer") {
+		t.Fatalf("partial answer missing from transcript: %q", rendered)
+	}
+}
+
 func TestCtrlDQuitsOnEmptyInput(t *testing.T) {
 	model := newTestModel(t)
 	_, cmd, handled := model.handleKey("ctrl+d")

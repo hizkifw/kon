@@ -115,6 +115,70 @@ func TestContextUsageUnknownBeforeFirstReport(t *testing.T) {
 	}
 }
 
+// interruptingProvider simulates a stream that emits a partial turn and then
+// fails, the way a user cancellation or a dropped connection arrives.
+type interruptingProvider struct {
+	calls int
+}
+
+func (p *interruptingProvider) Stream(_ context.Context, _ []session.Message, _ []provider.Tool, emit func(provider.Event)) (session.Message, error) {
+	p.calls++
+	emit(provider.Event{Text: "partial thought", Thinking: true})
+	emit(provider.Event{Text: "half an answer"})
+	return session.Message{
+		Role:        session.RoleAssistant,
+		Content:     "half an answer",
+		Interrupted: true,
+		Parts: []session.Part{
+			{Type: provider.PartReasoning, Text: "partial thought"},
+			{Type: provider.PartText, Text: "half an answer"},
+		},
+	}, context.Canceled
+}
+
+func (p *interruptingProvider) Complete(_ context.Context, _ []session.Message, _ []provider.Tool, _ int) (session.Message, error) {
+	return session.Message{Role: session.RoleAssistant, Content: "summary"}, nil
+}
+
+func TestRunnerPersistsPartialTurnOnInterruptedStream(t *testing.T) {
+	store, err := session.New(t.TempDir(), t.TempDir(), "test", "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	fake := &interruptingProvider{}
+	runner := New(config.Model{}, config.Compaction{}, fake, store, tools.New(t.TempDir()))
+	err = runner.Run(context.Background(), "hello", func(Event) {})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run error = %v, want context.Canceled", err)
+	}
+	contextMessages, err := store.Context()
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := contextMessages[len(contextMessages)-1].Message
+	if last.Role != session.RoleAssistant || !last.Interrupted || last.Content != "half an answer" {
+		t.Fatalf("partial turn was not persisted: %#v", last)
+	}
+	if len(last.Parts) != 2 || last.Parts[0].Type != provider.PartReasoning {
+		t.Fatalf("partial reasoning was not persisted: %#v", last.Parts)
+	}
+	// A follow-up turn must see the partial assistant message in its context so
+	// the model can continue from it.
+	if !containsInterrupted(contextMessages) {
+		t.Fatal("persisted partial is missing from the projected context")
+	}
+}
+
+func containsInterrupted(messages []session.ContextMessage) bool {
+	for _, message := range messages {
+		if message.Message.Interrupted {
+			return true
+		}
+	}
+	return false
+}
+
 type reasoningProvider struct{}
 
 func (reasoningProvider) Stream(_ context.Context, _ []session.Message, _ []provider.Tool, emit func(provider.Event)) (session.Message, error) {

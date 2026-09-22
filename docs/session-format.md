@@ -46,8 +46,14 @@ The `message` object uses provider-neutral roles while keeping provider metadata
 Assistant tool calls are stored as structured `tool_calls`, with their arguments
 as JSON rather than an escaped provider string. The optional ordered `parts`
 array preserves reasoning blocks, tool-call metadata, and other opaque values
-needed to replay provider-native conversations. Partial assistant messages are
-never written.
+needed to replay provider-native conversations.
+
+A turn that is interrupted before completion (user cancellation or a dropped
+connection) is written with `interrupted: true`, carrying whatever answer text
+and reasoning arrived. Its `finish_reason` and `usage` are omitted because the
+turn never completed. Interrupted turns are retained so the partial trace is
+visible after a resume and the next request can continue from it; the provider
+wire mapping skips an interrupted turn that has no answer text.
 
 ## Model change entries
 

@@ -21,6 +21,14 @@
   picked up again later.
 - The `/compact` command summarizes older context on demand, using the same
   boundary rules and durable summary entry as automatic compaction.
+- `Esc` interrupts a streaming turn. Unlike `Ctrl+C` it never escalates to
+  killing a running shell command; it only cancels the generation.
+- Partial turns are kept. When a stream is interrupted (Esc, `Ctrl+C`, or a
+  dropped connection) the assistant text and reasoning produced so far are
+  persisted as an `interrupted` message, so a resume shows the partial trace and
+  a follow-up message continues from it. A partial turn with no answer text is
+  skipped on the request wire (this format has no reasoning field) but stays in
+  the local transcript.
 
 ### Changed
 

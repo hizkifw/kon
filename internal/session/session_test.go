@@ -308,6 +308,22 @@ func TestOpenRejectsLegacyBareIDs(t *testing.T) {
 	}
 }
 
+func TestAssistantMessageWithOnlyReasoningIsValid(t *testing.T) {
+	// A turn interrupted before any answer text persists reasoning only; it must
+	// remain a valid durable message so the partial turn survives a resume.
+	message := Message{
+		Role:        RoleAssistant,
+		Interrupted: true,
+		Parts:       []Part{{Type: "reasoning", Text: "still thinking"}},
+	}
+	if err := message.Validate(); err != nil {
+		t.Fatalf("reasoning-only assistant message was rejected: %v", err)
+	}
+	if err := (Message{Role: RoleAssistant}).Validate(); err == nil {
+		t.Fatal("truly empty assistant message was accepted")
+	}
+}
+
 func TestMessageValidationRejectsDuplicateExternalToolCallIDs(t *testing.T) {
 	callID := typedid.ExternalToolCallID("provider-call")
 	message := Message{

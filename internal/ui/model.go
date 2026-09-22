@@ -126,11 +126,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case runDoneMsg:
 		m.busy, m.runCancel, m.runEvents, m.cancelRequested = false, nil, nil, false
+		// An interrupted stream never received its done event, so finalize the
+		// live stream here to freeze the partial answer and reasoning that were
+		// already displayed. A cleanly finished run has nothing pending.
+		m.transcript.finishStream()
 		switch {
 		case msg.err == nil:
 			m.status = "ready"
 		case errors.Is(msg.err, context.Canceled):
-			m.status = "cancelled"
+			m.status = "interrupted"
 		case errors.Is(msg.err, agent.ErrNothingToCompact):
 			m.status = "nothing to compact"
 		default:
@@ -227,6 +231,15 @@ func (m Model) handleKey(key string) (tea.Model, tea.Cmd, bool) {
 	case "esc":
 		if m.menu.open() {
 			m.resetMenu()
+			return m, nil, true
+		}
+		if m.busy && m.runCancel != nil {
+			// Esc interrupts a stream in flight. Unlike Ctrl+C it does not
+			// escalate to killing a running shell command; it only cancels the
+			// generation so the partial turn is kept.
+			m.cancelRequested = true
+			m.runCancel()
+			m.status = "interrupting…"
 			return m, nil, true
 		}
 		return m, nil, false

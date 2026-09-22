@@ -169,6 +169,15 @@ func (r *Runner) Run(ctx context.Context, prompt string, emit func(Event)) error
 			continue
 		}
 		if err != nil {
+			// A cancelled or dropped stream may still have produced a partial
+			// assistant message. Persist it so the turn is retained and the
+			// next request continues from where it stopped, then surface the
+			// original error.
+			if assistant.Role == session.RoleAssistant {
+				if _, appendErr := r.session.AppendMessage(assistant); appendErr != nil {
+					return err
+				}
+			}
 			return err
 		}
 		if _, err := r.session.AppendMessage(assistant); err != nil {

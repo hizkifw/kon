@@ -463,6 +463,41 @@ func TestToChatMessagesRejectsUnknownRole(t *testing.T) {
 	}
 }
 
+func TestChatStreamKeepsPartialOutputOnTruncatedStream(t *testing.T) {
+	// The server sends reasoning and text, then closes without [DONE] or a
+	// finish reason. The decoded response must still carry what arrived so the
+	// caller can persist the partial turn.
+	events := sse(`{"choices":[{"index":0,"delta":{"reasoning_content":"thinking..."}}]}`) +
+		sse(`{"choices":[{"index":0,"delta":{"content":"half an ans"}}]}`)
+	model := newTestModel(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, events)
+	})
+	response, err := model.Stream(context.Background(), nil, nil, func(Event) {})
+	if err == nil {
+		t.Fatal("truncated stream was reported as complete")
+	}
+	if response.Text != "half an ans" || response.Reasoning != "thinking..." {
+		t.Fatalf("partial output lost: %#v", response)
+	}
+}
+
+func TestChatStreamReportsErrorMidStreamButKeepsDeltas(t *testing.T) {
+	events := sse(`{"choices":[{"index":0,"delta":{"content":"started"}}]}`) +
+		sse(`{"error":{"message":"upstream exploded"}}`)
+	model := newTestModel(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, events)
+	})
+	response, err := model.Stream(context.Background(), nil, nil, func(Event) {})
+	if err == nil {
+		t.Fatal("mid-stream error was swallowed")
+	}
+	if response.Text != "started" {
+		t.Fatalf("deltas before the error were lost: %#v", response)
+	}
+}
+
 // chatFinishReasonMapsLegacyFunctionCall verifies legacy finish reasons unify
 // on one spelling.
 func TestChatFinishReasonMapsLegacyFunctionCall(t *testing.T) {
