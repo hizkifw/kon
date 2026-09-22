@@ -130,9 +130,9 @@ func (r *Runner) Interrupt(attempt int) bool {
 func SystemPrompt(cwd, instructions string) string {
 	prompt := `You are kon, a coding agent. Work directly in the current working directory.
 Use read to inspect files, edit for exact replacements, write for complete files, and shell for commands.
-Inspect relevant code before changing it. Keep tool calls focused and report the result clearly.
-Unless requested, keep your output in plaintext, as it will be displayed in a terminal.
-Tools execute without a sandbox or confirmation.`
+Inspect relevant code before changing it. Tools execute without a sandbox or confirmation.
+Your output will be displayed in a terminal with a markdown renderer.
+`
 	prompt += "\nCurrent working directory: " + filepath.Clean(cwd)
 	if strings.TrimSpace(instructions) != "" {
 		prompt += "\n\nAdditional user instructions:\n" + strings.TrimSpace(instructions)
