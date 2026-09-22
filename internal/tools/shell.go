@@ -113,14 +113,26 @@ func (t *shellTool) Describe(raw json.RawMessage, result string, failed bool, cw
 	return Display{State: state, Summary: summary, Lines: lines, More: more, Status: status, Quiet: true}
 }
 
-// liveDisplay builds a running-call snapshot from the writer's tail lines.
-// The outcome note is empty: the call has no exit code yet.
-func (t *shellTool) liveDisplay(raw json.RawMessage, env Env, lines []string) Display {
+// liveDisplay builds a running-call snapshot from the writer's tail lines. The
+// status line shows elapsed time against the command's timeout so a running
+// command visibly ticks and its budget is known; the finished result replaces it
+// with the exit-code status. The outcome note is empty: the call has no exit
+// code yet.
+func (t *shellTool) liveDisplay(raw json.RawMessage, env Env, lines []string, elapsed, timeout time.Duration) Display {
 	return Display{
 		State:   StateRunning,
 		Summary: t.Summarize(raw, env.cwd),
 		Lines:   lines,
+		Status:  runningStatus(elapsed, timeout),
 	}
+}
+
+// runningStatus renders a running command's progress line: elapsed time over its
+// total budget, e.g. "12.0s / 30s". The ticking clock signals the command is
+// alive and how long remains before the timeout. Elapsed always carries one
+// decimal so the line reads as a stepping clock rather than jittering per frame.
+func runningStatus(elapsed, timeout time.Duration) string {
+	return fmt.Sprintf("%.1fs / %s", elapsed.Seconds(), timeout)
 }
 
 // splitResult separates a shell result into the output body and the trailing
@@ -207,7 +219,10 @@ func (t *shellTool) Run(ctx context.Context, env Env, raw json.RawMessage) (Resu
 	}()
 	// While the command runs, publish the tail of its output as the live
 	// display, throttled to a frame-friendly rate. Snapshots are idempotent
-	// and the latest wins downstream, so a burst between ticks coalesces.
+	// and the latest wins downstream, so a burst between ticks coalesces. The
+	// snapshot carries elapsed time against the timeout so the status line ticks
+	// for as long as the command lives.
+	start := time.Now()
 	if env.report != nil {
 		stop := make(chan struct{})
 		reporterDone := make(chan struct{})
@@ -226,7 +241,8 @@ func (t *shellTool) Run(ctx context.Context, env Env, raw json.RawMessage) (Resu
 				case <-stop:
 					return
 				case <-ticker.C:
-					env.Report(t.liveDisplay(raw, env, writer.Tail(toolTailLines)))
+					elapsed := time.Since(start)
+					env.Report(t.liveDisplay(raw, env, writer.Tail(toolTailLines), elapsed, timeout))
 				}
 			}
 		}()
@@ -235,7 +251,6 @@ func (t *shellTool) Run(ctx context.Context, env Env, raw json.RawMessage) (Resu
 		// otherwise race the result or outlive the run's emit channel.
 		defer func() { close(stop); <-reporterDone }()
 	}
-	start := time.Now()
 	startErr := cmd.Start()
 	// The child received its own descriptor at fork; the parent must not keep
 	// the write end, or the reader never sees EOF for ordinary commands.

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 func sprintf(format string, args ...any) string { return fmt.Sprintf(format, args...) }
@@ -57,6 +58,32 @@ func TestShellDescribeWithoutMarkerShowsAllOutput(t *testing.T) {
 	d := shell.Describe(dargs(map[string]any{"command": "x"}), "plain text", true, "/tmp")
 	if d.State != StateFailed || d.Note != "failed" || d.Lines[0] != "plain text" {
 		t.Fatalf("marker-less failure display = %#v", d)
+	}
+}
+
+func TestShellRunningStatusShowsElapsedOverTimeout(t *testing.T) {
+	got := runningStatus(2300*time.Millisecond, 30*time.Second)
+	if got != "2.3s / 30s" {
+		t.Fatalf("runningStatus = %q", got)
+	}
+	// Elapsed always carries one decimal, so a whole-second value still steps
+	// rather than collapsing to "2s".
+	if got := runningStatus(2*time.Second, 5*time.Second); got != "2.0s / 5s" {
+		t.Fatalf("runningStatus whole second = %q", got)
+	}
+	if got := runningStatus(1499*time.Millisecond, 5*time.Second); got != "1.5s / 5s" {
+		t.Fatalf("runningStatus rounding = %q", got)
+	}
+}
+
+func TestShellLiveDisplayCarriesProgressStatus(t *testing.T) {
+	shell := &shellTool{}
+	d := shell.liveDisplay(dargs(map[string]any{"command": "./build"}), Env{cwd: "/tmp"}, []string{"compiling"}, 1500*time.Millisecond, 30*time.Second)
+	if d.State != StateRunning || d.Summary != "./build" {
+		t.Fatalf("live display = %#v", d)
+	}
+	if d.Status != "1.5s / 30s" {
+		t.Fatalf("live status = %q, want the elapsed/timeout progress line", d.Status)
 	}
 }
 

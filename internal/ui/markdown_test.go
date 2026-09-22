@@ -252,6 +252,13 @@ func bgSeq(c color.Color) string {
 	return fmt.Sprintf("48;2;%d;%d;%d", r>>8, g>>8, b>>8)
 }
 
+// fgSeq returns the SGR fragment that selects c as a foreground color, as
+// lipgloss emits it in truecolor mode.
+func fgSeq(c color.Color) string {
+	r, g, b, _ := c.RGBA()
+	return fmt.Sprintf("38;2;%d;%d;%d", r>>8, g>>8, b>>8)
+}
+
 // TestMarkdownLinkNoControlInjection checks that control bytes in a link
 // destination cannot break out of the OSC 8 sequence and inject terminal
 // escapes: every ESC in the painted line must begin a well-formed sequence

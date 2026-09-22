@@ -64,7 +64,10 @@ from the persisted arguments and content, so the transcript never parses tool
 output, and a resumed session replays the identical display. A long-running
 tool publishes live display snapshots while it runs, and the transcript
 replaces the running call's body with the latest one, so shell output streams
-into the view under the same tail policy the finished result uses. A
+into the view under the same tail policy the finished result uses. A running
+shell call's status line also ticks elapsed time against the command's timeout,
+so the view shows the command is alive and how much budget remains; the finished
+result replaces it with the exit-code status. A
 presentation-only welcome banner leads every transcript as a stable prefix above
 the conversation; the banner is not a block and never reaches session records or
 model context, so it stays at the top across messages and resumed sessions.

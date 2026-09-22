@@ -636,9 +636,15 @@ func (t *transcript) toolBodyLines(start, done *block, width int) []string {
 		out = append(out, slabLine(colorToolBg, width, part{text: fmt.Sprintf("  … %d more lines", display.More), fg: colorToolNote}))
 	}
 	if display.Status != "" {
+		// A running call's status (a shell command's ticking elapsed/timeout)
+		// is progress, not an outcome, so it stays quiet like the body. Only a
+		// finished call colors its status line.
 		statusColor := colorOK
-		if display.State == tools.StateFailed {
+		switch display.State {
+		case tools.StateFailed:
 			statusColor = colorFail
+		case tools.StateRunning:
+			statusColor = colorToolNote
 		}
 		out = append(out, slabLine(colorToolBg, width, part{text: "  " + display.Status, fg: statusColor}))
 	}

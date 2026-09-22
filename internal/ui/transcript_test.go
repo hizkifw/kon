@@ -110,6 +110,30 @@ func TestRunningToolHasNoResultYet(t *testing.T) {
 	}
 }
 
+// TestRunningShellStatusTicksQuietly checks that a running command's
+// elapsed/timeout progress line renders below the output and is painted in the
+// quiet body color, not the green reserved for a finished outcome.
+func TestRunningShellStatusTicksQuietly(t *testing.T) {
+	var tr transcript
+	tr.add(toolCallBlock("shell", `{"command":"go build ./..."}`, "/tmp"))
+	tr.updateToolLive(tools.Display{
+		State: tools.StateRunning, Summary: "go build ./...",
+		Lines: []string{"compiling"}, Status: "2.3s / 30s",
+	})
+	raw := tr.render(80)
+	got := plain(raw)
+	if !strings.Contains(got, "2.3s / 30s") {
+		t.Fatalf("running progress line missing: %q", got)
+	}
+	// The status line is quiet (colorToolNote), never the done-green.
+	if strings.Contains(raw, fgSeq(colorOK)) {
+		t.Fatalf("running status used the success color: %q", raw)
+	}
+	if !strings.Contains(raw, fgSeq(colorToolNote)) {
+		t.Fatalf("running status was not painted in the quiet color: %q", raw)
+	}
+}
+
 func TestShellResultTrimsToTailAndExitCode(t *testing.T) {
 	var output []string
 	for i := 0; i < 20; i++ {
@@ -125,6 +149,22 @@ func TestShellResultTrimsToTailAndExitCode(t *testing.T) {
 	}
 	if !strings.Contains(got, "exit 3") || !strings.Contains(got, "took 4.2s") || !strings.Contains(got, "✗") {
 		t.Fatalf("failing exit code not surfaced: %q", got)
+	}
+}
+
+// TestFinishedShellStatusIsGreenCheap checks the other half of the status-color
+// contract: a finished call's exit-code line is painted in the success color,
+// unlike a running call's quiet progress line.
+func TestFinishedShellStatusIsGreenCheap(t *testing.T) {
+	var tr transcript
+	tr.add(toolCallBlock("shell", `{"command":"./build"}`, "/tmp"))
+	tr.add(toolDoneBlock("shell", `{"command":"./build"}`, "ok\nexit code: 0 (took 1.0s)", false, "/tmp"))
+	raw := tr.render(80)
+	if !strings.Contains(plain(raw), "exit 0 · took 1.0s") {
+		t.Fatalf("finished status missing: %q", plain(raw))
+	}
+	if !strings.Contains(raw, fgSeq(colorOK)) {
+		t.Fatalf("finished status was not painted in the success color: %q", raw)
 	}
 }
 

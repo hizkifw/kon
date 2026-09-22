@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -196,6 +197,51 @@ func TestKillEscalationForceKillsRunningCommand(t *testing.T) {
 	}
 	if executor.Interrupt(2) {
 		t.Fatal("kill escalation reported a command after it exited")
+	}
+}
+
+func TestShellReportsTickingProgressWhileRunning(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test relies on POSIX shell timing")
+	}
+	executor := New(t.TempDir(), false)
+	var mu sync.Mutex
+	var statuses []string
+	report := func(d Display) {
+		if d.State != StateRunning || d.Status == "" {
+			return
+		}
+		mu.Lock()
+		statuses = append(statuses, d.Status)
+		mu.Unlock()
+	}
+	// A command that outlives several live-display ticks.
+	result, failed := executor.Execute(context.Background(), "shell", raw(map[string]any{
+		"command": "echo start; sleep 1",
+		"timeout": 5,
+	}), report)
+	if failed || !strings.Contains(result.Content, "exit code: 0") {
+		t.Fatalf("shell = %q, failed=%v", result.Content, failed)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(statuses) < 2 {
+		t.Fatalf("expected repeated progress snapshots, got %v", statuses)
+	}
+	// Every snapshot renders elapsed over the 5s budget, and the clock advances.
+	for _, s := range statuses {
+		if !strings.HasSuffix(s, " / 5s") {
+			t.Fatalf("progress status is missing the timeout budget: %q", s)
+		}
+	}
+	if statuses[0] == statuses[len(statuses)-1] {
+		t.Fatalf("progress clock did not advance: %v", statuses)
+	}
+	// The finished result carries the exit-code status instead of the clock.
+	shell := &shellTool{}
+	done := shell.Describe(raw(map[string]any{"command": "echo start; sleep 1"}), result.Content, false, "/tmp")
+	if !strings.HasPrefix(done.Status, "exit 0 · took ") {
+		t.Fatalf("finished status = %q", done.Status)
 	}
 }
 
