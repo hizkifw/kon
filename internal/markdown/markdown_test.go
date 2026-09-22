@@ -80,14 +80,14 @@ func TestRenderBasics(t *testing.T) {
 		{"heading then para", "# Title\n\nbody text", []string{"Title", "", "body text"}, 40},
 		{"para then list", "intro\n\n- a\n- b", []string{"intro", "", "• a", "• b"}, 40},
 		{"list then para", "- a\n- b\n\nafter", []string{"• a", "• b", "", "after"}, 40},
-		{"para then table", "intro\n\n| a | b |\n|---|---|\n| 1 | 2 |", []string{"intro", "", "a  b", "1  2"}, 40},
+		{"para then table", "intro\n\n| a | b |\n|---|---|\n| 1 | 2 |", []string{"intro", "", " a  b ", " 1  2 "}, 40},
 		{"para then quote", "intro\n\n> quoted", []string{"intro", "", "▏ quoted"}, 40},
 		{"para then fence", "intro\n\n```go\nx()\n```", []string{"intro", "", "x()"}, 40},
 		{"quote two paras", "> one\n>\n> two", []string{"▏ one", "▏", "▏ two"}, 40},
 		{"three blocks", "# H\n\npara\n\n- a", []string{"H", "", "para", "", "• a"}, 40},
 		{"setext", "Title\n=====", []string{"Title"}, 40},
 		{"strikethrough para", "~~gone~~", []string{"gone"}, 40},
-		{"table", "| a | b |\n|---|---|\n| 1 | 2 |", []string{"a  b", "1  2"}, 40},
+		{"table", "| a | b |\n|---|---|\n| 1 | 2 |", []string{" a  b ", " 1  2 "}, 40},
 		{"task", "- [x] done\n- [ ] not", []string{"• [✓] done", "• [ ] not"}, 40},
 		{"html block", "<div>raw</div>", []string{"<div>raw</div>"}, 40},
 		{"inline html kept", "a <b>bold</b> c", []string{"a <b>bold</b> c"}, 40},
@@ -296,7 +296,7 @@ func TestBlockSpacing(t *testing.T) {
 		{
 			"heading body list table quote fence",
 			"# H\n\npara\n\n- a\n- b\n\n| x |\n|---|\n| 1 |\n\n> q\n\n```\nc\n```",
-			[]string{"H", "", "para", "", "• a", "• b", "", "x", "1", "", "▏ q", "", "c"},
+			[]string{"H", "", "para", "", "• a", "• b", "", " x ", " 1 ", "", "▏ q", "", "c"},
 		},
 		{"single block no pad", "only one paragraph", []string{"only one paragraph"}},
 		{"rule between paras", "a\n\n---\n\nb", []string{"a", "", strings.Repeat("─", 40), "", "b"}},
@@ -432,6 +432,110 @@ func TestLinksSurviveWrap(t *testing.T) {
 		for _, l := range lines {
 			if w := displayWidth(l.Text); w > width {
 				t.Fatalf("width=%d line wider than width: %q", width, l.Text)
+			}
+		}
+	}
+}
+
+// TestTableAlignsColumns checks that a table whose natural widths fit the
+// renderer width is laid out as aligned columns: each cell pads to its
+// column's widest cell, and the header line carries the StyleHeading lead span.
+func TestTableAlignsColumns(t *testing.T) {
+	doc := "| Name | Role |\n|---|---|\n| alice | engineer |\n| bob | pm |"
+	lines := Render(doc, testTheme, 40)
+	want := []string{
+		" Name   Role     ",
+		" alice  engineer ",
+		" bob    pm       ",
+	}
+	if got := lineTexts(lines); !equalSlices(got, want) {
+		t.Fatalf("got=%q want=%q", got, want)
+	}
+	if len(lines[0].Spans) == 0 || lines[0].Spans[0].Style != StyleTableHeader || lines[0].Spans[0].Text != "" {
+		t.Fatalf("header lead span = %v, want zero-width StyleTableHeader", lines[0].Spans)
+	}
+	// The first body row is untinted, so it carries no lead marker; the second
+	// (even) body row carries the alternate-row marker.
+	if len(lines[1].Spans) == 0 || lines[1].Spans[0] != (Styled{Text: "alice"}) {
+		t.Fatalf("first body row spans = %v, want plain cell text", lines[1].Spans)
+	}
+	if len(lines[2].Spans) == 0 || lines[2].Spans[0].Style != StyleTableRowAlt || lines[2].Spans[0].Text != "" {
+		t.Fatalf("second body row lead = %v, want zero-width StyleTableRowAlt", lines[2].Spans)
+	}
+}
+
+// TestTableAlignsMarkers checks GFM alignment markers: ":--", ":-:", and "--:"
+// pad the cell on the right, both sides, and the left respectively.
+func TestTableAlignsMarkers(t *testing.T) {
+	doc := "| Item | Qty | Note |\n|:--|--:|:-:|\n| apples | 12 | fresh |\n| kiwi | 3 | ripe |"
+	want := []string{
+		" Item    Qty  Note  ",
+		" apples   12  fresh ",
+		" kiwi      3  ripe  ",
+	}
+	if got := lineTexts(Render(doc, testTheme, 40)); !equalSlices(got, want) {
+		t.Fatalf("got=%q want=%q", got, want)
+	}
+}
+
+// TestTableWrapsWideCells checks that a table wider than the renderer shrinks
+// its widest columns and wraps cell text inside them: the tabular shape holds,
+// every row lines up under its column, and no line overflows the width.
+func TestTableWrapsWideCells(t *testing.T) {
+	doc := "| Name | Role | Notes |\n|---|---|---|\n| alice | engineer | works on the rendering subsystem |\n| bob | pm | x |"
+	for _, width := range []int{20, 30, 40} {
+		lines := Render(doc, testTheme, width)
+		for _, l := range lines {
+			if w := displayWidth(l.Text); w > width {
+				t.Fatalf("width=%d line overflows (%d): %q", width, w, l.Text)
+			}
+		}
+		// Every body line must start in its column: the "alice" row's Notes
+		// text and the "bob" row's Notes cell share the same column offset.
+		var noteCol int
+		for _, l := range lines {
+			if strings.HasPrefix(l.Text, "alice") {
+				noteCol = strings.Index(l.Text, "works")
+				break
+			}
+		}
+		if noteCol < 0 {
+			t.Fatalf("width=%d: could not locate Notes column", width)
+		}
+		for _, l := range lines {
+			if strings.HasPrefix(l.Text, "bob") && strings.Index(l.Text, "x") != noteCol {
+				t.Fatalf("width=%d: bob's Notes cell not aligned at col %d: %q", width, noteCol, l.Text)
+			}
+		}
+	}
+}
+
+// TestTableStreamConverges checks a wide table streamed in tiny deltas matches
+// the from-scratch render at each frame, so per-cell wrapping stays byte-stable
+// across the streaming path.
+func TestTableStreamConverges(t *testing.T) {
+	doc := "intro\n\n| Name | Role | Notes |\n|---|---|---|\n| alice | engineer | works on the rendering subsystem |\n| bob | pm | x |\n\nafter"
+	for _, width := range []int{16, 24, 40} {
+		s := NewStream(testTheme, width)
+		for i := 0; i < len(doc); i++ {
+			s.Write(doc[i : i+1])
+			got := lineTexts(streamView(s))
+			want := lineTexts(Render(doc[:i+1], testTheme, width))
+			if !equalSlices(got, want) {
+				t.Fatalf("width=%d offset=%d\n got=%q\nwant=%q", width, i+1, got, want)
+			}
+		}
+	}
+}
+
+// TestTableFitsTinyWidth checks the aligned renderer never overflows even at
+// widths too narrow to hold the columns, where it falls back to wrapped rows.
+func TestTableFitsTinyWidth(t *testing.T) {
+	doc := "| a | b | c |\n|---|---|---|\n| " + strings.Repeat("wide ", 20) + " | x | y |"
+	for _, width := range []int{1, 2, 3, 5, 8} {
+		for _, l := range Render(doc, testTheme, width) {
+			if w := displayWidth(l.Text); w > width {
+				t.Fatalf("width=%d line overflows (%d): %q", width, w, l.Text)
 			}
 		}
 	}

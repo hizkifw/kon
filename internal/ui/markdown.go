@@ -27,6 +27,8 @@ func markdownStyles() map[markdown.Style]part {
 		markdown.StyleLinkURL:       {fg: colorFaint},
 		markdown.StyleStrikethrough: {fg: colorFaint, strike: true},
 		markdown.StyleTask:          {fg: colorOK},
+		markdown.StyleTableHeader:   {bg: colorTableHeaderBg, bold: true},
+		markdown.StyleTableRowAlt:   {bg: colorTableRowBg},
 	}
 }
 
@@ -72,10 +74,16 @@ func markdownSegments(line markdown.Line, styles map[markdown.Style]part, fg col
 		base.fg = fg
 	}
 
-	// Find a leading base-style marker (a zero-width span) if present.
+	// Find a leading base-style marker (a zero-width span) if present. A table
+	// row marker carries a row background: table cells are held back so the
+	// marker's background can extend over them (they cannot paint the slab bg,
+	// which would punch a hole in the row).
 	spans := line.Spans
 	if len(spans) > 0 && spans[0].Text == "" {
 		if p, ok := styles[spans[0].Style]; ok {
+			if p.bg != nil {
+				return markdownTableSegments(line, p, styles, fg)
+			}
 			base = p
 			if base.fg == nil {
 				base.fg = fg
@@ -121,6 +129,84 @@ func markdownSegments(line markdown.Line, styles map[markdown.Style]part, fg col
 	return segments
 }
 
+// markdownTableSegments builds the segments for a table row line. The row
+// marker (marker.text is empty and marker.bg is set) provides a background for
+// the whole row; each cell then paints its own text on that background. Cells
+// are found by walking the line's zero-width lead spans, so the split never
+// depends on the text: each lead's following span (or run of spans) is one
+// cell. Background-coloured filler between cells is emitted as its own segment,
+// so cell padding, column gaps, and trailing slab space share the row bg.
+func markdownTableSegments(line markdown.Line, marker part, styles map[markdown.Style]part, fg color.Color) []part {
+	base := marker
+	base.text = ""
+	if base.fg == nil {
+		base.fg = fg
+	}
+
+	var segments []part
+	var cell strings.Builder // styled text of the cell being built
+
+	flushCell := func() {
+		if cell.Len() == 0 {
+			return
+		}
+		s := base
+		s.text = cell.String()
+		segments = append(segments, s)
+		cell.Reset()
+	}
+
+	pos := 0
+	for _, span := range line.Spans {
+		if span.Text == "" {
+			// A cell lead marker: flush the previous cell and skip it.
+			flushCell()
+			continue
+		}
+		idx := strings.Index(line.Text[pos:], span.Text)
+		if idx < 0 {
+			// Span text not found (should not happen); bail to the base style
+			// for the whole line so nothing is dropped.
+			s := base
+			s.text = line.Text
+			return []part{s}
+		}
+		if idx > 0 {
+			// The gap belongs after the cell's text, so flush the cell first.
+			flushCell()
+			segments = append(segments, bgFiller(base, line.Text[pos:pos+idx]))
+			pos += idx
+		}
+		if span.Style == markdown.StyleNone && span.Link == "" {
+			cell.WriteString(span.Text)
+		} else {
+			flushCell()
+			p := styles[span.Style]
+			if p.fg == nil {
+				p.fg = fg
+			}
+			p.text = span.Text
+			p.link = span.Link
+			p.bg = base.bg
+			segments = append(segments, p)
+		}
+		pos += len(span.Text)
+	}
+	flushCell()
+	if pos < len(line.Text) {
+		segments = append(segments, bgFiller(base, line.Text[pos:]))
+	}
+	return segments
+}
+
+// bgFiller builds a segment for unstyled table text (cell padding, column
+// gaps), painting it on the row background.
+func bgFiller(base part, text string) part {
+	s := base
+	s.text = text
+	return s
+}
+
 // slabLineContinuous paints segments with no separator between them and the
 // same full-width background fill as slabLine. Each segment carries the slab
 // background so its resets cannot punch holes in the slab.
@@ -141,6 +227,9 @@ func slabLineContinuous(bg color.Color, width int, segments ...part) string {
 			text = ansi.Truncate(text, avail, "…")
 		}
 		style := lipgloss.NewStyle().Foreground(segment.fg).Background(bg)
+		if segment.bg != nil {
+			style = style.Background(segment.bg)
+		}
 		if segment.bold {
 			style = style.Bold(true)
 		}

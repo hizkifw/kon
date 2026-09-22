@@ -24,8 +24,11 @@
 // or NewStream (guarded by TestLinesFitWidth): prose, headings, code, and
 // tables wrap, and block prefixes (list markers, quote gutters) are accounted
 // for in the wrap width, so a caller painting a fixed-width slab never has to
-// truncate text away. Adjacent blocks are separated by a blank line (see
-// appendBlocks), giving headings, paragraphs, lists, tables, quotes, code,
+// truncate text away. GFM tables render as aligned columns: columns size to
+// their widest cell when the table fits, and a table too wide shrinks its
+// widest columns and wraps text inside each cell, so the tabular shape holds at
+// any width (a width below one cell per column falls back to wrapped rows).
+// Adjacent blocks are separated by a blank line (see appendBlocks), giving headings, paragraphs, lists, tables, quotes, code,
 // and rules room to breathe; the blank lines are output only and never
 // re-enter the parsed source. Spans are emitted after wrapping, annotating
 // whole display lines, so a span never crosses a line break. Links render as
@@ -59,6 +62,8 @@ const (
 	StyleLinkURL                    // link destination
 	StyleStrikethrough              // ~~struck~~ text
 	StyleTask                       // task-list checkbox
+	StyleTableHeader                // table header row
+	StyleTableRowAlt                // alternate (even) table body row
 )
 
 // Theme optionally remaps styles to other styles (for example, rendering

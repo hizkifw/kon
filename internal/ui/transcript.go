@@ -74,11 +74,12 @@ var (
 type part struct {
 	text      string
 	fg        color.Color
+	bg        color.Color // segment background; nil uses the slab background
+	link      string      // OSC 8 hyperlink target, when set
 	bold      bool
 	italic    bool
 	underline bool
 	strike    bool
-	link      string // OSC 8 hyperlink target, when set
 }
 
 // Markdown palette additions: colors used only by markdown roles.
@@ -87,6 +88,12 @@ var (
 	colorCodeFg    = lipgloss.Color("#C2A878")
 	colorQuoteFg   = lipgloss.Color("#B0B0B0")
 	colorLink      = lipgloss.Color("#7FB3D5")
+
+	// Table tints: subtle neutral backgrounds so a table reads as a distinct
+	// block without borders. The row band makes wide or wrapped tables easy to
+	// follow across lines.
+	colorTableHeaderBg = lipgloss.Color("#3A3A3A")
+	colorTableRowBg    = lipgloss.Color("#262626")
 )
 
 type transcript struct {

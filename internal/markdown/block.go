@@ -501,36 +501,249 @@ func separatorLines() []Line {
 	return make([]Line, blockSeparatorLines)
 }
 
-// tableLines renders a GFM table as "cell cell cell" rows wrapped to the
-// renderer width, so a wide table wraps instead of being truncated with an
-// ellipsis. The header row carries a zero-width StyleHeading lead span (the
-// same marker headings use) so callers can style it apart. Cell content walks
-// the same inline path as prose, so inline styles work in cells and text is
-// unescaped identically.
+// tableColumnSep is the number of blank cells between adjacent table columns.
+const tableColumnSep = 2
+
+// tablePad is the blank cells kept inside the tinted region on each side of the
+// table: one before the first column and one after the last, so the row
+// highlight has a little breathing room and reaches past the column edges.
+const tablePad = 1
+
+// tableCell is one cell's inline pieces, its natural display width, and its
+// GFM alignment.
+type tableCell struct {
+	pieces []piece
+	width  int
+	align  extast.Alignment
+}
+
+// tableRow is one parsed row: its cells and whether it is the header.
+type tableRow struct {
+	cells  []tableCell
+	header bool
+}
+
+// tableLines renders a GFM table as aligned columns. Columns size to their
+// widest cell when the whole table fits the renderer width; a wider table
+// shrinks its widest columns so every row still fits (see tableWidths), and
+// each cell's text wraps inside its column, so a wide table stays tabular
+// instead of being truncated with an ellipsis. Cell content walks the same
+// inline path as prose, so inline styles work in cells and text is unescaped
+// identically.
+//
+// Presentation is left to the renderer: each cell is emitted as its own span.
+// Every cell carries the StyleTableHeader token (header) or StyleTableRowAlt
+// (even body rows), so a mapping layer can tint the tabular region; the plain
+// inherent cell style rides on one span inside the cell so it is preserved.
+// Column gaps and cell padding stay unstyled, so the mapping's background shows
+// through the whole table width. One cell of padding sits inside the tinted
+// region on each side (see tablePad) and the trailing pad is kept rather than
+// trimmed, so the highlight is a rectangle that reaches both edges.
 func (r *blockRenderer) tableLines(n ast.Node, source []byte) []Line {
-	var out []Line
+	var rows []tableRow
+	ncols := 0
 	for row := n.FirstChild(); row != nil; row = row.NextSibling() {
-		isHeader := row.Kind() == extast.KindTableHeader
-		var pieces []piece
+		tr := tableRow{header: row.Kind() == extast.KindTableHeader}
 		for cell := row.FirstChild(); cell != nil; cell = cell.NextSibling() {
-			if len(pieces) > 0 {
+			pieces := inlinePieces(cell, source, r.theme)
+			align := extast.AlignNone
+			if tc, ok := cell.(*extast.TableCell); ok {
+				align = tc.Alignment
+			}
+			tr.cells = append(tr.cells, tableCell{pieces: pieces, width: piecesWidth(pieces), align: align})
+		}
+		if len(tr.cells) > ncols {
+			ncols = len(tr.cells)
+		}
+		rows = append(rows, tr)
+	}
+	if ncols == 0 {
+		return nil
+	}
+	// Aligning needs at least one cell per column plus the separators. Below
+	// that the columns cannot exist; fall back to space-joined rows wrapped as
+	// prose, so the every-line-fits-width invariant holds even there.
+	if r.width < ncols+tableColumnSep*(ncols-1)+2*tablePad {
+		return r.tableFlatLines(rows)
+	}
+	widths := r.tableWidths(rows, ncols)
+
+	var out []Line
+	bodyIndex := 0
+	for _, row := range rows {
+		// Split each cell into display lines at its column width, then stack:
+		// the row is as tall as its tallest cell, shorter cells padding out.
+		cellLines := make([][]Line, ncols)
+		height := 1
+		for j := range cellLines {
+			if j < len(row.cells) && len(row.cells[j].pieces) > 0 {
+				cellLines[j] = wrapPieces(row.cells[j].pieces, widths[j])
+			} else {
+				cellLines[j] = []Line{Plain("")}
+			}
+			if len(cellLines[j]) > height {
+				height = len(cellLines[j])
+			}
+		}
+		marker := r.tableMarker(row.header, bodyIndex)
+		if !row.header {
+			bodyIndex++
+		}
+		for li := 0; li < height; li++ {
+			var text strings.Builder
+			var spans []Styled
+			// The tinted region opens with tablePad cells before the first
+			// column; its marker leads the spans so the tint covers them.
+			text.WriteString(strings.Repeat(" ", tablePad))
+			for j := 0; j < ncols; j++ {
+				if j > 0 {
+					text.WriteString(strings.Repeat(" ", tableColumnSep))
+				}
+				var cl Line
+				if li < len(cellLines[j]) {
+					cl = cellLines[j][li]
+				}
+				lead, trail := cellPadding(widths[j]-displayWidth(cl.Text), row.cellAlign(j))
+				text.WriteString(strings.Repeat(" ", lead))
+				text.WriteString(cl.Text)
+				spans = append(spans, cellSpans(marker, cl)...)
+				text.WriteString(strings.Repeat(" ", trail))
+			}
+			// ...and closes with tablePad cells after the last column. The pad
+			// is kept rather than right-trimmed so the tint reaches the table's
+			// right edge.
+			text.WriteString(strings.Repeat(" ", tablePad))
+			out = append(out, Line{Text: text.String(), Spans: spans})
+		}
+	}
+	return out
+}
+
+// tableMarker returns the row's semantic marker style: the header token for the
+// header row, the alternate-row token for even body rows, or StyleNone. The
+// marker is a zero-width lead span carrying the row's background, so a caller
+// can tint the row while cell text keeps its own style.
+func (r *blockRenderer) tableMarker(header bool, bodyIndex int) Style {
+	switch {
+	case header:
+		return r.theme.Resolve(StyleTableHeader)
+	case bodyIndex%2 == 1:
+		return r.theme.Resolve(StyleTableRowAlt)
+	default:
+		return StyleNone
+	}
+}
+
+// cellSpans returns a cell's spans: a zero-width row-marker lead (so the row
+// background extends over the cell), then the cell's own inline spans. When a
+// row has a marker and the cell's first span is the plain inherent style, that
+// span is dropped — the marker already carries the style, so the two would
+// otherwise stack a background twice. A cell with no inline styling keeps a
+// plain span so its text still paints over the row background.
+func cellSpans(marker Style, cl Line) []Styled {
+	var spans []Styled
+	if marker != StyleNone {
+		spans = append(spans, Styled{Style: marker})
+	}
+	switch {
+	case len(cl.Spans) == 0:
+		if cl.Text != "" {
+			spans = append(spans, Styled{Text: cl.Text})
+		}
+	case marker != StyleNone && cl.Spans[0].Style == StyleNone && cl.Spans[0].Link == "":
+		spans = append(spans, cl.Spans[1:]...)
+	default:
+		spans = append(spans, cl.Spans...)
+	}
+	return spans
+}
+
+// cellAlign returns column j's GFM alignment, defaulting to left for a missing
+// cell or a table with no alignment markers.
+func (row tableRow) cellAlign(j int) extast.Alignment {
+	if j < len(row.cells) {
+		return row.cells[j].align
+	}
+	return extast.AlignNone
+}
+
+// cellPadding splits pad blank cells into leading and trailing counts for the
+// given alignment. A cell that wraps contributes no pad on the lines it fills.
+func cellPadding(pad int, align extast.Alignment) (lead, trail int) {
+	if pad <= 0 {
+		return 0, 0
+	}
+	switch align {
+	case extast.AlignRight:
+		return pad, 0
+	case extast.AlignCenter:
+		return pad / 2, pad - pad/2
+	default:
+		return 0, pad
+	}
+}
+
+// tableFlatLines renders a table too narrow to align as space-joined rows
+// wrapped as prose, preserving the every-line-fits-width invariant. This is the
+// pre-alignment behavior, kept only for widths below one cell per column.
+func (r *blockRenderer) tableFlatLines(rows []tableRow) []Line {
+	var out []Line
+	for _, row := range rows {
+		var pieces []piece
+		for j, c := range row.cells {
+			if j > 0 {
 				pieces = append(pieces, piece{text: "  "})
 			}
-			pieces = append(pieces, inlinePieces(cell, source, r.theme)...)
+			pieces = append(pieces, c.pieces...)
 		}
-		// Trailing separator spaces are trimmed by the wrapper's own rules,
-		// but cell text may still carry surrounding spaces; trim the piece
-		// text edges so a cell never starts a line with padding.
 		lines := wrapPieces(pieces, r.width)
-		if isHeader {
+		if row.header {
 			style := r.theme.Resolve(StyleHeading)
-			for i := range lines {
-				lines[i].Spans = append([]Styled{{Text: "", Style: style}}, lines[i].Spans...)
+			for k := range lines {
+				lines[k].Spans = append([]Styled{{Text: "", Style: style}}, lines[k].Spans...)
 			}
 		}
 		out = append(out, lines...)
 	}
 	return out
+}
+
+// tableWidths picks a display width for each column. When the table's natural
+// widths (its widest cell per column) fit the renderer width, they are used
+// as-is. Otherwise the excess is recovered by shrinking the widest columns
+// first, one cell at a time (largest-remainder in reverse), so short columns
+// keep their natural width and only wide ones wrap. The result always sums,
+// with the separators, to at most the renderer width.
+func (r *blockRenderer) tableWidths(rows []tableRow, ncols int) []int {
+	widths := make([]int, ncols)
+	for _, row := range rows {
+		for j, c := range row.cells {
+			if c.width > widths[j] {
+				widths[j] = c.width
+			}
+		}
+	}
+	budget := r.width - tableColumnSep*(ncols-1) - 2*tablePad
+	total := 0
+	for _, w := range widths {
+		total += w
+	}
+	for total > budget {
+		// Shrink the currently widest column by one cell. Ties break on the
+		// earlier column, so shrinkage is deterministic across renders.
+		widest := 0
+		for j := 1; j < ncols; j++ {
+			if widths[j] > widths[widest] {
+				widest = j
+			}
+		}
+		if widths[widest] <= 1 {
+			break // every column at one cell: cannot shrink further
+		}
+		widths[widest]--
+		total--
+	}
+	return widths
 }
 
 // headingLines renders a heading's text through the inline walk (so emphasis,
