@@ -75,10 +75,15 @@ type Model struct {
 func New(cwd, configPath string, runtime Runtime, historyStore *history.Store, entries []history.Entry) Model {
 	input := textarea.New()
 	input.Placeholder = "Ask kon…"
-	input.Prompt = "> "
+	input.Prompt = ""
 	input.ShowLineNumbers = false
 	input.SetHeight(1)
-	input.MaxHeight = 6
+	// The input grows with its content — soft-wrapped rows included — so a
+	// long prompt stays visible instead of scrolling out of a one-row box.
+	// MaxHeight bounds it; resize() re-bounds it against the window height.
+	input.DynamicHeight = true
+	input.MinHeight = 1
+	input.MaxHeight = maxInputLines
 	input.CharLimit = 0
 	input.Focus()
 	// The transcript renders every line pre-wrapped to the viewport width (see

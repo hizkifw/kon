@@ -9,12 +9,18 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
+// maxInputLines caps how tall the prompt input grows, in visual rows
+// (soft-wrapped rows included), before it scrolls internally.
+const maxInputLines = 6
+
 func (m *Model) resize() {
 	if m.width <= 0 || m.height <= 0 {
 		return
 	}
-	inputHeight := min(6, max(1, strings.Count(m.input.Value(), "\n")+1))
 	m.input.SetWidth(max(1, m.width))
+	// DynamicHeight sizes the input to its visual rows, but the transcript
+	// must keep at least one row, so the cap shrinks for small windows.
+	inputHeight := min(maxInputLines, max(1, m.height-4-m.menu.height()), max(1, m.input.Height()))
 	m.input.SetHeight(inputHeight)
 	m.viewport.SetWidth(max(1, m.width))
 	m.viewport.SetHeight(max(1, m.height-inputHeight-2-m.menu.height()))
@@ -57,7 +63,7 @@ func (m Model) View() tea.View {
 	if menu := m.menu.render(m.width); menu != "" {
 		sections = append(sections, menu)
 	}
-	sections = append(sections, m.input.View())
+	sections = append(sections, inputView(m.input.View(), m.width))
 	content := strings.Join(sections, "\n")
 	view := tea.NewView(content)
 	view.AltScreen = true
@@ -69,6 +75,21 @@ func (m Model) View() tea.View {
 // accentBrand paints the "kon" wordmark in the muted red accent.
 func accentBrand(s string) string {
 	return lipgloss.NewStyle().Bold(true).Foreground(colorAccent).Render(s)
+}
+
+// inputView insets the prompt one cell from each edge: the block is shifted
+// right one cell and narrowed by one, and every line is re-padded so the
+// textarea's full-width background still spans to the right edge.
+func inputView(view string, width int) string {
+	if width <= 2 {
+		return view
+	}
+	style := lipgloss.NewStyle().Width(width - 1)
+	lines := strings.Split(view, "\n")
+	for i, line := range lines {
+		lines[i] = " " + style.Render(line)
+	}
+	return strings.Join(lines, "\n")
 }
 
 func fitLine(value string, width int) string {
