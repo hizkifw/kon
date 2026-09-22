@@ -408,6 +408,7 @@ func waitRunEvent(events <-chan tea.Msg) tea.Cmd {
 	}
 }
 
+// syncRuntimeState refreshes the active model.
 func (m *Model) syncRuntimeState() { m.active = m.runtime.State().Active }
 
 // seedContextUsage adopts the live session's last provider-reported context size

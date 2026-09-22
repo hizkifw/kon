@@ -5,7 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -240,8 +239,8 @@ func TestMessageSlabWrapsToWidth(t *testing.T) {
 	var tr transcript
 	tr.add(block{kind: blockUser, text: strings.Repeat("word ", 40)})
 	got := plain(tr.render(40))
-	if !strings.Contains(got, "you") {
-		t.Fatalf("user label missing: %q", got)
+	if !strings.Contains(got, "word") {
+		t.Fatalf("user message missing: %q", got)
 	}
 	for _, line := range strings.Split(got, "\n") {
 		if len([]rune(line)) > 40 {
@@ -468,14 +467,20 @@ func TestStripANSI(t *testing.T) {
 	}
 }
 
-// TestLabelRendersFaint verifies the thinking label keeps its intended color.
-// messageSlab/thinkingLines paint through linePainter, and labelFg must be set
-// for the label or it renders unstyled (the regression this guards).
-func TestLabelRendersFaint(t *testing.T) {
-	want := lipgloss.NewStyle().Foreground(colorFaint).Italic(true).Render("thinking")
-	label := thinkingLines("body", 40)[0]
-	if !strings.Contains(label, want) {
-		t.Fatalf("thinking label lost its color: label=%q want styled %q", label, want)
+// TestNoLabelsInMessageBlocks guards the label-free transcript: message,
+// thinking, and error blocks render only their contents, with no role or model
+// title lines above them.
+func TestNoLabelsInMessageBlocks(t *testing.T) {
+	var tr transcript
+	tr.cwd = "/tmp"
+	tr.add(block{kind: blockUser, text: "do it"})
+	tr.add(block{kind: blockThinking, text: "hmm"})
+	tr.add(block{kind: blockAssistant, text: "done"})
+	tr.add(block{kind: blockError, text: "boom"})
+	for _, label := range []string{"you", "kon", "thinking", "error"} {
+		if got := plain(tr.render(40)); strings.Contains(got, label) {
+			t.Fatalf("label %q leaked into the transcript: %q", label, got)
+		}
 	}
 }
 
@@ -485,11 +490,11 @@ func TestLabelRendersFaint(t *testing.T) {
 func TestSlabBackgroundSpansWidth(t *testing.T) {
 	for _, width := range []int{20, 40, 79} {
 		lines := append(
-			messageSlab("you", "short", colorUserBg, colorUserFg, colorUserLabel, width),
+			messageSlab("short", colorUserBg, colorUserFg, width),
 			thinkingLines("short", width)...,
 		)
-		lines = append(lines, messageSlab("kon", strings.Repeat("word ", 30), colorAgentBg, colorAgentFg, colorAgentLabel, width)...)
-		live := newMessageStream("kon", colorAgentBg, colorAgentFg, colorAgentLabel, width)
+		lines = append(lines, messageSlab(strings.Repeat("word ", 30), colorAgentBg, colorAgentFg, width)...)
+		live := newMessageStream(colorAgentBg, colorAgentFg, width)
 		live.append(strings.Repeat("word ", 30))
 		lines = append(lines, live.Lines()...)
 		for _, line := range lines {

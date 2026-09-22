@@ -102,12 +102,12 @@ func TestTranscriptRendersThinkingBeforeAnswer(t *testing.T) {
 	var transcript transcript
 	transcript.appendThinking("let me look")
 	got := plain(transcript.render(80))
-	if !strings.Contains(got, "thinking") || !strings.Contains(got, "let me look") {
+	if !strings.Contains(got, "let me look") {
 		t.Fatalf("live render = %q", got)
 	}
 	transcript.appendStream("answer")
 	got = plain(transcript.render(80))
-	if !strings.Contains(got, "thinking") || strings.Index(got, "let me look") > strings.Index(got, "answer") {
+	if strings.Index(got, "let me look") > strings.Index(got, "answer") {
 		t.Fatalf("render = %q", got)
 	}
 	transcript.finishStream()

@@ -21,11 +21,11 @@ func scrollViewWith(n, height int) scrollView {
 
 func TestScrollViewClampsOffset(t *testing.T) {
 	s := scrollViewWith(100, 10)
-	if got := s.maxYOffset(); got != 90 {
-		t.Fatalf("maxYOffset = %d, want 90", got)
+	if got := s.maxYOffset(); got != 91 {
+		t.Fatalf("maxYOffset = %d, want 91", got)
 	}
 	s.SetYOffset(1000)
-	if !s.AtBottom() || s.YOffset() != 90 {
+	if !s.AtBottom() || s.YOffset() != 91 {
 		t.Fatalf("set beyond bottom: offset = %d", s.YOffset())
 	}
 	s.SetYOffset(-5)
@@ -52,7 +52,7 @@ func TestScrollViewPaging(t *testing.T) {
 		t.Fatalf("goto bottom left offset %d", s.YOffset())
 	}
 	s.PageDown()
-	if s.YOffset() != 90 {
+	if s.YOffset() != 91 {
 		t.Fatalf("page down at bottom moved to %d", s.YOffset())
 	}
 }
@@ -93,5 +93,33 @@ func TestScrollViewShrinksContentClampsOffset(t *testing.T) {
 	s.SetContentLines([]string{"a", "b", "c"})
 	if s.YOffset() != 0 {
 		t.Fatalf("offset = %d after content shrank, want 0", s.YOffset())
+	}
+}
+
+// TestScrollViewBottomPadding verifies the one-line padding at the bottom-most
+// scroll position: the last visible line is blank, while one wheel notch up the
+// window is filled entirely with content lines again.
+func TestScrollViewBottomPadding(t *testing.T) {
+	s := scrollViewWith(100, 10)
+	s.GotoBottom()
+	view := strings.Split(s.View(), "\n")
+	if got := view[len(view)-1]; got != "" {
+		t.Fatalf("bottom view should end in padding: %q", got)
+	}
+	if got := view[len(view)-2]; got != "line" {
+		t.Fatalf("bottom view lost the last content line: %q", got)
+	}
+	// Scrolling up one line re-covers the padding with content.
+	s.SetYOffset(s.maxYOffset() - 1)
+	view = strings.Split(s.View(), "\n")
+	for i, line := range view {
+		if line != "line" {
+			t.Fatalf("line %d = %q, want content once scrolled up", i, line)
+		}
+	}
+	// Short content still renders a fully blank window without underflow.
+	short := scrollViewWith(2, 4)
+	if got := strings.Split(short.View(), "\n"); len(got) != 4 {
+		t.Fatalf("short view lines = %d, want 4", len(got))
 	}
 }

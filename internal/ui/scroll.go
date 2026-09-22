@@ -38,11 +38,22 @@ func (s *scrollView) SetContentLines(lines []string) {
 	}
 }
 
+// bottomPad is the number of blank lines appended to the scrollable extent, so
+// the bottom-most scroll position rests one blank line above the status bar.
+// Scrolling up fills the window with content lines as usual; only the very
+// bottom reveals the padding.
+const bottomPad = 1
+
+// extent is the number of scrollable lines: the content plus the trailing
+// padding.
+func (s scrollView) extent() int { return len(s.lines) + bottomPad }
+
 func (s scrollView) maxYOffset() int {
-	return max(0, len(s.lines)-s.height)
+	return max(0, s.extent()-s.height)
 }
 
-// AtBottom reports whether the last line is visible.
+// AtBottom reports whether the view is scrolled to its bottom-most position:
+// the last content line plus the padding line below it are visible.
 func (s scrollView) AtBottom() bool { return s.yOffset >= s.maxYOffset() }
 
 func (s *scrollView) SetYOffset(n int) {
@@ -80,8 +91,9 @@ func (s *scrollView) Update(msg tea.Msg) {
 	}
 }
 
-// View renders exactly height lines starting at the current offset, padding with
-// blank lines so the surrounding frame does not reflow.
+// View renders exactly height lines starting at the current offset. The window
+// reads past the content into the trailing padding, padded further with blank
+// lines so the surrounding frame does not reflow.
 func (s scrollView) View() string {
 	if s.width <= 0 || s.height <= 0 {
 		return ""

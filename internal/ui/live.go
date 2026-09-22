@@ -32,38 +32,18 @@ type liveStream struct {
 	skipLF       bool   // previous byte was a lone CR; swallow a following LF
 
 	painted   []string // painted finished body lines, append-only
-	paintedN  int      // finished wrapper lines already painted
-	finCache  []string // label line + painted body lines, append-only
 	live      string   // cached pending() result
 	liveValid bool
 }
 
 // linePainter styles wrapped plain lines into full-width display lines. It
-// mirrors messageSlab (bg set) and thinkingLines (italic, no padding).
+// mirrors messageSlab (bg set) and thinkingLines (italic, no background).
 type linePainter struct {
-	width     int
-	bg        color.Color // nil for no background
-	fg        color.Color
-	label     string
-	labelFg   color.Color
-	labelBold bool
-	italic    bool
-	padLeft   int // 1 for message slabs, 0 for thinking
-}
-
-func (p linePainter) labelLine() string {
-	style := lipgloss.NewStyle().Foreground(p.labelFg).Background(p.bg)
-	if p.labelBold {
-		style = style.Bold(true)
-	}
-	if p.italic {
-		style = style.Italic(true)
-	}
-	prefix := p.pad(p.padLeft) + style.Render(p.label)
-	// The fill must be measured ANSI-aware: Render emits SGR escapes and a
-	// reset, whose bytes are not printable cells, so len() would leave the
-	// background short of the viewport edge.
-	return prefix + p.pad(max(0, p.width-ansi.StringWidth(prefix)))
+	width   int
+	bg      color.Color // nil for no background
+	fg      color.Color
+	italic  bool
+	padLeft int // 1 for message slabs, 0 for thinking
 }
 
 func (p linePainter) bodyLine(text string) string {
@@ -87,17 +67,17 @@ func (p linePainter) pad(n int) string {
 }
 
 // newMessageStream builds a live stream for an assistant message slab.
-func newMessageStream(label string, bg, fg, labelFg color.Color, width int) *liveStream {
+func newMessageStream(bg, fg color.Color, width int) *liveStream {
 	return newLiveStream(linePainter{
-		width: width, bg: bg, fg: fg, label: label,
-		labelFg: labelFg, labelBold: true, padLeft: 1,
+		width: width, bg: bg, fg: fg, padLeft: 1,
 	})
 }
 
-// newThinkingStream builds a live stream for a reasoning trace.
+// newThinkingStream builds a live stream for a reasoning trace. It mirrors
+// thinkingLines: no background, italic, one cell of left padding.
 func newThinkingStream(width int) *liveStream {
 	return newLiveStream(linePainter{
-		width: width, fg: colorFaint, labelFg: colorFaint, label: "thinking", italic: true,
+		width: width, fg: colorFaint, italic: true, padLeft: 1,
 	})
 }
 
@@ -199,9 +179,8 @@ func (l *liveStream) pending() string {
 	return l.live
 }
 
-// Lines returns the painted display lines for the live portion: the label line
-// followed by the wrapped body. All but the current body line are cached across
-// frames.
+// Lines returns the painted display lines for the live portion: the wrapped
+// body. All but the current body line are cached across frames.
 func (l *liveStream) Lines() []string {
 	fin := l.finalized()
 	out := make([]string, 0, len(fin)+1)
@@ -210,20 +189,14 @@ func (l *liveStream) Lines() []string {
 	return out
 }
 
-// finalized returns the label line plus the finished body lines. The result is
-// append-only across appends, so a caller can reuse the prefix.
+// finalized returns the finished body lines. The result is append-only across
+// appends, so a caller can reuse the prefix.
 func (l *liveStream) finalized() []string {
 	wrapped := l.wrap.Finalized()
 	for len(l.painted) < len(wrapped) {
 		l.painted = append(l.painted, l.painter.bodyLine(wrapped[len(l.painted)]))
 	}
-	if l.finCache == nil {
-		l.finCache = append(l.finCache, l.painter.labelLine())
-	}
-	for len(l.finCache) < len(l.painted)+1 {
-		l.finCache = append(l.finCache, l.painted[len(l.finCache)-1])
-	}
-	return l.finCache
+	return l.painted
 }
 
 // current returns the still-growing body line.

@@ -42,20 +42,21 @@ type block struct {
 }
 
 // Transcript palette. The base is neutral grey: message slabs differ by
-// lightness rather than hue, and a single muted red accents the "kon" label.
-// Green is reserved for success (colorOK); red for failure (colorFail).
-// lipgloss degrades these automatically on terminals with smaller color
-// profiles.
+// lightness rather than hue. Green is reserved for success (colorOK); red for
+// failure (colorFail). lipgloss degrades these automatically on terminals with
+// smaller color profiles.
 var (
-	colorAccent = lipgloss.Color("#C98A8A") // muted red, the kon brand accent
+	// colorAccent is the muted red kon brand accent (header wordmark).
+	colorAccent = lipgloss.Color("#C98A8A")
 
-	colorUserBg    = lipgloss.Color("#313131")
-	colorUserFg    = lipgloss.Color("#DEDEDE")
-	colorUserLabel = lipgloss.Color("#9A9A9A")
+	colorUserBg = lipgloss.Color("#313131")
+	colorUserFg = lipgloss.Color("#DEDEDE")
 
-	colorAgentBg    = lipgloss.Color("#262626")
-	colorAgentFg    = lipgloss.Color("#EAEAEA")
-	colorAgentLabel = colorAccent
+	// Agent messages render on the default terminal background: NoColor draws
+	// no background at all, so only the user slab (and tool/error slabs) are
+	// painted.
+	colorAgentBg = lipgloss.NoColor{}
+	colorAgentFg = lipgloss.Color("#EAEAEA")
 
 	colorToolBg   = lipgloss.Color("#2B2B2B")
 	colorToolFg   = lipgloss.Color("#909090")
@@ -63,9 +64,8 @@ var (
 	colorToolNote = lipgloss.Color("#707070")
 	colorResult   = lipgloss.Color("#808080")
 
-	colorErrorBg    = lipgloss.Color("#5A2120")
-	colorErrorFg    = lipgloss.Color("#F2DCD8")
-	colorErrorLabel = lipgloss.Color("#F0A9A2")
+	colorErrorBg = lipgloss.Color("#5A2120")
+	colorErrorFg = lipgloss.Color("#F2DCD8")
 
 	colorFaint = lipgloss.Color("#757575")
 	colorOK    = lipgloss.Color("#79C98B")
@@ -145,7 +145,7 @@ func (t *transcript) ensureMessage() *liveStream {
 	if t.active != nil && !t.activeThinking {
 		return t.active
 	}
-	t.active = newMessageStream("kon", colorAgentBg, colorAgentFg, colorAgentLabel, t.width)
+	t.active = newMessageStream(colorAgentBg, colorAgentFg, t.width)
 	t.activeThinking = false
 	return t.active
 }
@@ -232,7 +232,7 @@ func (t *transcript) pending(width int) string {
 		if t.active != nil && !t.activeThinking {
 			return t.active.pending()
 		}
-		return strings.Join(messageSlab("kon", normalizeText(string(t.stream)), colorAgentBg, colorAgentFg, colorAgentLabel, width), "\n")
+		return strings.Join(messageSlab(normalizeText(string(t.stream)), colorAgentBg, colorAgentFg, width), "\n")
 	default:
 		return ""
 	}
@@ -247,7 +247,7 @@ func (t *transcript) rebuildActive(width int) {
 		t.active.append(t.thinking)
 		t.activeThinking = true
 	case len(t.stream) > 0:
-		t.active = newMessageStream("kon", colorAgentBg, colorAgentFg, colorAgentLabel, width)
+		t.active = newMessageStream(colorAgentBg, colorAgentFg, width)
 		t.active.append(string(t.stream))
 		t.activeThinking = false
 	default:
@@ -431,13 +431,13 @@ func (t *transcript) pushChunk(text string) {
 func (t *transcript) renderBlock(b block, width int) []string {
 	switch b.kind {
 	case blockUser:
-		return messageSlab("you", normalizeText(b.text), colorUserBg, colorUserFg, colorUserLabel, width)
+		return messageSlab(normalizeText(b.text), colorUserBg, colorUserFg, width)
 	case blockAssistant:
-		return messageSlab("kon", normalizeText(b.text), colorAgentBg, colorAgentFg, colorAgentLabel, width)
+		return messageSlab(normalizeText(b.text), colorAgentBg, colorAgentFg, width)
 	case blockThinking:
 		return thinkingLines(normalizeText(b.text), width)
 	case blockError:
-		return messageSlab("error", normalizeText(b.text), colorErrorBg, colorErrorFg, colorErrorLabel, width)
+		return messageSlab(normalizeText(b.text), colorErrorBg, colorErrorFg, width)
 	case blockContext:
 		return []string{separatorLine(b.text, width)}
 	case blockModel, blockModels:
@@ -559,27 +559,26 @@ func (t *transcript) toolResultLines(done *block, width int) []string {
 	return out
 }
 
-// messageSlab renders a user, agent, or error message: a bold label line over
-// the body, word-wrapped and painted by linePainter so the background reaches
-// the full viewport width. The body wrap and painting match liveStream exactly,
-// so a message rendered live and later folded into a stable block does not
-// shift.
-func messageSlab(label, body string, bg, fg, labelColor color.Color, width int) []string {
-	p := linePainter{width: width, bg: bg, fg: fg, label: label, labelFg: labelColor, labelBold: true, padLeft: 1}
+// messageSlab renders a user, agent, or error message body: word-wrapped and
+// painted by linePainter so the background reaches the full viewport width.
+// The body wrap and painting match liveStream exactly, so a message rendered
+// live and later folded into a stable block does not shift.
+func messageSlab(body string, bg, fg color.Color, width int) []string {
+	p := linePainter{width: width, bg: bg, fg: fg, padLeft: 1}
 	return paintBody(p, wrapPlain(body, max(1, width-2)))
 }
 
 // thinkingLines renders a reasoning trace in a muted gray, visually quieter
-// than agent messages.
+// than agent messages. The body is indented like a message slab so the
+// reasoning aligns with the text it belongs to; it just carries no background.
 func thinkingLines(body string, width int) []string {
-	p := linePainter{width: width, fg: colorFaint, labelFg: colorFaint, label: "thinking", italic: true}
-	return paintBody(p, wrapPlain(body, max(1, width)))
+	p := linePainter{width: width, fg: colorFaint, italic: true, padLeft: 1}
+	return paintBody(p, wrapPlain(body, max(1, width-2)))
 }
 
-// paintBody renders a painter's label line followed by its wrapped body lines.
+// paintBody renders a painter's wrapped body lines.
 func paintBody(p linePainter, lines []string) []string {
-	out := make([]string, 0, len(lines)+1)
-	out = append(out, p.labelLine())
+	out := make([]string, 0, len(lines))
 	for _, line := range lines {
 		out = append(out, p.bodyLine(line))
 	}
