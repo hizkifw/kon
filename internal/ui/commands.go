@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/hizkifw/kon/internal/session"
 	"github.com/hizkifw/kon/internal/typedid"
 )
 
@@ -316,7 +317,8 @@ func (m Model) compact() (tea.Model, tea.Cmd) {
 }
 
 // completeSessionIDs suggests resumable sessions for this workspace, newest
-// first, with a short creation time as the description.
+// first, with a short creation time as the description. Each row can preview
+// the session in the transcript without opening it.
 func completeSessionIDs(m Model, prefix string) []menuItem {
 	summaries, err := m.runtime.Sessions()
 	if err != nil {
@@ -328,12 +330,48 @@ func completeSessionIDs(m Model, prefix string) []menuItem {
 		if !strings.HasPrefix(id, prefix) {
 			continue
 		}
+		description := summary.CreatedAt.Local().Format("2006-01-02 15:04")
+		if summary.Title != "" {
+			description = summary.Title + "  ·  " + description
+		}
 		candidates = append(candidates, menuItem{
 			Value:       id,
-			Description: summary.CreatedAt.Local().Format("2006-01-02 15:04"),
+			Description: description,
+			Preview:     previewSession(m, summary),
 		})
 	}
 	return candidates
+}
+
+// previewTurns is how many of a session's most recent user turns a resume
+// preview replays. The full transcript is available after switching; the
+// preview only has to identify the session, so it stays cheap on large files.
+const previewTurns = 2
+
+// previewSession returns a lazy builder for a session's read-only transcript.
+// Building it up front would read and render every candidate even when the
+// popup is never opened; the closure runs only when its row is highlighted. It
+// reads just the session's trailing turns and leads with a marker so the
+// preview is never mistaken for the live conversation.
+func previewSession(m Model, summary session.Summary) func() *transcript {
+	return func() *transcript {
+		entries, err := m.runtime.SessionPreview(summary.Path, previewTurns)
+		if err != nil || len(entries) == 0 {
+			return nil
+		}
+		preview := &transcript{}
+		preview.add(block{kind: blockContext, text: "preview " + summary.ID.String() + " · last " + pluralTurns(previewTurns) + " · Esc to cancel"})
+		m.applyHistoryTo(preview, entries)
+		return preview
+	}
+}
+
+// pluralTurns renders "N turns" for the preview marker.
+func pluralTurns(n int) string {
+	if n == 1 {
+		return "1 turn"
+	}
+	return fmt.Sprintf("%d turns", n)
 }
 
 // resume switches to a persisted session. With no argument it lists the
@@ -392,7 +430,11 @@ func (m Model) listSessions() (tea.Model, tea.Cmd) {
 		if summary.ID.String() == current {
 			marker = "* "
 		}
-		lines = append(lines, marker+summary.ID.String()+"  "+summary.CreatedAt.Local().Format("2006-01-02 15:04"))
+		line := marker + summary.ID.String() + "  " + summary.CreatedAt.Local().Format("2006-01-02 15:04")
+		if summary.Title != "" {
+			line += "  " + summary.Title
+		}
+		lines = append(lines, line)
 	}
 	m.transcript.add(block{kind: blockModels, text: strings.Join(lines, "\n")})
 	m.status = "resume with /resume [id]"

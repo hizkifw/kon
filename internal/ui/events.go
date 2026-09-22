@@ -91,6 +91,13 @@ func (m *Model) toolResultBlock(event agent.Event) block {
 // with the call's persisted arguments, so replay looks exactly like the live
 // rendering.
 func (m *Model) applyHistory(entries []session.Entry) {
+	m.applyHistoryTo(&m.transcript, entries)
+}
+
+// applyHistoryTo replays entries into the given transcript. A resume preview
+// renders into a scratch transcript via the same path as a real resume, so the
+// preview looks exactly like the session would once opened.
+func (m *Model) applyHistoryTo(t *transcript, entries []session.Entry) {
 	// callArgs maps a tool call ID to its persisted arguments so a tool
 	// result resolves its display from the same arguments the call was made
 	// with.
@@ -101,26 +108,26 @@ func (m *Model) applyHistory(entries []session.Entry) {
 		}
 		switch entry.Message.Role {
 		case session.RoleUser:
-			m.transcript.add(block{kind: blockUser, text: sanitize(entry.Message.Content)})
+			t.add(block{kind: blockUser, text: sanitize(entry.Message.Content)})
 		case session.RoleAssistant:
 			for _, part := range entry.Message.Parts {
 				if part.Type == provider.PartReasoning && part.Text != "" {
-					m.transcript.add(block{kind: blockThinking, text: sanitize(part.Text)})
+					t.add(block{kind: blockThinking, text: sanitize(part.Text)})
 				}
 			}
 			if content := sanitize(entry.Message.Content); content != "" {
-				m.transcript.add(block{kind: blockAssistant, text: content})
+				t.add(block{kind: blockAssistant, text: content})
 			}
 			for _, call := range entry.Message.ToolCalls {
 				callArgs[call.ID] = call.Function.Arguments
-				m.transcript.add(m.toolBlock(call.Function.Name, sanitize(string(call.Function.Arguments))))
+				t.add(m.toolBlock(call.Function.Name, sanitize(string(call.Function.Arguments))))
 			}
 		case session.RoleTool:
 			// The display comes from the owning tool, resolved against the
 			// persisted content and the call's arguments, so a resumed
 			// transcript renders exactly like the live one did.
 			display := m.runtime.DescribeTool(entry.Message.Name, callArgs[entry.Message.ToolCallID], sanitize(entry.Message.Content), false)
-			m.transcript.add(block{kind: blockResult, name: entry.Message.Name, display: display})
+			t.add(block{kind: blockResult, name: entry.Message.Name, display: display})
 		}
 	}
 }

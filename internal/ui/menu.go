@@ -13,6 +13,11 @@ const maxMenuRows = 8
 type menuItem struct {
 	Value       string
 	Description string
+	// Preview, when set, builds a read-only transcript to show in place of the
+	// live one while this row is highlighted, so a picker can be scrolled
+	// without committing. It is built lazily on highlight, never for every
+	// candidate. Nil means no preview.
+	Preview func() *transcript
 }
 
 // menu is a generic selectable popup rendered above the prompt. It owns only

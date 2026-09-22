@@ -26,6 +26,10 @@ type fakeRuntime struct {
 	id            typedid.SessionID
 	contextTokens int
 	contextKnown  bool
+
+	previewEntries []session.Entry
+	previewErr     error
+	previewed      string
 }
 
 func (f *fakeRuntime) Models() []app.Model                                  { return f.models }
@@ -38,7 +42,11 @@ func (f *fakeRuntime) Resume(id typedid.SessionID) error                    { f.
 func (f *fakeRuntime) Sessions() ([]session.Summary, error)                 { return f.sessions, nil }
 func (f *fakeRuntime) SessionID() typedid.SessionID                         { return f.id }
 func (f *fakeRuntime) SessionHistory() []session.Entry                      { return f.entries }
-func (f *fakeRuntime) ContextUsage() (int, bool)                            { return f.contextTokens, f.contextKnown }
+func (f *fakeRuntime) SessionPreview(path string, maxTurns int) ([]session.Entry, error) {
+	f.previewed = path
+	return f.previewEntries, f.previewErr
+}
+func (f *fakeRuntime) ContextUsage() (int, bool) { return f.contextTokens, f.contextKnown }
 func (f *fakeRuntime) DescribeTool(name string, args json.RawMessage, result string, failed bool) tools.Display {
 	return tools.Describe(name, args, result, failed, "/tmp")
 }
@@ -840,6 +848,95 @@ func TestResumeCommandRejectsMalformedID(t *testing.T) {
 	updated, _ := m.resume([]string{"not-a-session"})
 	if got := updated.(Model); !strings.HasPrefix(got.status, "error:") {
 		t.Fatalf("status = %q", got.status)
+	}
+}
+
+// TestResumePreviewRendersHighlightedSession drives the temporary transcript
+// override: highlighting a /resume row shows that session in the viewport, and
+// cancelling the popup restores the live transcript.
+func TestResumePreviewRendersHighlightedSession(t *testing.T) {
+	newID, err := typedid.ParseSessionID("ses_00000000000000000001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldID, err := typedid.ParseSessionID("ses_00000000000000000002")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := &fakeRuntime{
+		state: app.State{Phase: app.PhaseReady},
+		sessions: []session.Summary{
+			{ID: newID, Path: "newer.jsonl", Title: "newer work", CreatedAt: time.Unix(10, 0)},
+			{ID: oldID, Path: "older.jsonl", Title: "older work", CreatedAt: time.Unix(0, 0)},
+		},
+		previewEntries: []session.Entry{
+			{Message: &session.Message{Role: session.RoleUser, Content: "previewed question"}},
+			{Message: &session.Message{Role: session.RoleAssistant, Content: "previewed answer"}},
+		},
+	}
+	m := New("/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
+	m.width, m.height = 80, 24
+	m.resize()
+	m.transcript.add(block{kind: blockUser, text: "live conversation"})
+
+	// Opening the resume argument list highlights the newest row and previews
+	// it without switching the live session.
+	m.input.SetValue("/resume ")
+	m.openMenu()
+	if runtime.previewed != "newer.jsonl" {
+		t.Fatalf("previewed %q, want the newest session's path", runtime.previewed)
+	}
+	rendered := plain(m.viewport.View())
+	if !strings.Contains(rendered, "previewed question") || !strings.Contains(rendered, "previewed answer") {
+		t.Fatalf("preview missing from the transcript: %q", rendered)
+	}
+	if strings.Contains(rendered, "live conversation") {
+		t.Fatalf("live transcript leaked into the preview: %q", rendered)
+	}
+	if runtime.id != (typedid.SessionID{}) {
+		t.Fatalf("preview switched the live session to %s", runtime.id)
+	}
+
+	// Cycling to the older row previews it instead.
+	m.menu.move(1)
+	m.syncPreview()
+	if runtime.previewed != "older.jsonl" {
+		t.Fatalf("cycled preview = %q, want the older session's path", runtime.previewed)
+	}
+
+	// Cancelling restores the live transcript.
+	m.resetMenu()
+	rendered = plain(m.viewport.View())
+	if !strings.Contains(rendered, "live conversation") {
+		t.Fatalf("cancel did not restore the live transcript: %q", rendered)
+	}
+	if strings.Contains(rendered, "previewed question") {
+		t.Fatalf("preview survived cancellation: %q", rendered)
+	}
+	if runtime.id != (typedid.SessionID{}) {
+		t.Fatalf("cancel switched the live session to %s", runtime.id)
+	}
+}
+
+// TestResumePreviewIsLazy guards the cost of listing: building candidates must
+// not read every session file, only the highlighted row's.
+func TestResumePreviewIsLazy(t *testing.T) {
+	id, err := typedid.ParseSessionID("ses_00000000000000000001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := &fakeRuntime{
+		state:    app.State{Phase: app.PhaseReady},
+		sessions: []session.Summary{{ID: id, Path: "one.jsonl"}},
+	}
+	m := newTestModel(t)
+	m.runtime = runtime
+	got := m.commands.completion(m, "/resume ")
+	if len(got) != 1 {
+		t.Fatalf("completion = %#v", got)
+	}
+	if runtime.previewed != "" {
+		t.Fatalf("completion read a session file before a row was highlighted: %s", runtime.previewed)
 	}
 }
 

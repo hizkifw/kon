@@ -231,6 +231,47 @@ func TestResumeSwitchesToPersistedSession(t *testing.T) {
 	}
 }
 
+// TestSessionPreviewReadsTailWithoutSwitching guards the read-only preview path:
+// it returns a persisted session's trailing turns without changing the live
+// session.
+func TestSessionPreviewReadsTailWithoutSwitching(t *testing.T) {
+	dir := t.TempDir()
+	paths := config.Paths{Sessions: filepath.Join(dir, "sessions"), ConfigFile: filepath.Join(dir, "config.json")}
+	cwd := t.TempDir()
+	cfg := config.Default()
+	cfg.Models[0].ModelID = "gpt-4o"
+	runtime, err := New(cfg, paths, cwd, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+	if _, err := runtime.store.AppendMessage(session.Message{Role: session.RoleUser, Content: "live"}); err != nil {
+		t.Fatal(err)
+	}
+	live := runtime.SessionID()
+
+	other, err := session.New(paths.Sessions, cwd, "test", "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := other.AppendMessage(session.Message{Role: session.RoleUser, Content: "preview me"}); err != nil {
+		t.Fatal(err)
+	}
+	targetPath := other.Path()
+	other.Close()
+
+	entries, err := runtime.SessionPreview(targetPath, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) == 0 || entries[len(entries)-1].Message.Content != "preview me" {
+		t.Fatalf("preview entries = %#v", entries)
+	}
+	if got := runtime.SessionID(); got != live {
+		t.Fatalf("preview switched the live session from %s to %s", live, got)
+	}
+}
+
 func TestResumeReportsPersistedContextUsage(t *testing.T) {
 	dir := t.TempDir()
 	paths := config.Paths{Sessions: filepath.Join(dir, "sessions"), ConfigFile: filepath.Join(dir, "config.json")}

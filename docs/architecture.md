@@ -47,7 +47,13 @@ and slash commands are declared in a central registry that owns parsing,
 argument validation, and autocomplete dispatch while the command bodies run as
 model methods. Suggestions render in a generic popup widget driven by a
 `menuSource`, so command completion and future pickers share one renderer and
-key handler. Each block renders
+key handler. A popup row may also carry a lazy `Preview` builder: while it is
+highlighted the model draws that scratch transcript in place of the live one, so
+`/resume` can be browsed without committing, and closing the popup restores the
+live transcript at the reader's previous scroll position. Because sessions grow
+without bound, a resume preview reads only the tail of the file — the active
+path's last couple of user turns — rather than parsing the whole transcript, so
+highlighting stays fast regardless of session size. Each block renders
 as a role-colored slab: user and error messages carry distinct backgrounds,
 agent messages render on the default terminal background, thinking traces
 render in muted gray, and consecutive tool calls pair with their results and

@@ -31,6 +31,9 @@ type Runtime interface {
 	Sessions() ([]session.Summary, error)
 	SessionID() typedid.SessionID
 	SessionHistory() []session.Entry
+	// SessionPreview returns the last maxTurns user turns of the session at
+	// path for a read-only preview without opening it for append.
+	SessionPreview(path string, maxTurns int) ([]session.Entry, error)
 	// DescribeTool resolves a persisted tool call's transcript display through
 	// the tool that owns it, so replay matches live rendering.
 	DescribeTool(name string, args json.RawMessage, result string, failed bool) tools.Display
@@ -70,6 +73,21 @@ type Model struct {
 	// resumed conversation opens on its latest messages instead of at the top.
 	startAtBottom bool
 	menu          menu
+	// preview is a scratch transcript shown in place of the live one while a
+	// popup row that carries a Preview is highlighted, so a picker can be
+	// browsed without committing. previewKey is that row's value; previewReturn
+	// remembers where the live transcript was scrolled so cancelling restores
+	// the reader's place.
+	preview       *transcript
+	previewKey    string
+	previewReturn previewReturn
+}
+
+// previewReturn snapshots the live transcript's scroll position so closing a
+// preview puts the reader back where they left off.
+type previewReturn struct {
+	offset   int
+	atBottom bool
 }
 
 func New(cwd, configPath string, runtime Runtime, historyStore *history.Store, entries []history.Entry) Model {
@@ -247,6 +265,7 @@ func (m Model) handleKey(key string) (tea.Model, tea.Cmd, bool) {
 	case "shift+tab":
 		if m.menu.open() {
 			m.menu.move(-1)
+			m.syncPreview()
 			return m, nil, true
 		}
 		return m, nil, false
@@ -272,6 +291,7 @@ func (m Model) handleKey(key string) (tea.Model, tea.Cmd, bool) {
 			} else {
 				m.menu.move(1)
 			}
+			m.syncPreview()
 			return m, nil, true
 		}
 		if strings.Contains(m.input.Value(), "\n") {
@@ -288,13 +308,16 @@ func (m Model) handleKey(key string) (tea.Model, tea.Cmd, bool) {
 		}
 	}
 	m.menu.close()
+	m.closePreview()
 	return m, nil, false
 }
 
 // resetMenu closes the popup and re-lays-out the frame so the reclaimed rows
-// are handed back to the viewport in the same update.
+// are handed back to the viewport in the same update. Any preview is dropped
+// and the live transcript restored.
 func (m *Model) resetMenu() {
 	m.menu.close()
+	m.closePreview()
 	m.resize()
 }
 
@@ -305,6 +328,7 @@ func (m *Model) openMenu() {
 	items := m.commands.Candidates(*m, m.input.Value())
 	if len(items) == 0 {
 		m.menu.close()
+		m.syncPreview()
 		return
 	}
 	// Preserve the highlighted row while it is still present so cycling does
@@ -320,6 +344,58 @@ func (m *Model) openMenu() {
 			}
 		}
 	}
+	m.syncPreview()
+}
+
+// syncPreview makes the drawn transcript match the highlighted popup row: a
+// row with a preview renders into a scratch transcript, anything else restores
+// the live one. It captures the reader's live scroll position when previewing
+// begins, so cancelling the popup returns them exactly where they were, and it
+// opens a preview scrolled to the latest turn like a real resume would.
+func (m *Model) syncPreview() {
+	selected := m.menu.selected()
+	if !m.menu.open() || selected.Preview == nil {
+		m.closePreview()
+		return
+	}
+	if m.preview != nil && m.previewKey == selected.Value {
+		return
+	}
+	if m.preview == nil {
+		m.previewReturn = previewReturn{offset: m.viewport.YOffset(), atBottom: m.viewport.AtBottom()}
+	}
+	m.previewKey = selected.Value
+	m.preview = selected.Preview()
+	if m.preview == nil {
+		m.previewKey = ""
+		m.restorePreviewScroll()
+		return
+	}
+	m.resize()
+	m.refreshTranscript(false)
+	m.viewport.GotoBottom()
+}
+
+// closePreview drops any active preview and restores the live transcript at the
+// scroll position the reader had before previewing began.
+func (m *Model) closePreview() {
+	if m.preview == nil {
+		return
+	}
+	m.preview, m.previewKey = nil, ""
+	m.restorePreviewScroll()
+}
+
+// restorePreviewScroll repaints the live transcript and returns the viewport to
+// the position recorded when previewing started.
+func (m *Model) restorePreviewScroll() {
+	m.resize()
+	m.refreshTranscript(false)
+	if m.previewReturn.atBottom {
+		m.viewport.GotoBottom()
+		return
+	}
+	m.viewport.SetYOffset(m.previewReturn.offset)
 }
 
 // completeMenu fills the prompt with the highlighted popup entry and refreshes
@@ -364,6 +440,9 @@ func (m Model) submit() (tea.Model, tea.Cmd) {
 	if text == "" {
 		return m, nil
 	}
+	// Submitting commits: drop any highlighted preview so the live transcript
+	// (or the resumed one) is what the command operates on and shows.
+	m.closePreview()
 	if strings.HasPrefix(text, "/") {
 		command, err := m.commands.parse(text)
 		if err != nil {

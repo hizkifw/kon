@@ -98,8 +98,11 @@ resume with: kon --resume ses_7Yk2mP9Qa4Zx8Vc1Nd6R
 
 Use that command, or `kon --resume` alone to reopen the most recent session for
 the directory. Inside the app, `/resume` lists sessions for the current
-directory and `/resume <id>` switches to one. Sessions are stored as JSONL
-files under `~/.local/share/kon/sessions/` — see
+directory and `/resume <id>` switches to one. Typing `/resume ` opens a picker;
+each row is labelled with the session's first prompt and creation time, and
+highlighting a row previews the session's last couple of turns in the transcript
+without switching to it. `Esc` cancels the preview and restores the live
+session. Sessions are stored as JSONL files under `~/.local/share/kon/sessions/` — see
 [Session format](docs/session-format.md) if you want to read or build on them.
 
 ## Commands

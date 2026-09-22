@@ -328,6 +328,14 @@ func (r *Runtime) SessionHistory() []session.Entry {
 	return r.store.ActivePath()
 }
 
+// SessionPreview returns the last maxTurns user turns of a persisted session
+// for a read-only preview. It reads the tail of the file directly, so it does
+// not scan every session in the workspace or parse the whole transcript, and it
+// never opens or modifies the file.
+func (r *Runtime) SessionPreview(path string, maxTurns int) ([]session.Entry, error) {
+	return session.TailEntries(path, maxTurns)
+}
+
 // DescribeTool resolves the transcript display for a persisted tool call
 // through the tool that owns it, so a replayed session shows the same
 // presentation the call had live.

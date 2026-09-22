@@ -114,11 +114,170 @@ func TestDiscoverFindsSessionsNewestFirst(t *testing.T) {
 	if summaries[0].ID != secondID {
 		t.Fatalf("newest session = %s, want %s", summaries[0].ID, secondID)
 	}
-	if summaries[0].Entries != 2 {
-		t.Fatalf("entry count = %d, want 2 (system message and prompt)", summaries[0].Entries)
+	if summaries[0].Title != "two" {
+		t.Fatalf("newest session title = %q, want %q", summaries[0].Title, "two")
 	}
 	if summaries[0].CWD == "" {
 		t.Fatal("summary is missing its working directory")
+	}
+}
+
+// TestDiscoverReadsOnlySessionHead proves listing stops at the head: a line that
+// would only fail validation deep in the tail must not hide the session, because
+// Discover never reads that far.
+func TestDiscoverReadsOnlySessionHead(t *testing.T) {
+	root, cwd := t.TempDir(), t.TempDir()
+	store, err := New(root, cwd, "test", "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AppendMessage(Message{Role: RoleUser, Content: "opening question"}); err != nil {
+		t.Fatal(err)
+	}
+	// Pad past the head window with valid turns, then append a corrupt record
+	// directly to the file.
+	for i := 0; i < 50; i++ {
+		store.AppendMessage(Message{Role: RoleAssistant, Content: strings.Repeat("x", 200)})
+	}
+	path := store.Path()
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.WriteString("{not valid json at all\n")
+	f.Close()
+
+	summaries, err := Discover(root, cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(summaries) != 1 || summaries[0].Title != "opening question" {
+		t.Fatalf("Discover = %#v", summaries)
+	}
+}
+
+func TestTailEntriesReadsTrailingTurnsWithoutOpening(t *testing.T) {
+	root, cwd := t.TempDir(), t.TempDir()
+	store, err := New(root, cwd, "test", "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 5; i++ {
+		store.AppendMessage(Message{Role: RoleUser, Content: "question"})
+		store.AppendMessage(Message{Role: RoleAssistant, Content: "answer"})
+	}
+	path := store.Path()
+	store.Close()
+
+	entries, err := TailEntries(path, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Two user turns, each with its answer, and nothing from earlier turns.
+	if len(entries) != 4 || entries[0].Message.Content != "question" || entries[2].Message.Content != "question" {
+		t.Fatalf("TailEntries = %#v", entries)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("TailEntries removed the session file: %v", err)
+	}
+}
+
+func TestTailEntriesReturnsWholeSessionWhenShorter(t *testing.T) {
+	root, cwd := t.TempDir(), t.TempDir()
+	store, err := New(root, cwd, "test", "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.AppendMessage(Message{Role: RoleUser, Content: "only question"})
+	store.AppendMessage(Message{Role: RoleAssistant, Content: "only answer"})
+	path := store.Path()
+	store.Close()
+
+	entries, err := TailEntries(path, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 3 || entries[0].Message.Role != RoleSystem || entries[2].Message.Content != "only answer" {
+		t.Fatalf("TailEntries = %#v", entries)
+	}
+}
+
+func TestTailEntriesFollowsParentChainInWindow(t *testing.T) {
+	root, cwd := t.TempDir(), t.TempDir()
+	store, err := New(root, cwd, "test", "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.AppendMessage(Message{Role: RoleUser, Content: "first"})
+	store.AppendMessage(Message{Role: RoleAssistant, Content: "answer one"})
+	store.AppendMessage(Message{Role: RoleUser, Content: "second"})
+	store.AppendMessage(Message{Role: RoleAssistant, Content: "answer two"})
+	path := store.Path()
+	store.Close()
+
+	// A window of two turns must return the parent chain, not just the last two
+	// records, and must preserve conversation order.
+	entries, err := TailEntries(path, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.Message != nil {
+			got = append(got, string(entry.Message.Role)+":"+entry.Message.Content)
+		}
+	}
+	want := []string{"user:first", "assistant:answer one", "user:second", "assistant:answer two"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("TailEntries = %v, want %v", got, want)
+	}
+}
+
+// TestTailEntriesReadsAcrossBlocks forces the backwards reader to make more than
+// one ReadAt call, exercising the mid-record leading line it must drop.
+func TestTailEntriesReadsAcrossBlocks(t *testing.T) {
+	root, cwd := t.TempDir(), t.TempDir()
+	store, err := New(root, cwd, "test", "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Pad the file well past one tailBlock so two user turns sit more than a
+	// block away from each other.
+	large := strings.Repeat("x", tailBlock)
+	store.AppendMessage(Message{Role: RoleUser, Content: "old question"})
+	store.AppendMessage(Message{Role: RoleAssistant, Content: large})
+	store.AppendMessage(Message{Role: RoleUser, Content: "recent question"})
+	store.AppendMessage(Message{Role: RoleAssistant, Content: "recent answer"})
+	path := store.Path()
+	store.Close()
+
+	entries, err := TailEntries(path, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 2 || entries[0].Message.Content != "recent question" || entries[1].Message.Content != "recent answer" {
+		t.Fatalf("TailEntries across blocks = %#v", entries)
+	}
+}
+
+func TestSummaryTitleIsFirstUserMessage(t *testing.T) {
+	root, cwd := t.TempDir(), t.TempDir()
+	store, err := New(root, cwd, "test", "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.AppendMessage(Message{Role: RoleUser, Content: "\n  Fix the flaky test  \nmore detail"})
+	store.Close()
+
+	summaries, err := Discover(root, cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(summaries) != 1 || summaries[0].Title != "Fix the flaky test" {
+		t.Fatalf("title = %#v", summaries)
 	}
 }
 

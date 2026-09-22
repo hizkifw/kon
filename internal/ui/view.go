@@ -33,10 +33,20 @@ func (m *Model) resize() {
 // user who was at the bottom no longer is.
 func (m *Model) refreshTranscript(toBottom bool) {
 	follow := toBottom && m.viewport.AtBottom()
-	m.viewport.SetContentLines(m.transcript.linesFor(m.width))
+	m.viewport.SetContentLines(m.activeTranscript().linesFor(m.width))
 	if follow {
 		m.viewport.GotoBottom()
 	}
+}
+
+// activeTranscript is the transcript the viewport currently shows: a
+// highlighted popup row's preview when one is active, otherwise the live
+// conversation.
+func (m *Model) activeTranscript() *transcript {
+	if m.preview != nil {
+		return m.preview
+	}
+	return &m.transcript
 }
 
 func (m Model) View() tea.View {
