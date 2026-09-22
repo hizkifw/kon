@@ -7,6 +7,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/hizkifw/kon/internal/tools"
 )
 
 type blockKind uint8
@@ -23,22 +24,17 @@ const (
 	blockModels
 )
 
-// toolTailLines caps how many trailing lines of tool output are displayed for
-// results that are echoed verbatim (shell output, failures, unknown tools).
-const toolTailLines = 6
-
 // block is one entry in the transcript. Tool calls arrive as a blockTool
 // (request) followed by a blockResult (completion); they are paired and
-// grouped at render time.
+// grouped at render time. Display is the owning tool's presentation snapshot:
+// for blockTool it may be replaced by live streaming updates, for blockResult
+// it is resolved once from the persisted result.
 type block struct {
-	kind   blockKind
-	name   string // tool name for tool blocks
-	args   string // raw JSON arguments for tool blocks
-	text   string
-	note   string // tool success summary, shown on the request line ("12 lines")
-	exit   string // shell exit code
-	took   string // shell wall-clock duration
-	failed bool   // tool result reported an error
+	kind    blockKind
+	name    string // tool name for tool blocks
+	args    string // raw JSON arguments for tool blocks
+	text    string
+	display tools.Display
 }
 
 // Transcript palette. The base is neutral grey: message slabs differ by
@@ -125,6 +121,19 @@ type transcript struct {
 
 func (t *transcript) add(value block) {
 	t.blocks = append(t.blocks, value)
+	t.dirty = true
+}
+
+// updateToolLive replaces the running call's display with a fresh snapshot
+// from the tool. The running call is always the transcript's trailing tool
+// block: the agent runs tools one at a time and the result block terminates
+// the run. When no trailing tool block matches (a done event already
+// finalized the call), the snapshot is dropped.
+func (t *transcript) updateToolLive(d tools.Display) {
+	if len(t.blocks) == 0 || t.blocks[len(t.blocks)-1].kind != blockTool {
+		return
+	}
+	t.blocks[len(t.blocks)-1].display = d
 	t.dirty = true
 }
 
@@ -448,10 +457,12 @@ func (t *transcript) renderBlock(b block, width int) []string {
 }
 
 // renderToolRun renders a run of consecutive tool and result blocks as one
-// slab. A blockTool pairs with the blockResult that follows it; a blockTool
-// without a result yet is still running. The pair pointers alias run and are
-// only valid for the duration of the call; callers must not append to the
-// underlying slice until it returns.
+// slab. Each pair renders from the display its owning tool resolved: the
+// request line from the blockTool (whose display may be a live streaming
+// snapshot), the body and outcome from the blockResult when it exists.
+// A blockTool without a result yet is still running.
+// The pair pointers alias run and are only valid for the duration of the
+// call; callers must not append to the underlying slice until it returns.
 func (t *transcript) renderToolRun(run []block, width int) []string {
 	type pair struct {
 		start, done *block
@@ -470,93 +481,75 @@ func (t *transcript) renderToolRun(run []block, width int) []string {
 			pairs = append(pairs, pair{done: &run[i]})
 		}
 	}
-	nameWidth := 0
-	for _, p := range pairs {
-		name := ""
-		if p.start != nil {
-			name = p.start.name
-		} else if p.done != nil {
-			name = p.done.name
-		}
-		nameWidth = max(nameWidth, len(name))
-	}
 	var lines []string
 	for _, p := range pairs {
-		lines = append(lines, t.toolRequestLine(p.start, p.done, nameWidth, width))
-		lines = append(lines, t.toolResultLines(p.done, width)...)
+		lines = append(lines, t.toolRequestLine(p.start, p.done, width))
+		lines = append(lines, t.toolBodyLines(p.start, p.done, width)...)
 	}
 	return lines
 }
 
-func (t *transcript) toolRequestLine(start, done *block, nameWidth, width int) string {
-	name, args := "", ""
-	if start != nil {
-		name, args = start.name, start.args
-	} else if done != nil {
-		name, args = done.name, done.args
-	}
+// toolRequestLine renders one call's request line: status icon, the owning
+// tool's request summary, and its outcome note when finished.
+func (t *transcript) toolRequestLine(start, done *block, width int) string {
+	display := t.callDisplay(start, done)
 	icon, iconColor := "●", colorRun
-	finished := false
-	if done != nil {
-		if done.failed {
-			icon, iconColor, finished = "✗", colorFail, true
-		} else {
-			icon, iconColor, finished = "✓", colorOK, true
+	if done != nil || start == nil {
+		switch display.State {
+		case tools.StateFailed:
+			icon, iconColor = "✗", colorFail
+		case tools.StateDone:
+			icon, iconColor = "✓", colorOK
 		}
 	}
-	summary := toolSummary(name, args, t.cwd)
 	segments := []part{
 		{text: icon, fg: iconColor},
-		{text: padName(name, nameWidth), fg: colorToolName, bold: true},
+		{text: display.Summary, fg: colorToolName, bold: true},
 	}
-	if finished && !done.failed && done.note != "" {
-		segments = append(segments,
-			part{text: summary, fg: colorToolFg},
-			part{text: "· " + done.note, fg: colorToolNote},
-		)
-	} else {
-		segments = append(segments, part{text: summary, fg: colorToolFg})
+	if display.Note != "" {
+		noteColor := colorToolNote
+		if display.State == tools.StateFailed {
+			noteColor = colorFail
+		}
+		segments = append(segments, part{text: "· " + display.Note, fg: noteColor})
 	}
 	return slabLine(colorToolBg, width, segments...)
 }
 
-// toolResultLines renders the echo of a finished tool call. Successful
-// read/write/edit results are already summarized on the request line, so only
-// output-carrying results (shell, failures, unknown tools) appear here.
-func (t *transcript) toolResultLines(done *block, width int) []string {
-	if done == nil {
-		return nil
-	}
-	// Successful read/write/edit results are summarized on the request line.
-	if !done.failed && done.name != "shell" && done.text == "" {
-		return nil
-	}
-	fg := colorResult
-	if done.failed {
+// toolBodyLines renders a call's display body: the owning tool's trimmed
+// lines. A running call streams them live; a finished call shows the outcome
+// tail its tool chose to keep.
+func (t *transcript) toolBodyLines(start, done *block, width int) []string {
+	display := t.callDisplay(start, done)
+	fg := colorToolFg
+	switch {
+	case display.State == tools.StateFailed:
 		fg = colorFail
-	}
-	text := normalizeOutput(done.text)
-	lines := tailLines(text, toolTailLines)
-	if !done.failed && done.name == "shell" {
-		// Success output gets a fainter voice than the request line.
+	case done != nil && done.name == "shell" && start != nil:
+		// Successful shell output gets a fainter voice than the request line.
 		fg = colorToolNote
 	}
-	out := make([]string, 0, len(lines)+1)
-	for _, line := range lines {
+	out := make([]string, 0, len(display.Lines)+1)
+	for _, line := range display.Lines {
 		out = append(out, slabLine(colorToolBg, width, part{text: "  " + line, fg: fg}))
 	}
-	if done.name == "shell" && done.exit != "" {
-		color := colorFail
-		if done.exit == "0" {
-			color = colorOK
-		}
-		line := "  exit " + done.exit
-		if done.took != "" {
-			line += " · took " + done.took
-		}
-		out = append(out, slabLine(colorToolBg, width, part{text: line, fg: color}))
+	if display.More > 0 {
+		out = append(out, slabLine(colorToolBg, width, part{text: fmt.Sprintf("  … %d more lines", display.More), fg: colorToolNote}))
 	}
 	return out
+}
+
+// callDisplay picks the display for one call: the result's resolved display
+// when the call finished, otherwise the running call's live snapshot, and
+// finally a fallback resolved from empty arguments.
+func (t *transcript) callDisplay(start, done *block) tools.Display {
+	if done != nil {
+		return done.display
+	}
+	if start != nil && start.display.State == tools.StateRunning || start != nil && start.display.Summary != "" {
+		return start.display
+	}
+	return tools.Display{State: tools.StateRunning}
 }
 
 // messageSlab renders a user, agent, or error message body: word-wrapped and
@@ -645,10 +638,6 @@ func bgSpaces(bg color.Color, n int) string {
 	return lipgloss.NewStyle().Background(bg).Render(strings.Repeat(" ", n))
 }
 
-func padName(name string, width int) string {
-	return fmt.Sprintf("%-*s", width, name)
-}
-
 // normalizeText prepares a message or reasoning body for display: it unifies
 // carriage returns to newlines, drops leading and trailing blank lines, removes
 // trailing spaces from each line, and collapses internal blank runs to a single
@@ -676,25 +665,6 @@ func normalizeText(text string) string {
 		prevBlank = blank
 	}
 	return strings.Join(kept, "\n")
-}
-
-// normalizeOutput prepares raw tool output (shell results, error echoes) for
-// display. It unifies carriage returns to newlines, drops leading and trailing
-// blank lines, and strips trailing spaces per line, but preserves internal
-// blank lines so the output keeps its shape.
-func normalizeOutput(text string) string {
-	lines := splitDisplayLines(text)
-	for i, line := range lines {
-		lines[i] = strings.TrimRight(line, " ")
-	}
-	start, end := 0, len(lines)
-	for start < end && lines[start] == "" {
-		start++
-	}
-	for end > start && lines[end-1] == "" {
-		end--
-	}
-	return strings.Join(lines[start:end], "\n")
 }
 
 // splitDisplayLines splits text on line breaks, treating CRLF as a single

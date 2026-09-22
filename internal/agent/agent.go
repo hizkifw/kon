@@ -31,6 +31,7 @@ const (
 	EventThinking
 	EventAssistantDone
 	EventToolStart
+	EventToolOutput
 	EventToolDone
 	EventCompacted
 	EventUsage
@@ -44,6 +45,10 @@ type Event struct {
 	IsError   bool
 	Tokens    int
 	Estimated bool
+	// Display carries an EventToolOutput snapshot: the running tool's own
+	// presentation of the call so far. It replaces any earlier snapshot for
+	// the same call.
+	Display tools.Display
 }
 
 type Runner struct {
@@ -123,10 +128,10 @@ func (r *Runner) Interrupt(attempt int) bool {
 }
 
 func SystemPrompt(cwd, instructions string) string {
-	prompt := `You are kon, a concise coding agent. Work directly in the current working directory.
+	prompt := `You are kon, a coding agent. Work directly in the current working directory.
 Use read to inspect files, edit for exact replacements, write for complete files, and shell for commands.
-Every shell call must include a timeout in whole seconds (1-600); pick a realistic upper bound for the command.
 Inspect relevant code before changing it. Keep tool calls focused and report the result clearly.
+Unless requested, keep your output in plaintext, as it will be displayed in a terminal.
 Tools execute without a sandbox or confirmation.`
 	prompt += "\nCurrent working directory: " + filepath.Clean(cwd)
 	if strings.TrimSpace(instructions) != "" {
@@ -203,7 +208,13 @@ func (r *Runner) Run(ctx context.Context, prompt string, emit func(Event)) error
 		for _, call := range assistant.ToolCalls {
 			arguments := string(call.Function.Arguments)
 			emit(Event{Kind: EventToolStart, Tool: call.Function.Name, Arguments: arguments})
-			result, isError := r.tools.Execute(ctx, call.Function.Name, call.Function.Arguments)
+			// A long-running tool publishes live display snapshots; they are
+			// forwarded as coalescible events that replace the running call's
+			// presentation in the transcript.
+			report := func(d tools.Display) {
+				emit(Event{Kind: EventToolOutput, Tool: call.Function.Name, Arguments: arguments, Display: d})
+			}
+			result, isError := r.tools.Execute(ctx, call.Function.Name, call.Function.Arguments, report)
 			message := session.Message{
 				Role: session.RoleTool, Content: result.Content, ToolCallID: call.ID, Name: call.Function.Name,
 			}
@@ -216,6 +227,9 @@ func (r *Runner) Run(ctx context.Context, prompt string, emit func(Event)) error
 			if _, err := r.session.AppendMessage(message); err != nil {
 				return err
 			}
+			// The done event carries the raw result; the transcript resolves
+			// the final display through the owning tool, which supersedes any
+			// live snapshots the call published.
 			emit(Event{Kind: EventToolDone, Tool: call.Function.Name, Arguments: arguments, Text: result.Content, IsError: isError})
 			if ctx.Err() != nil {
 				return ctx.Err()

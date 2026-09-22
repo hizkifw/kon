@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -34,6 +35,77 @@ func (readTool) Definition() provider.Tool {
 // Interrupt is a no-op: reading is synchronous and nothing runs in the
 // background between calls.
 func (readTool) Interrupt(int) bool { return false }
+
+// Summarize renders the request line: the path relative to cwd, plus the
+// offset when the model started reading mid-file.
+func (readTool) Summarize(raw json.RawMessage, cwd string) string {
+	args := struct {
+		Path   string `json:"path"`
+		Offset int    `json:"offset"`
+	}{Offset: 1}
+	if err := json.Unmarshal(raw, &args); err != nil {
+		return FallbackSummary(raw)
+	}
+	summary := prettyPath(args.Path, cwd)
+	if args.Offset > 1 {
+		summary += fmt.Sprintf(" from line %d", args.Offset)
+	}
+	return summary
+}
+
+// Describe renders the call: successful reads collapse to a line count and
+// carry no body, so file contents never reach the transcript. The count
+// derives from the persisted numbered rows, and a failure falls back to the
+// error message.
+func (t readTool) Describe(raw json.RawMessage, result string, failed bool, cwd string) Display {
+	summary := t.Summarize(raw, cwd)
+	if failed {
+		return failureDisplay(summary, result)
+	}
+	note := readNote(result)
+	if note == "" {
+		lines, more := tailLines(result, maxToolLines)
+		return Display{State: StateDone, Summary: summary, Lines: lines, More: more}
+	}
+	return Display{State: StateDone, Summary: summary, Note: note}
+}
+
+// readNote summarizes a successful text read by its line count from the
+// numbered rows the tool renders. Rows look like "    12  text"; a trailing
+// "… N more lines" marks truncated output. An empty note means the result
+// could not be summarized (an offset notice, say) and is shown as-is.
+func readNote(text string) string {
+	lines := strings.Split(text, "\n")
+	extra := 0
+	if last := lines[len(lines)-1]; strings.HasPrefix(last, "…") && strings.HasSuffix(last, "more lines") {
+		fields := strings.Fields(last)
+		if len(fields) >= 2 {
+			if count, err := strconv.Atoi(strings.TrimPrefix(fields[1], "…")); err == nil {
+				extra = count
+				lines = lines[:len(lines)-1]
+			}
+		}
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	lastRow := lines[len(lines)-1]
+	if len(lastRow) < 6 {
+		return ""
+	}
+	number, err := strconv.Atoi(strings.TrimSpace(lastRow[:6]))
+	if err != nil {
+		return ""
+	}
+	if number == 1 && extra == 0 && len(lastRow) <= 8 {
+		return "empty file"
+	}
+	total := number + extra
+	if total == 1 {
+		return "1 line"
+	}
+	return fmt.Sprintf("%d lines", total)
+}
 
 func (t readTool) Run(_ context.Context, env Env, raw json.RawMessage) (Result, error) {
 	args := struct {

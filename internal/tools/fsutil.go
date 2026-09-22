@@ -143,4 +143,24 @@ func (w *headTailWriter) String() string {
 	return string(w.head) + fmt.Sprintf("\n… %d bytes omitted …\n", omitted) + string(w.tail)
 }
 
+// Tail returns at most n trailing complete lines of the captured output, for a
+// live display snapshot. It never mutates the buffer, so it is safe to call
+// from the reporting goroutine while the reader goroutine writes.
+func (w *headTailWriter) Tail(n int) []string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	text := w.all.String()
+	if w.head != nil {
+		text = string(w.tail)
+	}
+	lines := splitDisplayLines(text)
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return lines
+}
+
 var _ io.Writer = (*headTailWriter)(nil)

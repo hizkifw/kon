@@ -51,6 +51,17 @@ func (r *Registry) Definitions() []provider.Tool {
 	return definitions
 }
 
+// displayRegistry resolves tool calls to their owned display. Tests install a
+// fresh snapshot registry so a display lookup never runs a live tool.
+var defaultDisplays = func() *Registry {
+	registry := NewRegistry()
+	registry.Register(readTool{})
+	registry.Register(writeTool{})
+	registry.Register(editTool{})
+	registry.Register(&shellTool{})
+	return registry
+}()
+
 // InterruptAll escalates cancellation across every registered tool. attempt is
 // the number of consecutive Ctrl+C presses; it is forwarded as-is so tools can
 // distinguish the polite first press from the harder repeat. It reports

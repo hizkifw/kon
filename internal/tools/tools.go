@@ -18,7 +18,8 @@ import (
 // Tool is the common interface every coding tool implements. A tool describes
 // itself to the model exactly once and interprets its own arguments, so adding
 // one means implementing the interface in a new file and registering it in
-// defaultRegistry.
+// defaultRegistry. A tool that also implements Displayer owns its transcript
+// presentation (see display.go).
 type Tool interface {
 	// Definition is the model-facing schema for the tool: its name, a one-line
 	// description, and its JSON Schema parameters.
@@ -54,13 +55,28 @@ type Result struct {
 
 // Env is the environment one tool call runs in. Tools keep their runtime
 // state on their own instance; Env carries only the workspace context that
-// every tool shares.
+// every tool shares. report, when set, is the streaming channel for a
+// long-running tool's live display snapshots; the agent coalesces them, so a
+// tool may report as often as it likes.
 type Env struct {
 	cwd string
 	// vision reports whether the active model accepts image content. Tools
 	// attach images only when it is set; otherwise they describe them in the
 	// text result so the model can react (e.g. convert or inspect another way).
 	vision bool
+	// report receives display snapshots while the call runs. It may be nil
+	// (tool calls run fine without a transcript). It must not block; calls
+	// happen from the tool's own goroutine.
+	report func(Display)
+}
+
+// Report publishes one display snapshot for the running call, if a transcript
+// is listening. The callback is asynchronous downstream, so this returns as
+// soon as the snapshot is handed off.
+func (e Env) Report(d Display) {
+	if e.report != nil {
+		e.report(d)
+	}
 }
 
 // Resolve turns a tool-supplied path into a clean absolute path under the

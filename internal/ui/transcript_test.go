@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/x/ansi"
+	"github.com/hizkifw/kon/internal/tools"
 )
 
 // plain renders a transcript with ANSI escapes and trailing slab padding
@@ -19,47 +20,16 @@ func plain(s string) string {
 	return strings.Join(lines, "\n")
 }
 
-func TestToolSummaryFormatsArguments(t *testing.T) {
-	cases := []struct {
-		name, args, want string
-	}{
-		{"read", `{"path":"/tmp/main.go"}`, "main.go"},
-		{"read", `{"path":"/tmp/main.go","offset":40}`, "main.go from line 40"},
-		{"write", `{"path":"/tmp/main.go","content":"hi"}`, "main.go · 2B"},
-		{"edit", `{"path":"/tmp/main.go","old_text":"a\nb\nc","new_text":"x"}`, "main.go · -3 +1 lines"},
-		{"shell", `{"command":"go test\n./..."}`, "go test; ./..."},
-		{"unknown", `{"a":1}`, `{"a":1}`},
-		{"unknown", `not json`, "not json"},
-	}
-	for _, tc := range cases {
-		if got := toolSummary(tc.name, tc.args, "/tmp"); got != tc.want {
-			t.Errorf("toolSummary(%s) = %q, want %q", tc.name, got, tc.want)
-		}
-	}
+// toolCallBlock builds a running tool-call block with its owned display
+// resolved for cwd.
+func toolCallBlock(name, args, cwd string) block {
+	return block{kind: blockTool, name: name, args: args, display: tools.Describe(name, []byte(args), "", false, cwd)}
 }
 
-func TestPrettyPathPrefersCwdRelative(t *testing.T) {
-	if got := prettyPath("/tmp/proj/main.go", "/tmp/proj"); got != "main.go" {
-		t.Fatalf("prettyPath = %q", got)
-	}
-	if got := prettyPath("/tmp/other/main.go", "/tmp/proj"); got != "/tmp/other/main.go" {
-		t.Fatalf("prettyPath = %q", got)
-	}
-}
-
-func TestReadNoteCountsRowsAndMoreLines(t *testing.T) {
-	cases := []struct{ text, want string }{
-		{"     1  package ui\n… 44 more lines", "45 lines"},
-		{"     1  only\n     2  two", "2 lines"},
-		{"     7  x", "7 lines"},
-		{"     1  ", "empty file"},
-		{"(offset 100 is beyond end of file; 12 lines)", ""},
-	}
-	for _, tc := range cases {
-		if got := readNote(tc.text); got != tc.want {
-			t.Errorf("readNote(%q) = %q, want %q", tc.text, got, tc.want)
-		}
-	}
+// toolDoneBlock builds a finished tool-result block with its owned display
+// resolved for cwd.
+func toolDoneBlock(name, args, result string, failed bool, cwd string) block {
+	return block{kind: blockResult, name: name, args: args, display: tools.Describe(name, []byte(args), result, failed, cwd)}
 }
 
 func TestNormalizeTextTrimsAndCollapsesBlanks(t *testing.T) {
@@ -77,24 +47,12 @@ func TestNormalizeTextTrimsAndCollapsesBlanks(t *testing.T) {
 	}
 }
 
-func TestNormalizeOutputPreservesInternalBlanks(t *testing.T) {
-	cases := []struct{ in, want string }{
-		{"  \nline one  \nline two\n\r\n", "line one\nline two"},
-		{"a\n\n\nb", "a\n\n\nb"},
-		{"start\r\nmid\r\n", "start\nmid"},
-	}
-	for _, tc := range cases {
-		if got := normalizeOutput(tc.in); got != tc.want {
-			t.Errorf("normalizeOutput(%q) = %q, want %q", tc.in, got, tc.want)
-		}
-	}
-}
-
 func TestShellOutputCarriageReturnsDoNotMangle(t *testing.T) {
 	var tr transcript
-	tr.add(block{kind: blockTool, name: "shell", args: `{"command":"prog"}`})
+	tr.cwd = "/tmp"
+	tr.add(toolCallBlock("shell", `{"command":"prog"}`, "/tmp"))
 	// CR-LF and spinner-style \r output should render as distinct lines.
-	tr.add(block{kind: blockResult, name: "shell", text: "first  \r\nsecond\rthird\n", exit: "0"})
+	tr.add(toolDoneBlock("shell", `{"command":"prog"}`, "first  \r\nsecond\rthird\nexit code: 0", false, "/tmp"))
 	got := plain(tr.render(80))
 	lines := strings.Split(got, "\n")
 	at := map[string]int{}
@@ -113,30 +71,13 @@ func TestShellOutputCarriageReturnsDoNotMangle(t *testing.T) {
 	}
 }
 
-func TestSplitExitCode(t *testing.T) {
-	code, took, output := splitExitCode("line one\nline two\nexit code: 2 (took 1.5s)")
-	if code != "2" || took != "1.5s" || output != "line one\nline two" {
-		t.Fatalf("splitExitCode = %q, %q, %q", code, took, output)
-	}
-	code, took, output = splitExitCode("line one\nexit code: 2")
-	if code != "2" || took != "" || output != "line one" {
-		t.Fatalf("splitExitCode without a duration = %q, %q, %q", code, took, output)
-	}
-	if _, _, output := splitExitCode("no marker here"); output != "no marker here" {
-		t.Fatalf("splitExitCode without a marker = %q", output)
-	}
-	if _, _, output := splitExitCode("exit code: "); output != "exit code: " {
-		t.Fatalf("splitExitCode with an empty code = %q", output)
-	}
-}
-
 func TestTranscriptGroupsConsecutiveToolCalls(t *testing.T) {
 	var tr transcript
 	tr.cwd = "/tmp"
-	tr.add(block{kind: blockTool, name: "read", args: `{"path":"/tmp/a.go"}`})
-	tr.add(block{kind: blockResult, name: "read", note: "12 lines"})
-	tr.add(block{kind: blockTool, name: "read", args: `{"path":"/tmp/b.go"}`})
-	tr.add(block{kind: blockResult, name: "read", note: "5 lines"})
+	tr.add(toolCallBlock("read", `{"path":"/tmp/a.go"}`, "/tmp"))
+	tr.add(toolDoneBlock("read", `{"path":"/tmp/a.go"}`, "     1  x\n… 11 more lines", false, "/tmp"))
+	tr.add(toolCallBlock("read", `{"path":"/tmp/b.go"}`, "/tmp"))
+	tr.add(toolDoneBlock("read", `{"path":"/tmp/b.go"}`, "     1  y\n     2  z\n     3  w\n     4  v\n     5  u", false, "/tmp"))
 	got := plain(tr.render(80))
 	lines := strings.Split(got, "\n")
 	a, b := -1, -1
@@ -159,7 +100,7 @@ func TestTranscriptGroupsConsecutiveToolCalls(t *testing.T) {
 func TestRunningToolHasNoResultYet(t *testing.T) {
 	var tr transcript
 	tr.cwd = "/tmp"
-	tr.add(block{kind: blockTool, name: "shell", args: `{"command":"sleep 5"}`})
+	tr.add(toolCallBlock("shell", `{"command":"sleep 5"}`, "/tmp"))
 	got := plain(tr.render(80))
 	if !strings.Contains(got, "●") || !strings.Contains(got, "sleep 5") {
 		t.Fatalf("running tool line missing: %q", got)
@@ -175,8 +116,9 @@ func TestShellResultTrimsToTailAndExitCode(t *testing.T) {
 		output = append(output, fmt.Sprintf("line-%02d", i))
 	}
 	var tr transcript
-	tr.add(block{kind: blockTool, name: "shell", args: `{"command":"./flaky"}`})
-	tr.add(block{kind: blockResult, name: "shell", text: strings.Join(output, "\n"), exit: "3", took: "4.2s", failed: true})
+	tr.add(toolCallBlock("shell", `{"command":"./flaky"}`, "/tmp"))
+	content := strings.Join(output, "\n") + "\nexit code: 3 (took 4.2s)"
+	tr.add(toolDoneBlock("shell", `{"command":"./flaky"}`, content, true, "/tmp"))
 	got := plain(tr.render(80))
 	if !strings.Contains(got, "line-19") || strings.Contains(got, "line-05") {
 		t.Fatalf("shell output was not trimmed to the tail: %q", got)
@@ -189,10 +131,10 @@ func TestShellResultTrimsToTailAndExitCode(t *testing.T) {
 func TestSuccessfulReadAndEditOmitResultEcho(t *testing.T) {
 	var tr transcript
 	tr.cwd = "/tmp"
-	tr.add(block{kind: blockTool, name: "read", args: `{"path":"/tmp/a.go"}`})
-	tr.add(block{kind: blockResult, name: "read", note: "10 lines"})
-	tr.add(block{kind: blockTool, name: "edit", args: `{"path":"/tmp/a.go","old_text":"x","new_text":"y"}`})
-	tr.add(block{kind: blockResult, name: "edit"})
+	tr.add(toolCallBlock("read", `{"path":"/tmp/a.go"}`, "/tmp"))
+	tr.add(toolDoneBlock("read", `{"path":"/tmp/a.go"}`, "     1  a\n    10  j", false, "/tmp"))
+	tr.add(toolCallBlock("edit", `{"path":"/tmp/a.go","old_text":"x","new_text":"y"}`, "/tmp"))
+	tr.add(toolDoneBlock("edit", `{"path":"/tmp/a.go","old_text":"x","new_text":"y"}`, "edited /tmp/a.go", false, "/tmp"))
 	got := plain(tr.render(80))
 	lines := strings.Split(got, "\n")
 	if len(lines) != 2 {
@@ -205,8 +147,8 @@ func TestSuccessfulReadAndEditOmitResultEcho(t *testing.T) {
 
 func TestFailedToolShowsErrorOutput(t *testing.T) {
 	var tr transcript
-	tr.add(block{kind: blockTool, name: "read", args: `{"path":"missing.txt"}`})
-	tr.add(block{kind: blockResult, name: "read", text: "error: open missing.txt: no such file or directory", failed: true})
+	tr.add(toolCallBlock("read", `{"path":"missing.txt"}`, "/tmp"))
+	tr.add(toolDoneBlock("read", `{"path":"missing.txt"}`, "error: open missing.txt: no such file or directory", true, "/tmp"))
 	got := plain(tr.render(80))
 	if !strings.Contains(got, "✗") || !strings.Contains(got, "no such file or directory") {
 		t.Fatalf("failed tool not shown: %q", got)
@@ -217,8 +159,8 @@ func TestToolGroupSeparatedFromMessages(t *testing.T) {
 	var tr transcript
 	tr.cwd = "/tmp"
 	tr.add(block{kind: blockUser, text: "do it"})
-	tr.add(block{kind: blockTool, name: "read", args: `{"path":"/tmp/a.go"}`})
-	tr.add(block{kind: blockResult, name: "read", note: "3 lines"})
+	tr.add(toolCallBlock("read", `{"path":"/tmp/a.go"}`, "/tmp"))
+	tr.add(toolDoneBlock("read", `{"path":"/tmp/a.go"}`, "     1  a\n     2  b\n     3  c", false, "/tmp"))
 	got := plain(tr.render(80))
 	lines := strings.Split(got, "\n")
 	user, tool := -1, -1
@@ -288,17 +230,17 @@ func TestIncrementalRenderMatchesFullRender(t *testing.T) {
 	steps := []block{
 		{kind: blockUser, text: "do the thing"},
 		{kind: blockAssistant, text: "on it"},
-		{kind: blockTool, name: "shell", args: `{"command":"go build"}`},
-		{kind: blockResult, name: "shell", text: "ok", exit: "0", took: "1.0s"},
-		{kind: blockTool, name: "read", args: `{"path":"/tmp/a.go"}`},
-		{kind: blockResult, name: "read", note: "12 lines"},
+		toolCallBlock("shell", `{"command":"go build"}`, "/tmp"),
+		toolDoneBlock("shell", `{"command":"go build"}`, "ok\nexit code: 0 (took 1.0s)", false, "/tmp"),
+		toolCallBlock("read", `{"path":"/tmp/a.go"}`, "/tmp"),
+		toolDoneBlock("read", `{"path":"/tmp/a.go"}`, "     1  x\n… 11 more lines", false, "/tmp"),
 		{kind: blockThinking, text: "hmm"},
 		{kind: blockError, text: "boom"},
 		{kind: blockContext, text: "compacted ~1.2k tokens"},
 		{kind: blockModel, text: "switched to gpt-5"},
 		{kind: blockModels, text: "a\nb"},
-		{kind: blockTool, name: "shell", args: `{"command":"go test"}`},
-		{kind: blockResult, name: "shell", text: "fail", exit: "2", failed: true},
+		toolCallBlock("shell", `{"command":"go test"}`, "/tmp"),
+		toolDoneBlock("shell", `{"command":"go test"}`, "fail\nexit code: 2", true, "/tmp"),
 		{kind: blockAssistant, text: "done"},
 	}
 	for i, b := range steps {
@@ -330,9 +272,9 @@ func TestLineCacheMatchesRenderedLines(t *testing.T) {
 	}
 	tr.add(block{kind: blockUser, text: "do the thing"})
 	check("after user")
-	tr.add(block{kind: blockTool, name: "read", args: `{"path":"/tmp/a.go"}`})
+	tr.add(toolCallBlock("read", `{"path":"/tmp/a.go"}`, "/tmp"))
 	check("tool running")
-	tr.add(block{kind: blockResult, name: "read", note: "12 lines"})
+	tr.add(toolDoneBlock("read", `{"path":"/tmp/a.go"}`, "     1  x\n… 11 more lines", false, "/tmp"))
 	check("tool done")
 	tr.appendStream("streaming ")
 	check("stream start")
@@ -511,8 +453,8 @@ func TestIncrementalRenderSurvivesWidthChanges(t *testing.T) {
 	var tr transcript
 	tr.cwd = "/tmp"
 	tr.add(block{kind: blockUser, text: strings.Repeat("word ", 30)})
-	tr.add(block{kind: blockTool, name: "read", args: `{"path":"/tmp/a.go"}`})
-	tr.add(block{kind: blockResult, name: "read", note: "1 line"})
+	tr.add(toolCallBlock("read", `{"path":"/tmp/a.go"}`, "/tmp"))
+	tr.add(toolDoneBlock("read", `{"path":"/tmp/a.go"}`, "     1  a", false, "/tmp"))
 	for _, width := range []int{40, 80, 30, 80, 120} {
 		got := plain(tr.render(width))
 		fresh := transcript{cwd: "/tmp", blocks: append([]block(nil), tr.blocks...)}

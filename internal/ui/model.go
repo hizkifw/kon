@@ -3,6 +3,7 @@ package ui
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/hizkifw/kon/internal/app"
 	"github.com/hizkifw/kon/internal/history"
 	"github.com/hizkifw/kon/internal/session"
+	"github.com/hizkifw/kon/internal/tools"
 	"github.com/hizkifw/kon/internal/typedid"
 )
 
@@ -29,6 +31,9 @@ type Runtime interface {
 	Sessions() ([]session.Summary, error)
 	SessionID() typedid.SessionID
 	SessionHistory() []session.Entry
+	// DescribeTool resolves a persisted tool call's transcript display through
+	// the tool that owns it, so replay matches live rendering.
+	DescribeTool(name string, args json.RawMessage, result string, failed bool) tools.Display
 	// ContextUsage reports the last provider-reported context size and whether it
 	// is known, so a resumed session can show it instead of an unknown value.
 	ContextUsage() (int, bool)

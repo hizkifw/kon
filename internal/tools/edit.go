@@ -26,6 +26,32 @@ func (editTool) Definition() provider.Tool {
 // background between calls.
 func (editTool) Interrupt(int) bool { return false }
 
+// Summarize renders the request line: the path relative to cwd plus the edit
+// size as removed and added line counts.
+func (editTool) Summarize(raw json.RawMessage, cwd string) string {
+	args := struct {
+		Path    string `json:"path"`
+		OldText string `json:"old_text"`
+		NewText string `json:"new_text"`
+	}{}
+	if err := json.Unmarshal(raw, &args); err != nil {
+		return FallbackSummary(raw)
+	}
+	if args.OldText == "" && args.NewText == "" {
+		return prettyPath(args.Path, cwd)
+	}
+	return prettyPath(args.Path, cwd) + fmt.Sprintf(" · -%d +%d lines", countLines(args.OldText), countLines(args.NewText))
+}
+
+// Describe renders the call. Like write, the edit never echoes file bodies.
+func (editTool) Describe(raw json.RawMessage, result string, failed bool, cwd string) Display {
+	summary := editTool{}.Summarize(raw, cwd)
+	if failed {
+		return failureDisplay(summary, result)
+	}
+	return Display{State: StateDone, Summary: summary}
+}
+
 func (editTool) Run(_ context.Context, env Env, raw json.RawMessage) (Result, error) {
 	var args struct {
 		Path    string `json:"path"`

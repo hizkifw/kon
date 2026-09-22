@@ -15,15 +15,15 @@ import (
 func TestWriteEditRead(t *testing.T) {
 	dir := t.TempDir()
 	executor := New(dir, false)
-	result, failed := executor.Execute(context.Background(), "write", raw(map[string]any{"path": "note.txt", "content": "alpha\nbeta\n"}))
+	result, failed := executor.Execute(context.Background(), "write", raw(map[string]any{"path": "note.txt", "content": "alpha\nbeta\n"}), nil)
 	if failed || !strings.Contains(result.Content, "wrote") {
 		t.Fatalf("write = %q, failed=%v", result.Content, failed)
 	}
-	_, failed = executor.Execute(context.Background(), "edit", raw(map[string]any{"path": "note.txt", "old_text": "beta", "new_text": "gamma"}))
+	_, failed = executor.Execute(context.Background(), "edit", raw(map[string]any{"path": "note.txt", "old_text": "beta", "new_text": "gamma"}), nil)
 	if failed {
 		t.Fatal("edit failed")
 	}
-	result, failed = executor.Execute(context.Background(), "read", raw(map[string]any{"path": "note.txt", "offset": 2, "limit": 1}))
+	result, failed = executor.Execute(context.Background(), "read", raw(map[string]any{"path": "note.txt", "offset": 2, "limit": 1}), nil)
 	if failed || !strings.Contains(result.Content, "gamma") || strings.Contains(result.Content, "alpha") {
 		t.Fatalf("read = %q, failed=%v", result.Content, failed)
 	}
@@ -39,10 +39,10 @@ func TestEditRejectsAmbiguousAndUnknownArguments(t *testing.T) {
 		t.Fatal(err)
 	}
 	executor := New(dir, false)
-	if _, failed := executor.Execute(context.Background(), "edit", raw(map[string]any{"path": "x", "old_text": "same", "new_text": "x"})); !failed {
+	if _, failed := executor.Execute(context.Background(), "edit", raw(map[string]any{"path": "x", "old_text": "same", "new_text": "x"}), nil); !failed {
 		t.Fatal("ambiguous edit succeeded")
 	}
-	if _, failed := executor.Execute(context.Background(), "read", json.RawMessage(`{"path":"x","surprise":true}`)); !failed {
+	if _, failed := executor.Execute(context.Background(), "read", json.RawMessage(`{"path":"x","surprise":true}`), nil); !failed {
 		t.Fatal("unknown argument succeeded")
 	}
 }
@@ -52,7 +52,7 @@ func TestShellCapturesExitCode(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		command = "echo hello"
 	}
-	result, failed := New(t.TempDir(), false).Execute(context.Background(), "shell", raw(map[string]any{"command": command, "timeout": 10}))
+	result, failed := New(t.TempDir(), false).Execute(context.Background(), "shell", raw(map[string]any{"command": command, "timeout": 10}), nil)
 	if failed || !strings.Contains(result.Content, "hello") || !strings.Contains(result.Content, "exit code: 0") {
 		t.Fatalf("shell = %q, failed=%v", result.Content, failed)
 	}
@@ -70,7 +70,7 @@ func TestShellRequiresTimeout(t *testing.T) {
 		"too large": raw(map[string]any{"command": "true", "timeout": int(maxShellTimeout/time.Second) + 1}),
 	}
 	for name, args := range cases {
-		result, failed := executor.Execute(context.Background(), "shell", args)
+		result, failed := executor.Execute(context.Background(), "shell", args, nil)
 		if !failed {
 			t.Fatalf("shell without a usable timeout (%s) succeeded: %q", name, result.Content)
 		}
@@ -85,7 +85,7 @@ func TestShellTimesOutWithPartialOutput(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		command = "echo | set /p=before& timeout /t 5 >nul"
 	}
-	result, failed := New(t.TempDir(), false).Execute(context.Background(), "shell", raw(map[string]any{"command": command, "timeout": 1}))
+	result, failed := New(t.TempDir(), false).Execute(context.Background(), "shell", raw(map[string]any{"command": command, "timeout": 1}), nil)
 	if !failed {
 		t.Fatal("timed-out command reported success")
 	}
@@ -118,7 +118,7 @@ func TestShellCancelInterruptsCommand(t *testing.T) {
 		_, failed = executor.Execute(ctx, "shell", raw(map[string]any{
 			"command": `trap 'echo handled > interrupt.txt' INT; sleep 31415`,
 			"timeout": 600,
-		}))
+		}), nil)
 	}()
 	time.Sleep(300 * time.Millisecond)
 	cancel()
@@ -155,7 +155,7 @@ func TestShellKillsCommandThatIgnoresInterrupt(t *testing.T) {
 		executor.Execute(ctx, "shell", raw(map[string]any{
 			"command": `trap '' INT; while :; do :; done`,
 			"timeout": 600,
-		}))
+		}), nil)
 	}()
 	time.Sleep(300 * time.Millisecond)
 	start := time.Now()
@@ -183,7 +183,7 @@ func TestKillEscalationForceKillsRunningCommand(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		executor.Execute(ctx, "shell", raw(map[string]any{"command": "sleep 30", "timeout": 600}))
+		executor.Execute(ctx, "shell", raw(map[string]any{"command": "sleep 30", "timeout": 600}), nil)
 	}()
 	time.Sleep(300 * time.Millisecond)
 	if !executor.Interrupt(2) {
@@ -210,7 +210,7 @@ func TestShellReturnsWhenGrandchildHoldsOutput(t *testing.T) {
 	result, failed := executor.Execute(context.Background(), "shell", raw(map[string]any{
 		"command": `sleep 2 & echo done`,
 		"timeout": 600,
-	}))
+	}), nil)
 	elapsed := time.Since(start)
 	if failed || !strings.Contains(result.Content, "done") || !strings.Contains(result.Content, "exit code: 0") {
 		t.Fatalf("command with an orphaned grandchild = %q, failed=%v", result.Content, failed)

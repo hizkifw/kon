@@ -33,6 +33,11 @@ var shellInterruptGrace = 10 * time.Second
 // grandchild inherited the output pipe and keeps it open.
 var shellDrainWindow = 250 * time.Millisecond
 
+// liveDisplayInterval paces the live display snapshots a running shell call
+// publishes. The latest snapshot wins downstream, so this only bounds the
+// reporting rate, not the freshness floor.
+const liveDisplayInterval = 100 * time.Millisecond
+
 // shellTool runs one shell command in the workspace with a mandatory timeout.
 type shellTool struct {
 	mu      sync.Mutex
@@ -45,6 +50,81 @@ func (t *shellTool) Definition() provider.Tool {
 		Description: "Run a shell command in the current working directory. Every command must specify a timeout in whole seconds (1-600); the command is killed when the timeout expires.",
 		Parameters:  json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"},"timeout":{"type":"integer","minimum":1,"maximum":600,"description":"maximum wall-clock seconds the command may run"}},"required":["command","timeout"],"additionalProperties":false}`),
 	}
+}
+
+// toolTailLines bounds how many trailing output lines the transcript echoes
+// for one call, and bounds the live buffer a running call keeps for its
+// streaming display.
+const toolTailLines = maxToolLines
+
+// Summarize renders the request line: the command with line breaks collapsed.
+func (t *shellTool) Summarize(raw json.RawMessage, cwd string) string {
+	args := struct {
+		Command string `json:"command"`
+	}{}
+	if err := json.Unmarshal(raw, &args); err != nil {
+		return FallbackSummary(raw)
+	}
+	return strings.ReplaceAll(args.Command, "\n", "; ")
+}
+
+// Describe renders the finished call. The persisted result ends with the
+// "exit code: N (took D)" marker the tool appends; the marker becomes the
+// outcome note and the output is trimmed to its tail. Output-carrying results
+// keep a body; summarized results (successful reads and edits are reported by
+// their callers) keep none. A failed call always shows its message.
+func (t *shellTool) Describe(raw json.RawMessage, result string, failed bool, cwd string) Display {
+	summary := t.Summarize(raw, cwd)
+	output, exit, took, hasExit := splitResult(result)
+	note := ""
+	if hasExit {
+		note = "exit " + exit
+		if took != "" {
+			note += " · took " + took
+		}
+	}
+	state := StateDone
+	if failed {
+		state = StateFailed
+	} else if hasExit && exit != "0" {
+		state = StateFailed
+	}
+	if state == StateDone && output == "" {
+		// Successful calls with nothing to echo carry their outcome on the
+		// request line alone.
+		return Display{State: state, Summary: summary, Note: note}
+	}
+	lines, more := tailLines(output, toolTailLines)
+	return Display{State: state, Summary: summary, Note: note, Lines: lines, More: more}
+}
+
+// liveDisplay builds a running-call snapshot from the writer's tail lines.
+// The outcome note is empty: the call has no exit code yet.
+func (t *shellTool) liveDisplay(raw json.RawMessage, env Env, lines []string) Display {
+	return Display{
+		State:   StateRunning,
+		Summary: t.Summarize(raw, env.cwd),
+		Lines:   lines,
+	}
+}
+
+// splitResult separates a shell result into the output body and the trailing
+// "exit code: N (took D)" marker the tool appends. hasExit reports whether a
+// well-formed marker was found; without one the whole result is output.
+func splitResult(text string) (output, exit, took string, hasExit bool) {
+	const marker = "exit code: "
+	at := strings.LastIndex(text, marker)
+	if at < 0 {
+		return text, "", "", false
+	}
+	rest, tail := text[at+len(marker):], ""
+	if open := strings.LastIndex(rest, " (took "); open >= 0 && strings.HasSuffix(rest, ")") {
+		rest, tail = rest[:open], rest[open+len(" (took "):len(rest)-1]
+	}
+	if rest == "" || strings.Trim(rest, "0123456789") != "" {
+		return text, "", "", false
+	}
+	return strings.TrimRight(text[:at], "\n"), rest, tail, true
 }
 
 func (t *shellTool) Run(ctx context.Context, env Env, raw json.RawMessage) (Result, error) {
@@ -110,6 +190,36 @@ func (t *shellTool) Run(ctx context.Context, env Env, raw json.RawMessage) (Resu
 		defer close(readerDone)
 		_, _ = io.Copy(writer, pr)
 	}()
+	// While the command runs, publish the tail of its output as the live
+	// display, throttled to a frame-friendly rate. Snapshots are idempotent
+	// and the latest wins downstream, so a burst between ticks coalesces.
+	if env.report != nil {
+		stop := make(chan struct{})
+		reporterDone := make(chan struct{})
+		go func() {
+			defer close(reporterDone)
+			ticker := time.NewTicker(liveDisplayInterval)
+			defer ticker.Stop()
+			for {
+				// Exit promptly once stopped, without firing a final tick.
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				select {
+				case <-stop:
+					return
+				case <-ticker.C:
+					env.Report(t.liveDisplay(raw, env, writer.Tail(toolTailLines)))
+				}
+			}
+		}()
+		// The reporter must be fully stopped before Run returns: its snapshots
+		// flow to the same channel the result event will, so a straggler could
+		// otherwise race the result or outlive the run's emit channel.
+		defer func() { close(stop); <-reporterDone }()
+	}
 	start := time.Now()
 	startErr := cmd.Start()
 	// The child received its own descriptor at fork; the parent must not keep

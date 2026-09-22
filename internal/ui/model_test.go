@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/hizkifw/kon/internal/app"
 	"github.com/hizkifw/kon/internal/history"
 	"github.com/hizkifw/kon/internal/session"
+	"github.com/hizkifw/kon/internal/tools"
 	"github.com/hizkifw/kon/internal/typedid"
 )
 
@@ -37,6 +39,9 @@ func (f *fakeRuntime) Sessions() ([]session.Summary, error)                 { re
 func (f *fakeRuntime) SessionID() typedid.SessionID                         { return f.id }
 func (f *fakeRuntime) SessionHistory() []session.Entry                      { return f.entries }
 func (f *fakeRuntime) ContextUsage() (int, bool)                            { return f.contextTokens, f.contextKnown }
+func (f *fakeRuntime) DescribeTool(name string, args json.RawMessage, result string, failed bool) tools.Display {
+	return tools.Describe(name, args, result, failed, "/tmp")
+}
 func (f *fakeRuntime) SwitchModel(name string) error {
 	for _, model := range f.models {
 		if model.Name == name {
@@ -83,10 +88,11 @@ func TestSwitchModelUpdatesRuntimeState(t *testing.T) {
 
 func TestTranscriptUsesTypedBlocks(t *testing.T) {
 	var transcript transcript
-	transcript.add(block{kind: blockTool, name: "read", args: `{"path":"file"}`})
+	transcript.cwd = "/tmp"
+	transcript.add(toolCallBlock("read", `{"path":"file"}`, "/tmp"))
 	transcript.appendStream("answer")
 	got := plain(transcript.render(80))
-	if !strings.Contains(got, "read") || !strings.Contains(got, "file") || !strings.Contains(got, "answer") {
+	if !strings.Contains(got, "file") || !strings.Contains(got, "answer") {
 		t.Fatalf("render = %q", got)
 	}
 	if strings.Index(got, "file") > strings.Index(got, "answer") {
@@ -529,9 +535,11 @@ func TestShellResultBlockSplitsCodeAndDuration(t *testing.T) {
 		Arguments: `{"command":"go build ./...","timeout":120}`,
 		Text:      "warnings here\nexit code: 0 (took 4.2s)",
 	}
-	b := toolResultBlock(event)
-	if b.failed || b.exit != "0" || b.took != "4.2s" || b.text != "warnings here" {
-		t.Fatalf("toolResultBlock = %#v", b)
+	model := newTestModel(t)
+	b := model.toolResultBlock(event)
+	d := b.display
+	if d.State != tools.StateDone || d.Note != "exit 0 · took 4.2s" || len(d.Lines) != 1 || d.Lines[0] != "warnings here" {
+		t.Fatalf("toolResultBlock display = %#v", d)
 	}
 }
 

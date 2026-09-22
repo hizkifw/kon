@@ -25,6 +25,29 @@ func (writeTool) Definition() provider.Tool {
 // background between calls.
 func (writeTool) Interrupt(int) bool { return false }
 
+// Summarize renders the request line: the path relative to cwd plus the size
+// of the content being written.
+func (writeTool) Summarize(raw json.RawMessage, cwd string) string {
+	args := struct {
+		Path    string `json:"path"`
+		Content string `json:"content"`
+	}{}
+	if err := json.Unmarshal(raw, &args); err != nil {
+		return FallbackSummary(raw)
+	}
+	return prettyPath(args.Path, cwd) + " · " + humanBytes(len(args.Content))
+}
+
+// Describe renders the call. The tool never echoes the file body; a failure
+// shows the error message.
+func (writeTool) Describe(raw json.RawMessage, result string, failed bool, cwd string) Display {
+	summary := writeTool{}.Summarize(raw, cwd)
+	if failed {
+		return failureDisplay(summary, result)
+	}
+	return Display{State: StateDone, Summary: summary}
+}
+
 func (writeTool) Run(_ context.Context, env Env, raw json.RawMessage) (Result, error) {
 	var args struct {
 		Path    string `json:"path"`

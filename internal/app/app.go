@@ -3,6 +3,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -320,6 +321,13 @@ func (r *Runtime) SessionHistory() []session.Entry {
 		return nil
 	}
 	return r.store.ActivePath()
+}
+
+// DescribeTool resolves the transcript display for a persisted tool call
+// through the tool that owns it, so a replayed session shows the same
+// presentation the call had live.
+func (r *Runtime) DescribeTool(name string, args json.RawMessage, result string, failed bool) tools.Display {
+	return tools.Describe(name, args, result, failed, r.cwd)
 }
 
 // ContextUsage reports the current context size in tokens and whether that value

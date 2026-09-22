@@ -6,6 +6,7 @@ import (
 	"github.com/hizkifw/kon/internal/agent"
 	"github.com/hizkifw/kon/internal/provider"
 	"github.com/hizkifw/kon/internal/session"
+	"github.com/hizkifw/kon/internal/tools"
 )
 
 // maxResultChars bounds tool result text kept in the transcript. Display
@@ -28,9 +29,16 @@ func (m *Model) applyAgentEvent(event agent.Event) bool {
 		m.transcript.finishStream()
 	case agent.EventToolStart:
 		m.status = "running " + event.Tool + "…"
-		m.transcript.add(block{kind: blockTool, name: event.Tool, args: sanitize(event.Arguments)})
+		m.transcript.add(m.toolBlock(event.Tool, sanitize(event.Arguments)))
+	case agent.EventToolOutput:
+		// The running tool's own display snapshot. Events arrive one at a time
+		// from the run channel, so the snapshot simply replaces the previous
+		// one for the call, which is still the transcript's last tool block.
+		m.transcript.updateToolLive(event.Display)
+		m.status = "running " + event.Tool + "…"
 	case agent.EventToolDone:
-		m.transcript.add(toolResultBlock(event))
+		m.status = ""
+		m.transcript.add(m.toolResultBlock(event))
 	case agent.EventCompacted:
 		prefix := ""
 		if event.Estimated {
@@ -45,47 +53,40 @@ func (m *Model) applyAgentEvent(event agent.Event) bool {
 	return false
 }
 
-// toolResultBlock turns a tool completion into a transcript block. Successful
-// read results collapse to a line count (the full contents stay in the session
-// history for the model), and shell results keep their output trimmed to a
-// tail plus the exit code at display time.
-func toolResultBlock(event agent.Event) block {
-	b := block{
-		kind: blockResult, name: event.Tool, args: sanitize(event.Arguments), failed: event.IsError,
-	}
-	text := sanitize(event.Text)
-	switch {
-	case event.IsError:
-		b.text = text
-	case event.Tool == "read":
-		if note := readNote(text); note != "" {
-			b.note = note
-		} else {
-			b.text = text
-		}
-	case event.Tool == "shell":
-		code, took, output := splitExitCode(text)
-		b.exit, b.took, b.text = code, took, output
-		if code != "" && code != "0" {
-			b.failed = true
-		}
-	case event.Tool == "edit" || event.Tool == "write":
-		b.text = "" // the request line already carries the path and size
-	default:
-		b.text = text
-	}
-	if len(b.text) > maxResultChars {
-		half := maxResultChars / 2
-		b.text = b.text[:half] + "\n… display truncated …\n" + b.text[len(b.text)-half:]
-	}
+// toolBlock builds the request block for a starting tool call. The display is
+// resolved through the owning tool so the request line renders even before
+// any result exists.
+func (m *Model) toolBlock(name string, args string) block {
+	b := block{kind: blockTool, name: name, args: args}
+	b.display = tools.Describe(name, []byte(args), "", false, m.cwd)
 	return b
+}
+
+// toolResultBlock turns a tool completion into a transcript block by asking
+// the owning tool for its display. Truncation to maxResultChars protects the
+// UI from pathological results; the model and the session history keep the
+// full text.
+func (m *Model) toolResultBlock(event agent.Event) block {
+	text := sanitize(event.Text)
+	if len(text) > maxResultChars {
+		half := maxResultChars / 2
+		text = text[:half] + "\n… display truncated …\n" + text[len(text)-half:]
+	}
+	display := tools.Describe(event.Tool, []byte(sanitize(event.Arguments)), text, event.IsError, m.cwd)
+	return block{
+		kind:    blockResult,
+		name:    event.Tool,
+		args:    sanitize(event.Arguments),
+		display: display,
+	}
 }
 
 // applyHistory replays an opened session's active path into the transcript so a
 // resumed conversation is visible before the next prompt. It mirrors the live
 // event stream: user and assistant messages, thinking parts, and tool calls
 // paired with their results. Model-change and compaction entries are structural
-// and are not echoed here.
+// and are not echoed here. Tool displays are resolved through the owning tools,
+// so replay looks exactly like the live rendering.
 func (m *Model) applyHistory(entries []session.Entry) {
 	for _, entry := range entries {
 		if entry.Message == nil {
@@ -104,12 +105,15 @@ func (m *Model) applyHistory(entries []session.Entry) {
 				m.transcript.add(block{kind: blockAssistant, text: content})
 			}
 			for _, call := range entry.Message.ToolCalls {
-				m.transcript.add(block{kind: blockTool, name: call.Function.Name, args: sanitize(string(call.Function.Arguments))})
+				m.transcript.add(m.toolBlock(call.Function.Name, sanitize(string(call.Function.Arguments))))
 			}
 		case session.RoleTool:
-			m.transcript.add(toolResultBlock(agent.Event{
-				Kind: agent.EventToolDone, Tool: entry.Message.Name, Text: entry.Message.Content,
-			}))
+			// The display comes from the owning tool, resolved against the
+			// persisted content, so a resumed transcript renders exactly like
+			// the live one did. The paired request block, replayed earlier in
+			// the loop, already carries the request line.
+			display := m.runtime.DescribeTool(entry.Message.Name, nil, sanitize(entry.Message.Content), false)
+			m.transcript.add(block{kind: blockResult, name: entry.Message.Name, display: display})
 		}
 	}
 }

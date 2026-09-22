@@ -48,11 +48,17 @@ argument validation, and autocomplete dispatch while the command bodies run as
 model methods. Suggestions render in a generic popup widget driven by a
 `menuSource`, so command completion and future pickers share one renderer and
 key handler. Each block renders
-as a role-colored slab: user, tool, and error messages carry distinct
-backgrounds, agent messages render on the default terminal background, thinking
-traces render in muted gray, and consecutive tool calls
-pair with their results and collapse into a single grouped slab so bursts of
-tool activity stay compact. Streaming deltas are accumulated immediately but
+as a role-colored slab: user and error messages carry distinct backgrounds,
+agent messages render on the default terminal background, thinking traces
+render in muted gray, and consecutive tool calls pair with their results and
+collapse into a single grouped slab so bursts of tool activity stay compact.
+Each tool owns its transcript presentation through the `tools.Displayer`
+interface: it renders the request-line summary and the trimmed result body
+from the persisted arguments and content, so the transcript never parses tool
+output, and a resumed session replays the identical display. A long-running
+tool publishes live display snapshots while it runs, and the transcript
+replaces the running call's body with the latest one, so shell output streams
+into the view under the same tail policy the finished result uses. Streaming deltas are accumulated immediately but
 viewport rebuilds are capped at 20 frames per second. The runner owns no
 terminal state, and the UI owns no provider or session serialization.
 
