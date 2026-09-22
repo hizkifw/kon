@@ -41,30 +41,35 @@ type block struct {
 	failed bool   // tool result reported an error
 }
 
-// Transcript palette. lipgloss degrades these automatically on terminals with
-// smaller color profiles.
+// Transcript palette. The base is neutral grey: message slabs differ by
+// lightness rather than hue, and a single muted red accents the "kon" label.
+// Green is reserved for success (colorOK); red for failure (colorFail).
+// lipgloss degrades these automatically on terminals with smaller color
+// profiles.
 var (
-	colorUserBg    = lipgloss.Color("#1E3A5C")
-	colorUserFg    = lipgloss.Color("#DCE6F5")
-	colorUserLabel = lipgloss.Color("#9CC3F5")
+	colorAccent = lipgloss.Color("#C98A8A") // muted red, the kon brand accent
 
-	colorAgentBg    = lipgloss.Color("#1D332A")
-	colorAgentFg    = lipgloss.Color("#DAE8DF")
-	colorAgentLabel = lipgloss.Color("#82D2A6")
+	colorUserBg    = lipgloss.Color("#313131")
+	colorUserFg    = lipgloss.Color("#DEDEDE")
+	colorUserLabel = lipgloss.Color("#9A9A9A")
 
-	colorToolBg   = lipgloss.Color("#242936")
-	colorToolFg   = lipgloss.Color("#8C96A8")
-	colorToolName = lipgloss.Color("#C9D3E0")
-	colorToolNote = lipgloss.Color("#6E7989")
-	colorResult   = lipgloss.Color("#7C8798")
+	colorAgentBg    = lipgloss.Color("#262626")
+	colorAgentFg    = lipgloss.Color("#EAEAEA")
+	colorAgentLabel = colorAccent
+
+	colorToolBg   = lipgloss.Color("#2B2B2B")
+	colorToolFg   = lipgloss.Color("#909090")
+	colorToolName = lipgloss.Color("#C9C9C9")
+	colorToolNote = lipgloss.Color("#707070")
+	colorResult   = lipgloss.Color("#808080")
 
 	colorErrorBg    = lipgloss.Color("#5A2120")
 	colorErrorFg    = lipgloss.Color("#F2DCD8")
 	colorErrorLabel = lipgloss.Color("#F0A9A2")
 
-	colorFaint = lipgloss.Color("#6E7787")
+	colorFaint = lipgloss.Color("#757575")
 	colorOK    = lipgloss.Color("#79C98B")
-	colorRun   = lipgloss.Color("#D9B45C")
+	colorRun   = colorFaint // in-flight tools stay quiet
 	colorFail  = lipgloss.Color("#E06C6C")
 )
 
