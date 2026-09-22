@@ -337,6 +337,10 @@ func TestStreamConvergesRandomized(t *testing.T) {
 		"1. first\n2. second\n\n",
 		"1. x\n\n1. y\n\n",
 		"2. y\n\n1. x\n\n",
+		// inline styling across the wrap and the freeze boundary
+		"words with *emphasis* and **strong** and `code` spans\n\n",
+		"a [link](http://example.com) and ~~struck~~ text together\n\n",
+		"entities &amp; &lt;tag&gt; and backslash \\* escapes\n\n",
 		"\n\n",
 	}
 	rng := rand.New(rand.NewSource(7))

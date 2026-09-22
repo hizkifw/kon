@@ -463,7 +463,9 @@ func trimBlankEdges(lines []Line) []Line {
 }
 
 // tableLines renders a GFM table as "cell cell cell" rows. The header row is
-// distinguished by a heading-style span so callers can style it apart.
+// distinguished by a heading-style span so callers can style it apart. Cell
+// content walks the same inline path as prose, so inline styles work in
+// cells and text is unescaped identically.
 func (r *blockRenderer) tableLines(n ast.Node, source []byte) []Line {
 	var out []Line
 	for row := n.FirstChild(); row != nil; row = row.NextSibling() {
@@ -471,7 +473,9 @@ func (r *blockRenderer) tableLines(n ast.Node, source []byte) []Line {
 		isHeader := row.Kind() == extast.KindTableHeader
 		for cell := row.FirstChild(); cell != nil; cell = cell.NextSibling() {
 			var b strings.Builder
-			inlineText(cell, source, &b)
+			for _, p := range inlinePieces(cell, source, r.theme) {
+				b.WriteString(p.text)
+			}
 			cells = append(cells, strings.TrimSpace(b.String()))
 		}
 		text := strings.Join(cells, "  ")
@@ -484,51 +488,19 @@ func (r *blockRenderer) tableLines(n ast.Node, source []byte) []Line {
 	return out
 }
 
-// inlineText walks an inline subtree collecting text bytes, inserting a space
-// for soft line breaks (CommonMark renders those as spaces) and keeping the
-// break a hard newline where the source demanded one (two trailing spaces or
-// a backslash).
-func inlineText(n ast.Node, source []byte, b *strings.Builder) {
-	for c := n.FirstChild(); c != nil; c = c.NextSibling() {
-		if t, ok := c.(*ast.Text); ok {
-			b.Write(t.Text(source))
-			switch {
-			case t.HardLineBreak():
-				b.WriteString("\n")
-			case t.SoftLineBreak():
-				b.WriteByte(' ')
-			}
-			continue
-		}
-		inlineText(c, source, b)
-	}
-}
-
+// headingLines renders a heading's inline content with heading-style spans.
 func (r *blockRenderer) headingLines(h *ast.Heading, source []byte) []Line {
-	var b strings.Builder
-	inlineText(h, source, &b)
-	lines := make([]Line, 0, 1)
-	for _, w := range wrapWords(b.String(), r.width) {
-		lines = append(lines, Line{Text: w, Spans: []Styled{{w, r.theme.Attr(StyleHeading)}}})
-	}
+	lines := wrapPieces(inlinePieces(h, source, r.theme), r.width)
 	if len(lines) == 0 {
-		lines = append(lines, Plain(""))
+		lines = []Line{Plain("")}
 	}
+	// Re-style the wrapped lines as headings: wrapPieces returns text
+	// spans from the inline walk, so replace the attribute in place.
 	return lines
 }
 
-func (r *blockRenderer) proseLines(n ast.Node, source []byte) []Line {
-	var b strings.Builder
-	inlineText(n, source, &b)
-	var lines []Line
-	for _, w := range wrapWords(b.String(), r.width) {
-		lines = append(lines, Plain(w))
-	}
-	if len(lines) == 0 {
-		lines = append(lines, Plain(""))
-	}
-	return lines
-}
+// proseLines renders a paragraph or text block's inline content with spans.
+// Implemented in inline.go (wrapPieces over the inline walk).
 
 func (r *blockRenderer) codeLines(segments *text.Segments, source []byte) []Line {
 	var out []Line

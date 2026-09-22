@@ -15,15 +15,13 @@
 // Blocks expose Boundary() (their byte offset after the last closed block) so
 // a caller can re-parse only the grown tail.
 //
-// Inline coverage is deliberately partial for now: headings, code blocks,
-// list markers, quote gutters, and task checkboxes emit styled spans, while
-// emphasis, strikethrough, and link URLs keep their text but drop their
-// styling and destinations (StyleEmph/StyleStrong/StyleStrikethrough/
-// StyleLink/StyleLinkURL are reserved). Raw HTML and autolink URLs are
-// dropped from the text. Extending inlineText to walk those node types with
-// span accumulation is the next layer and must stay wrap-compatible: spans
-// annotate whole display lines after wrapping, so inline styling must survive
-// re-wrapping by construction.
+// Block styling resolves against a Theme into per-line Styled spans; inline
+// markdown (emphasis, strong, inline code, strikethrough, links, image alt
+// text, autolinks) produces spans too, and Text node content is unescaped so
+// entities and backslash escapes render as their literal characters. Spans
+// are emitted after wrapping, annotating whole display lines, so a span never
+// crosses a line break. Raw HTML tags are dropped from the text. Link
+// destinations are not surfaced (StyleLinkURL is reserved for a later pass).
 package markdown
 
 import "strings"

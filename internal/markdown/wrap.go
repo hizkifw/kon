@@ -159,15 +159,3 @@ func truncateWidth(s []byte, n int) []byte {
 	}
 	return s
 }
-
-// wrapWords splits s into display lines of at most limit cells each. Long
-// words are hard-split. Widths come from displayWidth (grapheme-aware).
-func wrapWords(s string, limit int) []string {
-	w := newWrapper(limit)
-	w.Write(s)
-	lines := w.Lines()
-	if len(lines) == 0 {
-		lines = []string{""}
-	}
-	return lines
-}
