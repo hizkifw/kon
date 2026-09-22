@@ -9,6 +9,112 @@ import (
 	"github.com/hizkifw/kon/internal/typedid"
 )
 
+func TestDiscoverFindsSessionsNewestFirst(t *testing.T) {
+	root, cwd := t.TempDir(), t.TempDir()
+	first, err := New(root, cwd, "test", "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := first.AppendMessage(Message{Role: RoleUser, Content: "one"}); err != nil {
+		t.Fatal(err)
+	}
+	first.Close()
+	second, err := New(root, cwd, "test", "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondID := second.ID()
+	second.Close()
+
+	// Another workspace must not leak into this one's results.
+	other, err := New(root, t.TempDir(), "test", "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other.Close()
+
+	summaries, err := Discover(root, cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(summaries) != 2 {
+		t.Fatalf("Discover returned %d sessions, want 2", len(summaries))
+	}
+	if summaries[0].ID != secondID {
+		t.Fatalf("newest session = %s, want %s", summaries[0].ID, secondID)
+	}
+	if summaries[0].Entries != 1 {
+		t.Fatalf("entry count = %d, want 1 (the system message)", summaries[0].Entries)
+	}
+	if summaries[0].CWD == "" {
+		t.Fatal("summary is missing its working directory")
+	}
+}
+
+func TestLatestAndFind(t *testing.T) {
+	root, cwd := t.TempDir(), t.TempDir()
+	if _, ok, err := Latest(root, cwd); err != nil || ok {
+		t.Fatalf("Latest on empty root = (%v, %v), want (zero, false)", ok, err)
+	}
+	first, err := New(root, cwd, "test", "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstID := first.ID()
+	first.Close()
+
+	latest, ok, err := Latest(root, cwd)
+	if err != nil || !ok || latest.ID != firstID {
+		t.Fatalf("Latest = (%#v, %v, %v), want the only session", latest, ok, err)
+	}
+	found, err := Find(root, cwd, firstID)
+	if err != nil || found.Path != latest.Path {
+		t.Fatalf("Find = (%#v, %v)", found, err)
+	}
+	missing, err := typedid.ParseSessionID("ses_00000000000000000000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Find(root, cwd, missing); err == nil {
+		t.Fatal("Find returned a session that does not exist")
+	}
+}
+
+func TestDiscoverSkipsUnreadableFiles(t *testing.T) {
+	root, cwd := t.TempDir(), t.TempDir()
+	store, err := New(root, cwd, "test", "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := store.Path()
+	store.Close()
+	if err := os.WriteFile(path[:len(path)-len(".jsonl")]+"-corrupt.jsonl", []byte("not a session\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	summaries, err := Discover(root, cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(summaries) != 1 {
+		t.Fatalf("Discover returned %d sessions, want the one valid file", len(summaries))
+	}
+}
+
+func TestActivePathIncludesMessagesInOrder(t *testing.T) {
+	store, err := New(t.TempDir(), t.TempDir(), "test", "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if _, err := store.AppendMessage(Message{Role: RoleUser, Content: "hello"}); err != nil {
+		t.Fatal(err)
+	}
+	path := store.ActivePath()
+	if len(path) != 2 || path[0].Message.Role != RoleSystem || path[1].Message.Content != "hello" {
+		t.Fatalf("ActivePath = %#v", path)
+	}
+}
+
 func TestCompactionProjectsRetainedMessages(t *testing.T) {
 	store, err := New(t.TempDir(), t.TempDir(), "test", "system prompt")
 	if err != nil {

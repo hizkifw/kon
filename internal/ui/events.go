@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/hizkifw/kon/internal/agent"
+	"github.com/hizkifw/kon/internal/session"
 )
 
 // maxResultChars bounds tool result text kept in the transcript. Display
@@ -77,4 +78,37 @@ func toolResultBlock(event agent.Event) block {
 		b.text = b.text[:half] + "\n… display truncated …\n" + b.text[len(b.text)-half:]
 	}
 	return b
+}
+
+// applyHistory replays an opened session's active path into the transcript so a
+// resumed conversation is visible before the next prompt. It mirrors the live
+// event stream: user and assistant messages, thinking parts, and tool calls
+// paired with their results. Model-change and compaction entries are structural
+// and are not echoed here.
+func (m *Model) applyHistory(entries []session.Entry) {
+	for _, entry := range entries {
+		if entry.Message == nil {
+			continue
+		}
+		switch entry.Message.Role {
+		case session.RoleUser:
+			m.transcript.add(block{kind: blockUser, text: sanitize(entry.Message.Content)})
+		case session.RoleAssistant:
+			for _, part := range entry.Message.Parts {
+				if part.Type == "thinking" && part.Text != "" {
+					m.transcript.add(block{kind: blockThinking, text: sanitize(part.Text)})
+				}
+			}
+			if content := sanitize(entry.Message.Content); content != "" {
+				m.transcript.add(block{kind: blockAssistant, text: content})
+			}
+			for _, call := range entry.Message.ToolCalls {
+				m.transcript.add(block{kind: blockTool, name: call.Function.Name, args: sanitize(string(call.Function.Arguments))})
+			}
+		case session.RoleTool:
+			m.transcript.add(toolResultBlock(agent.Event{
+				Kind: agent.EventToolDone, Tool: entry.Message.Name, Text: entry.Message.Content,
+			}))
+		}
+	}
 }

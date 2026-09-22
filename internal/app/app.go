@@ -12,6 +12,7 @@ import (
 	"github.com/hizkifw/kon/internal/provider"
 	"github.com/hizkifw/kon/internal/session"
 	"github.com/hizkifw/kon/internal/tools"
+	"github.com/hizkifw/kon/internal/typedid"
 )
 
 var (
@@ -49,6 +50,7 @@ type Runtime struct {
 
 	config config.Config
 	paths  config.Paths
+	cwd    string
 
 	active     config.Model
 	store      *session.Store
@@ -60,14 +62,32 @@ type Runtime struct {
 	runDone    chan struct{}
 
 	createSession func() (*session.Store, error)
+	openSession   func(string) (*session.Store, error)
 	createRunner  func(config.Model, *session.Store) (*agent.Runner, error)
 }
 
 func New(cfg config.Config, paths config.Paths, cwd, version string) (*Runtime, error) {
-	r := &Runtime{config: cfg, paths: paths}
+	return start(cfg, paths, cwd, version, false, typedid.SessionID{})
+}
+
+// NewResumed starts a runtime already attached to an existing session for cwd,
+// if one exists. It is the entry point for the --resume flag.
+func NewResumed(cfg config.Config, paths config.Paths, cwd, version string) (*Runtime, error) {
+	return start(cfg, paths, cwd, version, true, typedid.SessionID{})
+}
+
+// NewResumedID starts a runtime attached to a specific session ID. The named
+// session must already exist for cwd.
+func NewResumedID(cfg config.Config, paths config.Paths, cwd, version string, id typedid.SessionID) (*Runtime, error) {
+	return start(cfg, paths, cwd, version, true, id)
+}
+
+func start(cfg config.Config, paths config.Paths, cwd, version string, resume bool, id typedid.SessionID) (*Runtime, error) {
+	r := &Runtime{config: cfg, paths: paths, cwd: cwd}
 	r.createSession = func() (*session.Store, error) {
 		return session.New(paths.Sessions, cwd, version, agent.SystemPrompt(cwd, cfg.Instructions))
 	}
+	r.openSession = session.Open
 	r.createRunner = func(profile config.Model, store *session.Store) (*agent.Runner, error) {
 		client, err := provider.New(profile)
 		if err != nil {
@@ -81,16 +101,60 @@ func New(cfg config.Config, paths config.Paths, cwd, version string) (*Runtime, 
 	}
 
 	profile, _ := cfg.Model(cfg.DefaultModel)
-	store, runner, problem, err := r.prepareSession(profile)
-	if err != nil {
-		return nil, err
+	r.active = profile
+
+	var (
+		store   *session.Store
+		runner  *agent.Runner
+		problem error
+		err     error
+	)
+	if resume {
+		store, runner, problem, err = r.openTarget(id)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		store, runner, problem, err = r.prepareSession(profile)
+		if err != nil {
+			return nil, err
+		}
 	}
-	r.active, r.store, r.runner, r.problem = profile, store, runner, problem
+	r.store, r.runner, r.problem = store, runner, problem
 	r.phase = PhaseReady
 	if problem != nil {
 		r.phase = PhaseNeedsConfiguration
 	}
 	return r, nil
+}
+
+// openTarget opens the session to resume. With a zero id it resumes the newest
+// session for cwd; with no sessions at all it starts a fresh one.
+func (r *Runtime) openTarget(id typedid.SessionID) (*session.Store, *agent.Runner, error, error) {
+	var path string
+	if id.IsZero() {
+		summary, ok, err := session.Latest(r.paths.Sessions, r.cwd)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		if !ok {
+			// Nothing to resume: fall back to a new session so --resume still
+			// launches rather than failing on an empty workspace.
+			return r.prepareSession(r.active)
+		}
+		path = summary.Path
+	} else {
+		summary, err := session.Find(r.paths.Sessions, r.cwd, id)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		path = summary.Path
+	}
+	store, runner, problem, err := r.openStore(path)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return store, runner, problem, nil
 }
 
 func (r *Runtime) Models() []Model {
@@ -187,6 +251,63 @@ func (r *Runtime) SwitchModel(name string) error {
 	return nil
 }
 
+// Sessions returns the persisted sessions for this workspace, newest first.
+// The UI uses it to list candidates for "/resume".
+func (r *Runtime) Sessions() ([]session.Summary, error) {
+	return session.Discover(r.paths.Sessions, r.cwd)
+}
+
+// SessionID is the identifier of the live session, or the zero ID when none is
+// open. It is printed on exit so the user can resume later.
+func (r *Runtime) SessionID() typedid.SessionID {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.store == nil {
+		return typedid.SessionID{}
+	}
+	return r.store.ID()
+}
+
+// SessionHistory returns the live session's active conversation path, in
+// conversation order, for read-only replay in the transcript.
+func (r *Runtime) SessionHistory() []session.Entry {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.store == nil {
+		return nil
+	}
+	return r.store.ActivePath()
+}
+
+// Resume replaces the live session with the persisted session named by id. The
+// replacement is fully opened and validated before the current session is
+// closed, so a failure leaves the current session usable.
+func (r *Runtime) Resume(id typedid.SessionID) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := r.mutable(); err != nil {
+		return err
+	}
+	summary, err := session.Find(r.paths.Sessions, r.cwd, id)
+	if err != nil {
+		return err
+	}
+	store, runner, problem, err := r.openStore(summary.Path)
+	if err != nil {
+		return err
+	}
+	previous := r.store
+	r.store, r.runner, r.problem = store, runner, problem
+	r.phase = PhaseReady
+	if problem != nil {
+		r.phase = PhaseNeedsConfiguration
+	}
+	if previous != nil {
+		r.cleanupErr = errors.Join(r.cleanupErr, previous.Close())
+	}
+	return nil
+}
+
 // NewSession prepares the complete replacement before closing the current
 // store. A failure therefore leaves the existing session usable.
 func (r *Runtime) NewSession() error {
@@ -252,6 +373,26 @@ func (r *Runtime) prepareSession(profile config.Model) (*session.Store, *agent.R
 		_ = store.Close()
 		return nil, nil, nil, err
 	}
+	return store, runner, nil, nil
+}
+
+// openStore opens a persisted session and, when the active model is configured,
+// builds a runner for it. No model-change entry is appended: the resumed
+// session already records the model that applies to it.
+func (r *Runtime) openStore(path string) (*session.Store, *agent.Runner, error, error) {
+	store, err := r.openSession(path)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if problem := r.active.Ready(); problem != nil {
+		return store, nil, problem, nil
+	}
+	client, err := provider.New(r.active)
+	if err != nil {
+		_ = store.Close()
+		return nil, nil, nil, err
+	}
+	runner := agent.New(r.active, r.config.Compaction, client, store, tools.New(r.cwd))
 	return store, runner, nil, nil
 }
 

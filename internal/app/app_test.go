@@ -13,6 +13,7 @@ import (
 	"github.com/hizkifw/kon/internal/provider"
 	"github.com/hizkifw/kon/internal/session"
 	"github.com/hizkifw/kon/internal/tools"
+	"github.com/hizkifw/kon/internal/typedid"
 )
 
 type blockingProvider struct{ started chan struct{} }
@@ -127,6 +128,104 @@ func TestSwitchModelPersistsDefaultModel(t *testing.T) {
 	}
 	if saved.DefaultModel != "review" {
 		t.Fatalf("saved default_model = %q, want review", saved.DefaultModel)
+	}
+}
+
+func TestResumeSwitchesToPersistedSession(t *testing.T) {
+	dir := t.TempDir()
+	paths := config.Paths{Sessions: filepath.Join(dir, "sessions"), ConfigFile: filepath.Join(dir, "config.json")}
+	cwd := t.TempDir()
+	runtime, err := New(config.Default(), paths, cwd, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+	original := runtime.SessionID()
+	if original.IsZero() {
+		t.Fatal("new runtime has no session ID")
+	}
+
+	other, err := session.New(paths.Sessions, cwd, "test", "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := other.ID()
+	if _, err := other.AppendMessage(session.Message{Role: session.RoleUser, Content: "resume me"}); err != nil {
+		t.Fatal(err)
+	}
+	other.Close()
+
+	if err := runtime.Resume(target); err != nil {
+		t.Fatal(err)
+	}
+	if got := runtime.SessionID(); got != target {
+		t.Fatalf("session ID = %s, want %s", got, target)
+	}
+	history := runtime.SessionHistory()
+	if len(history) < 2 || history[len(history)-1].Message.Content != "resume me" {
+		t.Fatalf("resumed history = %#v", history)
+	}
+}
+
+func TestResumeUnknownSessionKeepsCurrent(t *testing.T) {
+	dir := t.TempDir()
+	paths := config.Paths{Sessions: filepath.Join(dir, "sessions"), ConfigFile: filepath.Join(dir, "config.json")}
+	runtime, err := New(config.Default(), paths, t.TempDir(), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+	original := runtime.SessionID()
+
+	missing, err := typedid.ParseSessionID("ses_00000000000000000000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.Resume(missing); err == nil {
+		t.Fatal("resuming a missing session succeeded")
+	}
+	if got := runtime.SessionID(); got != original {
+		t.Fatalf("session changed after a failed resume: %s", got)
+	}
+}
+
+func TestNewResumedIDOpensSpecificSession(t *testing.T) {
+	dir := t.TempDir()
+	paths := config.Paths{Sessions: filepath.Join(dir, "sessions"), ConfigFile: filepath.Join(dir, "config.json")}
+	cwd := t.TempDir()
+	store, err := session.New(paths.Sessions, cwd, "test", "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := store.ID()
+	if _, err := store.AppendMessage(session.Message{Role: session.RoleUser, Content: "already here"}); err != nil {
+		t.Fatal(err)
+	}
+	store.Close()
+
+	runtime, err := NewResumedID(config.Default(), paths, cwd, "test", id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+	if runtime.SessionID() != id {
+		t.Fatalf("opened session %s, want %s", runtime.SessionID(), id)
+	}
+	if history := runtime.SessionHistory(); len(history) != 2 {
+		t.Fatalf("resumed history length = %d, want 2", len(history))
+	}
+}
+
+func TestNewResumedWithoutSessionsStartsFresh(t *testing.T) {
+	dir := t.TempDir()
+	paths := config.Paths{Sessions: filepath.Join(dir, "sessions"), ConfigFile: filepath.Join(dir, "config.json")}
+	runtime, err := NewResumed(config.Default(), paths, t.TempDir(), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+	if runtime.SessionID().IsZero() {
+		t.Fatal("--resume with no sessions did not start a session")
 	}
 }
 

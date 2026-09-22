@@ -4,11 +4,14 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/hizkifw/kon/internal/agent"
 	"github.com/hizkifw/kon/internal/app"
 	"github.com/hizkifw/kon/internal/history"
+	"github.com/hizkifw/kon/internal/session"
+	"github.com/hizkifw/kon/internal/typedid"
 )
 
 type fakeRuntime struct {
@@ -16,6 +19,9 @@ type fakeRuntime struct {
 	models    []app.Model
 	kills     int
 	killFails bool
+	sessions  []session.Summary
+	entries   []session.Entry
+	id        typedid.SessionID
 }
 
 func (f *fakeRuntime) Models() []app.Model                                  { return f.models }
@@ -23,6 +29,10 @@ func (f *fakeRuntime) State() app.State                                     { re
 func (f *fakeRuntime) Run(context.Context, string, func(agent.Event)) error { return nil }
 func (f *fakeRuntime) NewSession() error                                    { return nil }
 func (f *fakeRuntime) KillShell() bool                                      { f.kills++; return !f.killFails }
+func (f *fakeRuntime) Resume(id typedid.SessionID) error                    { f.id = id; return nil }
+func (f *fakeRuntime) Sessions() ([]session.Summary, error)                 { return f.sessions, nil }
+func (f *fakeRuntime) SessionID() typedid.SessionID                         { return f.id }
+func (f *fakeRuntime) SessionHistory() []session.Entry                      { return f.entries }
 func (f *fakeRuntime) SwitchModel(name string) error {
 	for _, model := range f.models {
 		if model.Name == name {
@@ -251,7 +261,7 @@ func TestRegistryCompleteDispatchesToArgument(t *testing.T) {
 func TestRegistryCompletesAllCommandsOnBareSlash(t *testing.T) {
 	m := newTestModel(t)
 	got := m.commands.completion(m, "/")
-	if len(got) != 2 || got[0].Value != "/new" || got[1].Value != "/model" {
+	if len(got) != 3 || got[0].Value != "/new" || got[1].Value != "/model" || got[2].Value != "/resume" {
 		t.Fatalf("bare slash completion = %#v", got)
 	}
 }
@@ -363,7 +373,7 @@ func TestMenuPopupAppearsOnLeadingSlashAndClears(t *testing.T) {
 	m := newTestModel(t)
 	typed, _ := m.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
 	m = typed.(Model)
-	if !m.menu.open() || len(m.menu.items) != 2 {
+	if !m.menu.open() || len(m.menu.items) != 3 {
 		t.Fatalf("popup did not open on slash: %#v", m.menu)
 	}
 	// Typing ordinary text mid-prompt closes the popup and offers nothing.
@@ -641,6 +651,98 @@ func TestSubmitAnchorsToBottom(t *testing.T) {
 	got := updated.(Model)
 	if !got.viewport.AtBottom() {
 		t.Fatalf("submit left the viewport at offset %d", got.viewport.YOffset())
+	}
+}
+
+func TestResumeCommandReplaysSession(t *testing.T) {
+	id, err := typedid.ParseSessionID("ses_00000000000000000000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	models := []app.Model{{Name: "fast", Provider: "openai", ExternalID: "gpt"}}
+	runtime := &fakeRuntime{
+		state:    app.State{Active: models[0], Phase: app.PhaseReady},
+		models:   models,
+		sessions: []session.Summary{{ID: id}},
+		entries: []session.Entry{
+			{Message: &session.Message{Role: session.RoleSystem, Content: "system"}},
+			{Message: &session.Message{Role: session.RoleUser, Content: "earlier question"}},
+			{Message: &session.Message{Role: session.RoleAssistant, Content: "earlier answer"}},
+		},
+	}
+	m := New("/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
+	m.width, m.height = 80, 24
+	m.resize()
+
+	updated, _ := m.resume([]string{id.String()})
+	got := updated.(Model)
+	if runtime.id != id {
+		t.Fatalf("runtime resumed %s, want %s", runtime.id, id)
+	}
+	rendered := plain(got.viewport.View())
+	if !strings.Contains(rendered, "earlier question") || !strings.Contains(rendered, "earlier answer") {
+		t.Fatalf("resumed transcript missing history: %q", rendered)
+	}
+	if got.status != "resumed "+id.String() {
+		t.Fatalf("status = %q", got.status)
+	}
+}
+
+func TestResumeCommandListsWithoutID(t *testing.T) {
+	id, err := typedid.ParseSessionID("ses_00000000000000000000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := &fakeRuntime{
+		state:    app.State{Phase: app.PhaseReady},
+		sessions: []session.Summary{{ID: id, CreatedAt: time.Unix(0, 0)}},
+	}
+	m := New("/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
+	m.width, m.height = 80, 24
+	m.resize()
+	updated, _ := m.resume(nil)
+	got := updated.(Model)
+	if !strings.Contains(plain(got.viewport.View()), id.String()) {
+		t.Fatalf("listing does not show the session ID: %q", plain(got.viewport.View()))
+	}
+}
+
+func TestResumeCommandRejectsMalformedID(t *testing.T) {
+	m := newTestModel(t)
+	updated, _ := m.resume([]string{"not-a-session"})
+	if got := updated.(Model); !strings.HasPrefix(got.status, "error:") {
+		t.Fatalf("status = %q", got.status)
+	}
+}
+
+func TestResumedSessionStartsAtBottom(t *testing.T) {
+	entries := []session.Entry{{Message: &session.Message{Role: session.RoleSystem, Content: "system"}}}
+	for i := 0; i < 40; i++ {
+		entries = append(entries, session.Entry{Message: &session.Message{Role: session.RoleUser, Content: strings.Repeat("line\n", 3) + "tail"}})
+	}
+	runtime := &fakeRuntime{state: app.State{Phase: app.PhaseReady}, entries: entries}
+	m := New("/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
+	if !m.startAtBottom {
+		t.Fatal("resumed model did not request an initial scroll to the bottom")
+	}
+
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	got := updated.(Model)
+	if got.startAtBottom {
+		t.Fatal("start-at-bottom request was not consumed")
+	}
+	if !got.viewport.AtBottom() {
+		t.Fatalf("resumed transcript opened at offset %d, not the bottom", got.viewport.YOffset())
+	}
+	if !strings.Contains(got.viewport.View(), "tail") {
+		t.Fatal("bottom of the resumed transcript is not visible")
+	}
+}
+
+func TestFreshSessionDoesNotForceBottom(t *testing.T) {
+	m := newTestModel(t)
+	if m.startAtBottom {
+		t.Fatal("a fresh session requested an initial scroll to the bottom")
 	}
 }
 

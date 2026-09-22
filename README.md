@@ -110,7 +110,9 @@ with owner-only permissions where the platform supports them.
 `/new` closes the current session and starts a new one with the active model.
 `/model` lists configured profiles and `/model <name>` switches the active
 profile without starting a new session. Model changes are written to the
-session log. Unknown slash commands are never sent to a provider.
+session log. `/resume` lists the sessions recorded for the working directory,
+and `/resume <id>` reopens one and replays its conversation into the transcript.
+Unknown slash commands are never sent to a provider.
 
 Typing `/` at the start of the prompt opens a popup listing the available
 commands, with the first entry already selected. Tab (or Enter) fills in the
@@ -158,10 +160,21 @@ and [Session format](docs/session-format.md) for implementation contracts.
 kon
 kon --help
 kon --version
+kon --resume
+kon --resume <session-id>
 ```
 
-Every invocation starts a new session. Resume, branch navigation, rewind,
-manual compaction, Markdown rendering, and plugins are outside v0.1.0.
+Every invocation without `--resume` starts a new session. `--resume` reopens the
+most recent session for the current working directory, and `--resume <session-id>`
+reopens a specific one. When kon exits it prints a resume hint on stderr:
+
+```text
+resume with: kon --resume ses_7Yk2mP9Qa4Zx8Vc1Nd6R
+```
+
+`/resume` lists the sessions for the current directory and `/resume <id>` switches
+to one from inside the running app. Branch navigation, rewind, manual compaction,
+Markdown rendering, and plugins are outside v0.1.0.
 
 ## Development
 

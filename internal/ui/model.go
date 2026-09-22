@@ -12,6 +12,8 @@ import (
 	"github.com/hizkifw/kon/internal/agent"
 	"github.com/hizkifw/kon/internal/app"
 	"github.com/hizkifw/kon/internal/history"
+	"github.com/hizkifw/kon/internal/session"
+	"github.com/hizkifw/kon/internal/typedid"
 )
 
 const streamFrameInterval = 50 * time.Millisecond
@@ -22,6 +24,10 @@ type Runtime interface {
 	Run(context.Context, string, func(agent.Event)) error
 	SwitchModel(string) error
 	NewSession() error
+	Resume(typedid.SessionID) error
+	Sessions() ([]session.Summary, error)
+	SessionID() typedid.SessionID
+	SessionHistory() []session.Entry
 	KillShell() bool
 }
 
@@ -46,7 +52,10 @@ type Model struct {
 	runEvents               chan tea.Msg
 	cancelRequested         bool
 	flushPending            bool
-	menu                    menu
+	// startAtBottom asks the first sized frame to scroll to the end, so a
+	// resumed conversation opens on its latest messages instead of at the top.
+	startAtBottom bool
+	menu          menu
 }
 
 func New(cwd, configPath string, runtime Runtime, historyStore *history.Store, entries []history.Entry) Model {
@@ -68,13 +77,21 @@ func New(cwd, configPath string, runtime Runtime, historyStore *history.Store, e
 	if !state.Ready() {
 		status = state.Problem.Error() + " in " + configPath
 	}
-	return Model{
+	model := Model{
 		viewport: vp, input: input, history: newPromptHistory(historyStore, entries),
 		runtime: runtime, commands: defaultRegistry(),
 		active: state.Active, cwd: cwd, configPath: configPath,
 		transcript: transcript{cwd: cwd},
 		status:     status, contextTokens: -1,
 	}
+	// A resumed session opens with its conversation already in the transcript.
+	// The viewport has no size until the first resize, so defer the scroll to
+	// the bottom to that first sized frame.
+	if history := runtime.SessionHistory(); len(history) > 0 {
+		model.applyHistory(history)
+		model.startAtBottom = true
+	}
+	return model
 }
 
 func (m Model) Init() tea.Cmd { return m.input.Focus() }
@@ -86,6 +103,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 		m.resize()
 		m.refreshTranscript(false)
+		m.anchorStartAtBottom()
 		return m, nil
 	case runEventMsg:
 		isText := m.applyAgentEvent(msg.event)
@@ -355,3 +373,14 @@ func waitRunEvent(events <-chan tea.Msg) tea.Cmd {
 }
 
 func (m *Model) syncRuntimeState() { m.active = m.runtime.State().Active }
+
+// anchorStartAtBottom consumes the one-shot startup request to scroll to the
+// end of a resumed transcript. It runs once the viewport has a height, so the
+// offset is set after the lines have been wrapped to the real terminal width.
+func (m *Model) anchorStartAtBottom() {
+	if !m.startAtBottom || m.height <= 0 {
+		return
+	}
+	m.startAtBottom = false
+	m.viewport.GotoBottom()
+}
