@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"charm.land/bubbles/v2/textarea"
-	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"github.com/hizkifw/kon/internal/agent"
 	"github.com/hizkifw/kon/internal/app"
@@ -32,7 +31,7 @@ type flushTranscriptMsg struct{}
 
 type Model struct {
 	width, height           int
-	viewport                viewport.Model
+	viewport                scrollView
 	input                   textarea.Model
 	transcript              transcript
 	history                 promptHistory
@@ -59,14 +58,11 @@ func New(cwd, configPath string, runtime Runtime, historyStore *history.Store, e
 	input.MaxHeight = 6
 	input.CharLimit = 0
 	input.Focus()
-	vp := viewport.New()
-	vp.SoftWrap = true
-	vp.MouseWheelEnabled = true
-	// Keyboard input belongs to the prompt. The viewport's pager keymap
-	// scrolls on plain letters (j, k, d, u, b, f) and space, so letting it see
-	// key presses made the transcript jump while typing. Scrolling happens
-	// through the mouse wheel and the pgup/pgdown handling in handleKey.
-	vp.KeyMap = viewport.KeyMap{}
+	// The transcript renders every line pre-wrapped to the viewport width (see
+	// transcript.linesFor), so the scroll view needs no soft wrap or per-line
+	// width measurement. Keyboard scrolling is handled in handleKey; the view
+	// only consumes the mouse wheel.
+	vp := newScrollView()
 	state := runtime.State()
 	status := "ready"
 	if !state.Ready() {
@@ -130,8 +126,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	before := m.input.Value()
 	m.input, cmd = m.input.Update(msg)
 	commands = append(commands, cmd)
-	m.viewport, cmd = m.viewport.Update(msg)
-	commands = append(commands, cmd)
+	m.viewport.Update(msg)
 	if m.input.Value() != before {
 		// Refresh the popup whenever the prompt changed, regardless of which
 		// key or paste produced the change. The command source only yields

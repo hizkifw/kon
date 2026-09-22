@@ -77,12 +77,45 @@ type part struct {
 
 type transcript struct {
 	blocks   []block
-	stream   string
+	stream   []byte // buffered live message deltas, kept across frames to avoid re-copying the accumulated message per delta
 	thinking string
-	cached   string
-	dirty    bool
-	width    int
-	cwd      string
+
+	// chunks holds the rendered text of every block that can no longer change.
+	// A trailing run of tool/result blocks is deliberately left out of chunks
+	// because a later call or result may still join it; it is rendered on
+	// demand from the tail of blocks. joined caches the concatenation of
+	// chunks so a render after many streaming frames does not rejoin them.
+	chunks []string
+	joined string
+	// joinedChunks is the len(t.chunks) at the time joined was built; it is a
+	// memo key, not a count, so re-joining only happens when a chunk was added.
+	joinedChunks int
+	built        int // number of blocks folded into chunks
+
+	// active renders the live stream (t.stream or t.thinking) incrementally so a
+	// repaint during streaming does not re-wrap the whole accumulated message.
+	// It is nil when no stream is open; activeThinking selects the renderer.
+	// strip removes escapes/control bytes from incoming deltas; the stateful
+	// machine survives across deltas so a sequence split between them is
+	// dropped whole (see ansiStripper).
+	active         *liveStream
+	activeThinking bool
+	strip          ansiStripper
+
+	// lines is the transcript rendered as a flat slice of display lines, so the
+	// viewport never has to split the joined string again. cacheBase records the
+	// stable text it was built from; sepDone/liveFin track the append-only live
+	// tail (blank separator, finalized lines) so only the current line is
+	// repainted each frame.
+	lines     []string
+	cacheBase string
+	stableN   int
+	sepDone   bool
+	liveFin   int
+
+	dirty bool
+	width int
+	cwd   string
 }
 
 func (t *transcript) add(value block) {
@@ -90,25 +123,60 @@ func (t *transcript) add(value block) {
 	t.dirty = true
 }
 
+// ensureThinking promotes a buffered thinking trace into an incremental live
+// stream so subsequent reasoning deltas fold in without a full re-render.
+func (t *transcript) ensureThinking() *liveStream {
+	if t.activeThinking && t.active != nil {
+		return t.active
+	}
+	t.active = newThinkingStream(t.width)
+	t.activeThinking = true
+	return t.active
+}
+
+// ensureMessage promotes a buffered assistant message into an incremental live
+// stream so subsequent text deltas fold in without a full re-render.
+func (t *transcript) ensureMessage() *liveStream {
+	if t.active != nil && !t.activeThinking {
+		return t.active
+	}
+	t.active = newMessageStream("kon", colorAgentBg, colorAgentFg, colorAgentLabel, t.width)
+	t.activeThinking = false
+	return t.active
+}
+
 // appendThinking buffers a reasoning delta. Thinking may interleave with text
 // within one assistant turn, so an active text stream is finalized first to
 // keep blocks in chronological order.
 func (t *transcript) appendThinking(text string) {
-	if t.stream != "" {
-		t.add(block{kind: blockAssistant, text: t.stream})
-		t.stream = ""
+	if len(t.stream) > 0 {
+		t.add(block{kind: blockAssistant, text: string(t.stream)})
+		t.stream = t.stream[:0]
 	}
-	t.thinking += text
+	// Stripped bytes feed both the live stream and the buffered text, so the
+	// block this stream later becomes wraps identically on the stable path
+	// (plainWrapper cannot parse escape sequences; see ansiStripper).
+	clean := t.strip.strip(text)
+	t.ensureThinking().append(clean)
+	t.thinking += clean
 }
 
 // appendStream buffers an assistant text delta, finalizing any pending
-// thinking block first.
+// thinking block first. Deltas are stripped of ANSI escapes and control bytes
+// (see ansiStripper) so the streaming wrapper only ever sees plain text; the
+// buffered t.stream keeps the same stripped bytes, so the block the stream is
+// later rendered from wraps identically and nothing shifts on finalize.
+// The buffer is reused across deltas: `+=` would re-copy the whole accumulated
+// message on every frame, which is O(n²) over a long stream and dominates the
+// render cost once the message exceeds a few hundred KB.
 func (t *transcript) appendStream(text string) {
 	if t.thinking != "" {
 		t.add(block{kind: blockThinking, text: t.thinking})
 		t.thinking = ""
 	}
-	t.stream += text
+	clean := t.strip.strip(text)
+	t.stream = append(t.stream, clean...)
+	t.ensureMessage().append(clean)
 }
 
 func (t *transcript) finishStream() {
@@ -116,84 +184,243 @@ func (t *transcript) finishStream() {
 		t.add(block{kind: blockThinking, text: t.thinking})
 		t.thinking = ""
 	}
-	if t.stream == "" {
+	if len(t.stream) == 0 {
+		t.active = nil
 		return
 	}
-	t.add(block{kind: blockAssistant, text: t.stream})
-	t.stream = ""
+	t.add(block{kind: blockAssistant, text: string(t.stream)})
+	t.stream = t.stream[:0]
+	t.active = nil
 }
 
 func (t *transcript) reset() {
 	t.blocks = nil
-	t.stream = ""
-	t.thinking = ""
-	t.cached = ""
+	t.stream = t.stream[:0]
+	t.thinking = t.thinking[:0]
+	t.chunks = nil
+	t.joined = ""
+	t.joinedChunks = 0
+	t.built = 0
+	t.active = nil
+	t.activeThinking = false
+	t.strip = ansiStripper{}
+	t.lines = nil
+	t.cacheBase = ""
+	t.stableN = 0
+	t.sepDone = false
+	t.liveFin = 0
 	t.dirty = false
 }
 
 // pending renders the live, not-yet-finalized portion of the transcript. Only
-// one stream is active at a time.
+// one stream is active at a time. When an incremental live stream is available
+// it is used; otherwise (e.g. a transcript built directly from blocks) the
+// buffered text is rendered from scratch.
 func (t *transcript) pending(width int) string {
 	switch {
 	case t.thinking != "":
+		if t.active != nil && t.activeThinking {
+			return t.active.pending()
+		}
 		return strings.Join(thinkingLines(normalizeText(t.thinking), width), "\n")
-	case t.stream != "":
-		return strings.Join(messageSlab("kon", normalizeText(t.stream), colorAgentBg, colorAgentFg, colorAgentLabel, width), "\n")
+	case len(t.stream) > 0:
+		if t.active != nil && !t.activeThinking {
+			return t.active.pending()
+		}
+		return strings.Join(messageSlab("kon", normalizeText(string(t.stream)), colorAgentBg, colorAgentFg, colorAgentLabel, width), "\n")
 	default:
 		return ""
 	}
 }
 
-func (t *transcript) render(width int) string {
-	if width < 1 {
-		width = 1
-	}
-	if t.dirty || width != t.width {
-		t.width = width
-		t.cached = t.build(width)
-		t.dirty = false
-	}
-	live := t.pending(width)
+// rebuildActive re-creates the incremental live stream at a new width from the
+// buffered text, so a width change (terminal resize) renders correctly.
+func (t *transcript) rebuildActive(width int) {
 	switch {
-	case live == "":
-		return t.cached
-	case t.cached == "":
-		return live
+	case t.thinking != "":
+		t.active = newThinkingStream(width)
+		t.active.append(t.thinking)
+		t.activeThinking = true
+	case len(t.stream) > 0:
+		t.active = newMessageStream("kon", colorAgentBg, colorAgentFg, colorAgentLabel, width)
+		t.active.append(string(t.stream))
+		t.activeThinking = false
 	default:
-		return t.cached + "\n\n" + live
+		t.active = nil
+		t.activeThinking = false
 	}
 }
 
-// build renders every finalized block. Runs of consecutive tool and result
-// blocks collapse into a single grouped slab so that bursts of tool calls
-// stack tightly instead of littering the history.
-func (t *transcript) build(width int) string {
-	var chunks [][]string
-	var run []block
-	flush := func() {
-		if len(run) == 0 {
-			return
-		}
-		chunks = append(chunks, t.renderToolRun(run, width))
-		run = run[:0]
+// prepare refreshes the chunk cache for the given width and returns the stable
+// joined text. It folds any newly stable blocks and joins chunks only when the
+// chunk set changed, so repeated frames while streaming do not rejoin history.
+func (t *transcript) prepare(width int) string {
+	if width < 1 {
+		width = 1
 	}
-	for _, b := range t.blocks {
-		if b.kind == blockTool || b.kind == blockResult {
-			run = append(run, b)
+	if width != t.width {
+		t.width = width
+		t.chunks = nil
+		t.joined = ""
+		t.joinedChunks = 0
+		t.built = 0
+		t.dirty = true
+		t.lines = nil
+		t.cacheBase = ""
+		t.stableN = 0
+		t.sepDone = false
+		t.liveFin = 0
+		t.rebuildActive(width)
+	}
+	if t.dirty {
+		t.ensureChunks(width)
+		t.dirty = false
+	}
+	if t.joinedChunks != len(t.chunks) {
+		t.joined = strings.Join(t.chunks, "\n\n")
+		t.joinedChunks = len(t.chunks)
+	}
+	return t.joined
+}
+
+// render returns the whole transcript as one joined string. Production repaints
+// go through linesFor, which keeps per-line caches; render stays as the
+// from-scratch reference implementation that the output-equivalence tests
+// compare against, so any change here must keep the incremental path in sync.
+func (t *transcript) render(width int) string {
+	t.prepare(width)
+	base, live := t.assemble(width)
+	switch {
+	case live == "":
+		return base
+	case base == "":
+		return live
+	default:
+		return base + "\n\n" + live
+	}
+}
+
+// assemble returns the stable transcript text and the live (unfinished tail)
+// text separately. Keeping them apart lets the line cache append only the live
+// portion instead of splitting the whole document on every frame.
+func (t *transcript) assemble(width int) (base, live string) {
+	base = t.joined
+	// A trailing run of tool/result blocks is not folded yet because later
+	// calls may still join it; render it live from the unfolded tail.
+	if t.built < len(t.blocks) {
+		tail := strings.Join(t.renderToolRun(t.blocks[t.built:], width), "\n")
+		if tail != "" {
+			if base == "" {
+				base = tail
+			} else {
+				base += "\n\n" + tail
+			}
+		}
+	}
+	return base, t.pending(width)
+}
+
+// linesFor returns the transcript as a slice of display lines, ready for
+// viewport.SetContentLines. It maintains a line cache across frames: while the
+// stable text is unchanged it keeps the stable prefix and appends the live
+// stream's finalised lines, so only the current live line is rebuilt each frame.
+// A structural change rebuilds once. The returned slice aliases the cache and
+// must not be modified.
+func (t *transcript) linesFor(width int) []string {
+	t.prepare(width)
+	base := t.stableBase(width)
+	if t.lines == nil || base != t.cacheBase {
+		t.lines = t.lines[:0]
+		if base != "" {
+			t.lines = append(t.lines, strings.Split(base, "\n")...)
+		}
+		t.cacheBase = base
+		t.stableN = len(t.lines)
+		t.sepDone = false
+		t.liveFin = 0
+	}
+	// The label and finalized live lines are append-only. Each frame drops the
+	// previous current line (and, if nothing is live now, the separator) and
+	// rebuilds only what changed.
+	if t.active != nil && (t.thinking != "" || len(t.stream) > 0) {
+		if !t.sepDone && t.stableN > 0 {
+			t.lines = append(t.lines, "")
+			t.sepDone = true
+		}
+		t.lines = t.lines[:t.liveStart()]
+		fin := t.active.finalized()
+		for t.liveFin < len(fin) {
+			t.lines = append(t.lines, fin[t.liveFin])
+			t.liveFin++
+		}
+		t.lines = append(t.lines, t.active.current())
+	} else if t.sepDone {
+		t.lines = t.lines[:t.stableN]
+		t.sepDone = false
+		t.liveFin = 0
+	}
+	return t.lines
+}
+
+// liveStart is the index in t.lines where the current live line begins: after
+// the stable lines, the separator, and the finalized live lines.
+func (t *transcript) liveStart() int {
+	n := t.stableN + t.liveFin
+	if t.sepDone {
+		n++
+	}
+	return n
+}
+
+// stableBase returns the stable (already-finalized) transcript text.
+func (t *transcript) stableBase(width int) string {
+	base := t.joined
+	if t.built < len(t.blocks) {
+		tail := strings.Join(t.renderToolRun(t.blocks[t.built:], width), "\n")
+		if tail != "" {
+			if base == "" {
+				base = tail
+			} else {
+				base += "\n\n" + tail
+			}
+		}
+	}
+	return base
+}
+
+// ensureChunks folds every stable block into chunks, appending the rendered
+// text of each one. Only blocks before the trailing run of tool/result blocks
+// are stable: a run in progress may still be joined by a later result, so it
+// is left in blocks for render to draw on demand. Because appending a block
+// either extends the trailing run in place or terminates it, the stable
+// boundary never moves backward and chunks are never folded twice. Runs of
+// consecutive tool and result blocks collapse into a single grouped chunk.
+func (t *transcript) ensureChunks(width int) {
+	stable := len(t.blocks)
+	for stable > 0 && (t.blocks[stable-1].kind == blockTool || t.blocks[stable-1].kind == blockResult) {
+		stable--
+	}
+	for t.built < stable {
+		if t.blocks[t.built].kind == blockTool || t.blocks[t.built].kind == blockResult {
+			end := t.built
+			for end < stable && (t.blocks[end].kind == blockTool || t.blocks[end].kind == blockResult) {
+				end++
+			}
+			t.pushChunk(strings.Join(t.renderToolRun(t.blocks[t.built:end], width), "\n"))
+			t.built = end
 			continue
 		}
-		flush()
-		chunks = append(chunks, t.renderBlock(b, width))
+		t.pushChunk(strings.Join(t.renderBlock(t.blocks[t.built], width), "\n"))
+		t.built++
 	}
-	flush()
-	rendered := make([]string, 0, len(chunks))
-	for _, chunk := range chunks {
-		if len(chunk) == 0 {
-			continue
-		}
-		rendered = append(rendered, strings.Join(chunk, "\n"))
+}
+
+// pushChunk appends a rendered chunk, dropping empty ones so grouping does not
+// leave stray blank separators.
+func (t *transcript) pushChunk(text string) {
+	if text != "" {
+		t.chunks = append(t.chunks, text)
 	}
-	return strings.Join(rendered, "\n\n")
 }
 
 func (t *transcript) renderBlock(b block, width int) []string {
@@ -217,7 +444,9 @@ func (t *transcript) renderBlock(b block, width int) []string {
 
 // renderToolRun renders a run of consecutive tool and result blocks as one
 // slab. A blockTool pairs with the blockResult that follows it; a blockTool
-// without a result yet is still running.
+// without a result yet is still running. The pair pointers alias run and are
+// only valid for the duration of the call; callers must not append to the
+// underlying slice until it returns.
 func (t *transcript) renderToolRun(run []block, width int) []string {
 	type pair struct {
 		start, done *block
@@ -326,19 +555,30 @@ func (t *transcript) toolResultLines(done *block, width int) []string {
 }
 
 // messageSlab renders a user, agent, or error message: a bold label line over
-// the body, word-wrapped and padded by lipgloss so the background reaches the
-// full viewport width.
+// the body, word-wrapped and painted by linePainter so the background reaches
+// the full viewport width. The body wrap and painting match liveStream exactly,
+// so a message rendered live and later folded into a stable block does not
+// shift.
 func messageSlab(label, body string, bg, fg, labelColor color.Color, width int) []string {
-	slab := lipgloss.NewStyle().Background(bg).Foreground(fg).Width(width).Padding(0, 1)
-	labelLine := lipgloss.NewStyle().Background(bg).Foreground(labelColor).Bold(true).Render(label)
-	return strings.Split(slab.Render(labelLine+"\n"+body), "\n")
+	p := linePainter{width: width, bg: bg, fg: fg, label: label, labelFg: labelColor, labelBold: true, padLeft: 1}
+	return paintBody(p, wrapPlain(body, max(1, width-2)))
 }
 
 // thinkingLines renders a reasoning trace in a muted gray, visually quieter
 // than agent messages.
 func thinkingLines(body string, width int) []string {
-	style := lipgloss.NewStyle().Foreground(colorFaint).Italic(true).Width(width)
-	return strings.Split(style.Render("thinking\n"+body), "\n")
+	p := linePainter{width: width, fg: colorFaint, labelFg: colorFaint, label: "thinking", italic: true}
+	return paintBody(p, wrapPlain(body, max(1, width)))
+}
+
+// paintBody renders a painter's label line followed by its wrapped body lines.
+func paintBody(p linePainter, lines []string) []string {
+	out := make([]string, 0, len(lines)+1)
+	out = append(out, p.labelLine())
+	for _, line := range lines {
+		out = append(out, p.bodyLine(line))
+	}
+	return out
 }
 
 // separatorLine centers text between horizontal rules, for markers like
