@@ -43,14 +43,20 @@ case "$(uname -m)" in
   *) die "unsupported architecture: $(uname -m)" ;;
 esac
 
-# The latest release is resolved through the API. GitHub does not reliably
-# redirect /releases/latest to the tag, so do not depend on that.
+# The /releases/latest redirect names the tag without API quota or a token.
+# For a few minutes after a release is published GitHub serves the generic
+# releases page instead, so fall back to the API before giving up.
 if [ -z "$version" ]; then
-  json=$(curl -fsSL -H 'Accept: application/vnd.github+json' \
-    -H 'User-Agent: kon-installer' \
-    "https://api.github.com/repos/$repo/releases/latest") ||
-    die "could not reach the GitHub API; set KON_VERSION to install a specific release"
-  version=$(printf '%s\n' "$json" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+  version=$(curl -fsSL -o /dev/null -w '%{url_effective}' "$base_url/latest" | sed 's#/*$##; s#.*/##')
+  case "$version" in
+    '' | latest)
+      json=$(curl -fsSL -H 'Accept: application/vnd.github+json' \
+        -H 'User-Agent: kon-installer' \
+        "https://api.github.com/repos/$repo/releases/latest") ||
+        die "could not determine the latest release; set KON_VERSION to install a specific release"
+      version=$(printf '%s\n' "$json" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+      ;;
+  esac
 fi
 [ -n "$version" ] || die "could not determine the latest release; set KON_VERSION"
 case "$version" in
