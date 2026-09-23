@@ -18,6 +18,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/hizkifw/kon/internal/buildinfo"
 )
 
 const sourceURL = "https://models.dev/api.json"
@@ -185,6 +187,7 @@ func (s *Service) Refresh(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	req.Header.Set("User-Agent", buildinfo.UserAgent())
 	if etag != "" {
 		req.Header.Set("If-None-Match", etag)
 	}

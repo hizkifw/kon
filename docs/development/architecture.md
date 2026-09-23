@@ -129,6 +129,16 @@ Streaming deltas are accumulated immediately but
 viewport rebuilds are capped at 20 frames per second. The runner owns no
 terminal state, and the UI owns no provider or session serialization.
 
+## Network identity
+
+Every outgoing request sends `User-Agent: kon/<version> (<os>; <arch>;
++https://github.com/hizkifw/kon)` from `internal/buildinfo`, following the
+crawler convention of a `+URL` that tells an operator where the traffic comes
+from. The build sets the version with
+`-X github.com/hizkifw/kon/internal/buildinfo.version=...`; source builds report
+`dev`. Provider requests set it before a connection's configured headers, so a
+profile can still override it for a gateway that filters on it.
+
 ## Model catalog
 
 `internal/catalog` embeds a timestamped models.dev snapshot in the binary. Its

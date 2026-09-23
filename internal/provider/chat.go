@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hizkifw/kon/internal/buildinfo"
 	"github.com/hizkifw/kon/internal/config"
 	"github.com/hizkifw/kon/internal/session"
 	"github.com/hizkifw/kon/internal/typedid"
@@ -403,6 +404,8 @@ func (m *chatModel) send(ctx context.Context, body []byte, accept string) (*http
 	if err != nil {
 		return nil, fmt.Errorf("build chat request: %w", err)
 	}
+	// Set before the configured headers so a profile can override it.
+	request.Header.Set("User-Agent", buildinfo.UserAgent())
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", accept)
 	if m.apiKey != "" {

@@ -10,6 +10,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/hizkifw/kon/internal/buildinfo"
 )
 
 const testCatalog = `{"example":{"id":"example","name":"Example","api":"https://example.test/v1","npm":"@ai-sdk/openai-compatible","env":["EXAMPLE_KEY"],"models":{"new-model":{"id":"new-model","name":"New Model","tool_call":true,"modalities":{"input":["text","image"],"output":["text"]},"limit":{"context":123456},"cost":{"input":1.25,"output":2.5}}}}}`
@@ -129,6 +131,9 @@ func TestOlderCacheDoesNotReplaceBundledSnapshot(t *testing.T) {
 func TestInvalidRefreshKeepsPreviousCatalog(t *testing.T) {
 	cachePath := filepath.Join(t.TempDir(), "models.json.gz")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("User-Agent"); got != buildinfo.UserAgent() {
+			t.Errorf("User-Agent = %q, want %q", got, buildinfo.UserAgent())
+		}
 		w.Write([]byte(`{"example":{"id":"wrong","name":"Example","models":{}}}`))
 	}))
 	defer server.Close()

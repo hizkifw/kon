@@ -29,7 +29,7 @@ for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 wi
   [ "$os" = windows ] && binary=kon.exe
   echo "building $target"
   CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath -buildvcs=false \
-    -ldflags="-s -w -X main.version=$version" -o "$dir/$binary" ./cmd/kon
+    -ldflags="-s -w -X github.com/hizkifw/kon/internal/buildinfo.version=$version" -o "$dir/$binary" ./cmd/kon
   cp "$root/README.md" "$root/LICENSE" "$root/THIRD_PARTY_NOTICES" "$dir/"
   if [ "$os" = windows ]; then
     archive="$dist/$name.zip"

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hizkifw/kon/internal/buildinfo"
 	"github.com/hizkifw/kon/internal/session"
 )
 
@@ -23,6 +24,23 @@ func newTestModel(t *testing.T, handler http.HandlerFunc) *chatModel {
 		baseURL: server.URL,
 		model:   "test-model",
 		headers: map[string]string{"X-Custom": "custom-value"},
+	}
+}
+
+// TestChatHeadersOverrideUserAgent keeps the configured headers authoritative:
+// a gateway that filters on User-Agent must still be reachable.
+func TestChatHeadersOverrideUserAgent(t *testing.T) {
+	var userAgent string
+	model := newTestModel(t, func(w http.ResponseWriter, r *http.Request) {
+		userAgent = r.Header.Get("User-Agent")
+		_, _ = io.WriteString(w, `{"choices":[{"index":0,"message":{"content":"ok"},"finish_reason":"stop"}]}`)
+	})
+	model.headers = map[string]string{"User-Agent": "custom/1"}
+	if _, err := model.Complete(context.Background(), []session.Message{session.TextMessage(session.RoleUser, "hi")}, nil, 0); err != nil {
+		t.Fatal(err)
+	}
+	if userAgent != "custom/1" {
+		t.Fatalf("User-Agent = %q, want the configured override", userAgent)
 	}
 }
 
@@ -77,13 +95,14 @@ func TestChatStreamAssemblesDeltas(t *testing.T) {
 }
 
 func TestChatStreamSendsChatCompletionsBody(t *testing.T) {
-	var method, path, authorization, accept, custom string
+	var method, path, authorization, accept, custom, userAgent string
 	var body chatRequest
 	model := newTestModel(t, func(w http.ResponseWriter, r *http.Request) {
 		method, path = r.Method, r.URL.Path
 		authorization = r.Header.Get("Authorization")
 		accept = r.Header.Get("Accept")
 		custom = r.Header.Get("X-Custom")
+		userAgent = r.Header.Get("User-Agent")
 		raw, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(raw, &body)
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -112,6 +131,9 @@ func TestChatStreamSendsChatCompletionsBody(t *testing.T) {
 	}
 	if authorization != "Bearer sk-test" || accept != "text/event-stream" || custom != "custom-value" {
 		t.Fatalf("headers: auth=%q accept=%q custom=%q", authorization, accept, custom)
+	}
+	if userAgent != buildinfo.UserAgent() {
+		t.Fatalf("User-Agent = %q, want %q", userAgent, buildinfo.UserAgent())
 	}
 	if body.Model != "test-model" || !body.Stream || body.StreamOptions == nil || !body.StreamOptions.IncludeUsage || body.MaxTokens != 0 {
 		t.Fatalf("request = %#v", body)

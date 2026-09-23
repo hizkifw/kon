@@ -40,4 +40,4 @@ jobs:
         run: |
           suffix=""
           [ "$GOOS" = windows ] && suffix=".exe"
-          go build -trimpath -buildvcs=false -ldflags="-s -w -X main.version=ci" -o "kon${suffix}" ./cmd/kon
+          go build -trimpath -buildvcs=false -ldflags="-s -w -X github.com/hizkifw/kon/internal/buildinfo.version=ci" -o "kon${suffix}" ./cmd/kon

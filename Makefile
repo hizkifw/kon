@@ -34,7 +34,7 @@ vet:
 
 build:
 	mkdir -p bin
-	CGO_ENABLED=0 go build -trimpath -ldflags="-X main.version=$(VERSION)" -o bin/kon ./cmd/kon
+	CGO_ENABLED=0 go build -trimpath -ldflags="-X github.com/hizkifw/kon/internal/buildinfo.version=$(VERSION)" -o bin/kon ./cmd/kon
 
 test:
 	go test -shuffle=on ./...

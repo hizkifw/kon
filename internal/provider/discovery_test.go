@@ -7,6 +7,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/hizkifw/kon/internal/buildinfo"
 	"github.com/hizkifw/kon/internal/config"
 )
 
@@ -14,6 +15,9 @@ func TestDiscoverOpenRouterVerifiesKeyBeforeListing(t *testing.T) {
 	var paths []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		paths = append(paths, r.URL.Path)
+		if got := r.Header.Get("User-Agent"); got != buildinfo.UserAgent() {
+			t.Errorf("%s User-Agent = %q, want %q", r.URL.Path, got, buildinfo.UserAgent())
+		}
 		if r.Header.Get("Authorization") != "Bearer secret" {
 			w.WriteHeader(http.StatusUnauthorized)
 			return

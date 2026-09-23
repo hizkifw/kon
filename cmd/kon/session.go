@@ -11,6 +11,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/hizkifw/kon/internal/app"
+	"github.com/hizkifw/kon/internal/buildinfo"
 	"github.com/hizkifw/kon/internal/config"
 	"github.com/hizkifw/kon/internal/history"
 	"github.com/hizkifw/kon/internal/migrate"
@@ -32,7 +33,7 @@ func runSession(args []string) (runErr error) {
 			fmt.Println(rootUsage())
 			return nil
 		case arg == "--version":
-			fmt.Println("kon " + version)
+			fmt.Println("kon " + buildinfo.Version())
 			return nil
 		case arg == "--resume" || arg == "-r":
 			resume = true
@@ -85,11 +86,11 @@ func runSession(args []string) (runErr error) {
 	var runtime *app.Runtime
 	switch {
 	case resumeID != "":
-		runtime, err = app.NewResumedID(cfg, paths, cwd, version, id)
+		runtime, err = app.NewResumedID(cfg, paths, cwd, buildinfo.Version(), id)
 	case resume:
-		runtime, err = app.NewResumed(cfg, paths, cwd, version)
+		runtime, err = app.NewResumed(cfg, paths, cwd, buildinfo.Version())
 	default:
-		runtime, err = app.New(cfg, paths, cwd, version)
+		runtime, err = app.New(cfg, paths, cwd, buildinfo.Version())
 	}
 	if err != nil {
 		return err

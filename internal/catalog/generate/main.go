@@ -12,6 +12,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/hizkifw/kon/internal/buildinfo"
 )
 
 const sourceURL = "https://models.dev/api.json"
@@ -25,7 +27,12 @@ func main() {
 
 func run() error {
 	client := &http.Client{Timeout: 30 * time.Second}
-	res, err := client.Get(sourceURL)
+	req, err := http.NewRequest(http.MethodGet, sourceURL, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("User-Agent", buildinfo.UserAgent())
+	res, err := client.Do(req)
 	if err != nil {
 		return err
 	}

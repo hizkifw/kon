@@ -44,6 +44,7 @@ Each package owns one boundary. Do not reach across them.
 | `internal/session` | domain messages and append-only context tree | provider requests |
 | `internal/tools` | tool registry, bounded tool schemas and execution | agent orchestration |
 | `internal/typedid` | identifier construction and parsing | storage or provider policy |
+| `internal/buildinfo` | build version and the outgoing User-Agent | configuration or network clients |
 | `internal/config` | paths, defaults, validation, credentials | runtime mutation |
 | `internal/contextfiles` | AGENTS.md/CLAUDE.md discovery up the directory tree | prompt assembly |
 | `internal/history` | bounded prompt recall | conversation context |

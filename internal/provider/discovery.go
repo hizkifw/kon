@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hizkifw/kon/internal/buildinfo"
 	"github.com/hizkifw/kon/internal/config"
 )
 
@@ -99,6 +100,8 @@ func get(ctx context.Context, client *http.Client, endpoint string, connection c
 	if err != nil {
 		return nil, err
 	}
+	// Set before the configured headers so a connection can override it.
+	req.Header.Set("User-Agent", buildinfo.UserAgent())
 	if connection.APIKey != "" {
 		req.Header.Set("Authorization", "Bearer "+connection.APIKey)
 	}
