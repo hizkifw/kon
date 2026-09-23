@@ -86,7 +86,7 @@ func Default() Config {
 	return Config{
 		DefaultModel: "default",
 		Models: []Model{{
-			Name: "default", Type: "openai", BaseURL: "https://api.openai.com/v1",
+			Name: "default", Type: "openai-compatible", BaseURL: "https://api.openai.com/v1",
 		}},
 		Compaction: Compaction{ReserveTokens: 16_384, KeepRecentTokens: 20_000},
 	}

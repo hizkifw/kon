@@ -236,7 +236,7 @@ func TestExplicitModelChangeOmitsConnectionID(t *testing.T) {
 	defer runtime.Close()
 	for _, entry := range runtime.SessionHistory() {
 		if entry.Model != nil {
-			if entry.Model.WireFormat != "openai" || entry.Model.ConnectionID != "" {
+			if entry.Model.WireFormat != "openai-compatible" || entry.Model.ConnectionID != "" {
 				t.Fatalf("explicit model selection = %#v", entry.Model)
 			}
 			return
