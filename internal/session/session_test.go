@@ -391,6 +391,121 @@ func TestCompactionProjectsRetainedMessages(t *testing.T) {
 	}
 }
 
+func TestContextRepairsUnansweredToolCalls(t *testing.T) {
+	store, err := New(t.TempDir(), t.TempDir(), "test", "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	callID := typedid.ExternalToolCallID("interrupted-call")
+	if _, err := store.AppendMessage(Message{Role: RoleAssistant, ToolCalls: []ToolCall{{
+		ID: callID, Type: "function", Function: ToolFunction{Name: "shell", Arguments: json.RawMessage(`{"command":"sleep"}`)},
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	context, err := store.Context()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(context) != 3 || context[2].Message.Role != RoleTool || context[2].Message.ToolCallID != callID || context[2].Message.Content != InterruptedToolResult {
+		t.Fatalf("repaired context = %#v", context)
+	}
+	// Projection repairs are ephemeral and do not change the append-only log.
+	path := store.ActivePath()
+	if len(path) != 2 {
+		t.Fatalf("durable entries = %d, want 2", len(path))
+	}
+}
+
+// TestContextRepairKeepsToolResultsInCallOrder covers a batch that was cut off
+// mid-flight: some calls have durable results and some do not. Repair must
+// present every result against its own call, in the order the calls were made,
+// not appendix the synthetic ones after the batch.
+func TestContextRepairKeepsToolResultsInCallOrder(t *testing.T) {
+	store, err := New(t.TempDir(), t.TempDir(), "test", "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	calls := []typedid.ToolCallID{
+		typedid.ExternalToolCallID("first"),
+		typedid.ExternalToolCallID("second"),
+		typedid.ExternalToolCallID("third"),
+	}
+	toolCalls := make([]ToolCall, len(calls))
+	for i, id := range calls {
+		toolCalls[i] = ToolCall{ID: id, Type: "function", Function: ToolFunction{Name: "shell", Arguments: json.RawMessage(`{}`)}}
+	}
+	if _, err := store.AppendMessage(Message{Role: RoleAssistant, ToolCalls: toolCalls}); err != nil {
+		t.Fatal(err)
+	}
+	// Only the first call finished before the turn was cancelled.
+	if _, err := store.AppendMessage(Message{Role: RoleTool, Content: "real output", ToolCallID: calls[0], Name: "shell"}); err != nil {
+		t.Fatal(err)
+	}
+	context, err := store.Context()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(context) != 5 {
+		t.Fatalf("context has %d messages, want 5: %#v", len(context), context)
+	}
+	want := []struct {
+		id      typedid.ToolCallID
+		content string
+	}{
+		{calls[0], "real output"},
+		{calls[1], InterruptedToolResult},
+		{calls[2], InterruptedToolResult},
+	}
+	for i, expected := range want {
+		got := context[i+2].Message
+		if got.Role != RoleTool || got.ToolCallID != expected.id || got.Content != expected.content {
+			t.Fatalf("result %d = %#v, want id %s content %q", i, got, expected.id, expected.content)
+		}
+	}
+}
+
+// TestContextRepairIgnoresResultsFromEarlierTurns covers call IDs reused across
+// turns, which compatible servers do (call_0 on every turn). An earlier turn's
+// result must not answer a later turn's identical ID; the later batch is still
+// incomplete and must be repaired.
+func TestContextRepairIgnoresResultsFromEarlierTurns(t *testing.T) {
+	store, err := New(t.TempDir(), t.TempDir(), "test", "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	callID := typedid.ExternalToolCallID("call_0")
+	assistant := Message{Role: RoleAssistant, ToolCalls: []ToolCall{{
+		ID: callID, Type: "function", Function: ToolFunction{Name: "shell", Arguments: json.RawMessage(`{}`)},
+	}}}
+	if _, err := store.AppendMessage(assistant); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AppendMessage(Message{Role: RoleTool, Content: "first turn result", ToolCallID: callID, Name: "shell"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AppendMessage(Message{Role: RoleUser, Content: "again"}); err != nil {
+		t.Fatal(err)
+	}
+	// The second turn reuses the ID and was cancelled before any result.
+	if _, err := store.AppendMessage(assistant); err != nil {
+		t.Fatal(err)
+	}
+	context, err := store.Context()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(context) != 6 {
+		t.Fatalf("context has %d messages, want 6: %#v", len(context), context)
+	}
+	tail := context[5].Message
+	if tail.Role != RoleTool || tail.ToolCallID != callID || tail.Content != InterruptedToolResult {
+		t.Fatalf("later batch = %#v, want a synthetic result for %s", tail, callID)
+	}
+}
+
 // TestCompactionKeepsSystemPromptStable guards the prompt-cache contract: the
 // system message must stay byte-identical across repeated compactions so the
 // cached leading prefix survives.

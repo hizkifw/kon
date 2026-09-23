@@ -57,6 +57,14 @@ turn never completed. Interrupted turns are retained so the partial trace is
 visible after a resume and the next request can continue from it; the provider
 wire mapping skips an interrupted turn that has no answer text.
 
+A cancelled turn may leave an assistant tool-call batch without a result for
+every call. The agent appends `not executed: interrupted` for the calls it did
+not reach before returning; if the process died first, context projection
+recreates the same synthetic result for any call still unanswered. Projection
+places every result directly after its assistant message in call order, so a
+batch is always complete and ordered on the wire, and it never rewrites the
+durable log — the repair is rebuilt on each projection.
+
 ## Model change entries
 
 ```json

@@ -33,6 +33,12 @@ const (
 	CompactionSummarySuffix = "\n</summary>"
 )
 
+// InterruptedToolResult is the model-facing result synthesized for a tool call
+// that never ran because its turn was cancelled or the process exited. Both the
+// agent, which writes it when a turn is cancelled, and context projection, which
+// recreates it for a crash, use this exact string.
+const InterruptedToolResult = "not executed: interrupted"
+
 type Usage struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
@@ -809,7 +815,7 @@ func (s *Store) Context() ([]ContextMessage, error) {
 
 	var out []ContextMessage
 	if latestCompaction < 0 {
-		return messagesFromEntries(path), nil
+		return repairUnansweredToolCalls(messagesFromEntries(path)), nil
 	}
 	comp := path[latestCompaction]
 	if path[0].Type != EntryTypeMessage || path[0].Message == nil || path[0].Message.Role != RoleSystem {
@@ -834,7 +840,119 @@ func (s *Store) Context() ([]ContextMessage, error) {
 	})
 	out = append(out, messagesFromEntries(path[kept:latestCompaction])...)
 	out = append(out, messagesFromEntries(path[latestCompaction+1:])...)
-	return out, nil
+	return repairUnansweredToolCalls(out), nil
+}
+
+// repairUnansweredToolCalls keeps projected provider context valid when a
+// process exited before it could append every tool result. The durable log
+// remains append-only; the synthetic result is recreated on each projection.
+//
+// Results are grouped with the batch they answer, in call order, because wire
+// formats require a result for each call in the order the calls were made. The
+// common case needs no repair and returns messages as-is.
+func repairUnansweredToolCalls(messages []ContextMessage) []ContextMessage {
+	// A tool result answers the batch of the assistant message that precedes
+	// it. Compatible servers reuse call IDs across turns, so matching globally
+	// by ID would let an earlier turn's result answer a later turn's call and
+	// mask an incomplete batch.
+	owner := groupToolBatches(messages)
+	if !repairNeeded(messages, owner) {
+		return messages
+	}
+	return fillUnansweredToolCalls(messages, owner)
+}
+
+// groupToolBatches maps each message to the index of the assistant tool-call
+// batch it belongs to, or -1 when it belongs to none. Tool results after an
+// assistant with calls join that batch; any other message closes it.
+func groupToolBatches(messages []ContextMessage) []int {
+	owner := make([]int, len(messages))
+	batch := -1
+	for i := range owner {
+		owner[i] = -1
+	}
+	for i, item := range messages {
+		switch item.Message.Role {
+		case RoleAssistant:
+			if len(item.Message.ToolCalls) == 0 {
+				batch = -1
+				continue
+			}
+			batch = i
+			owner[i] = i
+		case RoleTool:
+			owner[i] = batch
+		default:
+			batch = -1
+		}
+	}
+	return owner
+}
+
+func repairNeeded(messages []ContextMessage, owner []int) bool {
+	for i, item := range messages {
+		if item.Message.Role != RoleAssistant || len(item.Message.ToolCalls) == 0 {
+			continue
+		}
+		answered := make(map[typedid.ToolCallID]bool)
+		for j := i + 1; j < len(messages) && owner[j] == i; j++ {
+			answered[messages[j].Message.ToolCallID] = true
+		}
+		for _, call := range item.Message.ToolCalls {
+			if !answered[call.ID] {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// fillUnansweredToolCalls rebuilds each batch a cancelled or crashed turn left
+// open, placing a result for every call in call order.
+func fillUnansweredToolCalls(messages []ContextMessage, owner []int) []ContextMessage {
+	results := make(map[int]map[typedid.ToolCallID]ContextMessage)
+	for i, item := range messages {
+		if item.Message.Role != RoleTool || owner[i] < 0 {
+			continue
+		}
+		batch := owner[i]
+		if results[batch] == nil {
+			results[batch] = make(map[typedid.ToolCallID]ContextMessage)
+		}
+		results[batch][item.Message.ToolCallID] = item
+	}
+	// emitted records the results already placed with their batch, so an orphan
+	// result — one whose ID matches no call in its batch — can still be emitted
+	// in its original position rather than dropped.
+	emitted := make(map[int]map[typedid.ToolCallID]bool)
+	var out []ContextMessage
+	for i, item := range messages {
+		switch item.Message.Role {
+		case RoleTool:
+			if owner[i] < 0 || !emitted[owner[i]][item.Message.ToolCallID] {
+				out = append(out, item)
+			}
+		case RoleAssistant:
+			out = append(out, item)
+			for _, call := range item.Message.ToolCalls {
+				if emitted[i] == nil {
+					emitted[i] = make(map[typedid.ToolCallID]bool)
+				}
+				emitted[i][call.ID] = true
+				if result, ok := results[i][call.ID]; ok {
+					out = append(out, result)
+					continue
+				}
+				out = append(out, ContextMessage{Message: Message{
+					Role: RoleTool, Content: InterruptedToolResult,
+					ToolCallID: call.ID, Name: call.Function.Name,
+				}})
+			}
+		default:
+			out = append(out, item)
+		}
+	}
+	return out
 }
 
 func messagesFromEntries(entries []Entry) []ContextMessage {

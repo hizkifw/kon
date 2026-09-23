@@ -239,7 +239,7 @@ func (r *Runner) Run(ctx context.Context, prompt string, emit func(Event)) error
 			return compactErr
 		}
 
-		for _, call := range assistant.ToolCalls {
+		for i, call := range assistant.ToolCalls {
 			arguments := string(call.Function.Arguments)
 			emit(Event{Kind: EventToolStart, Tool: call.Function.Name, Arguments: arguments})
 			// A long-running tool publishes live display snapshots; they are
@@ -266,10 +266,29 @@ func (r *Runner) Run(ctx context.Context, prompt string, emit func(Event)) error
 			// live snapshots the call published.
 			emit(Event{Kind: EventToolDone, Tool: call.Function.Name, Arguments: arguments, Text: result.Content, IsError: isError})
 			if ctx.Err() != nil {
+				if err := r.appendInterruptedToolResults(assistant.ToolCalls[i+1:]); err != nil {
+					return err
+				}
 				return ctx.Err()
 			}
 		}
 	}
+}
+
+// appendInterruptedToolResults closes the assistant's tool-call batch when a
+// turn is cancelled after one call. Keeping one result per call makes the
+// persisted conversation valid for providers that require a complete batch.
+func (r *Runner) appendInterruptedToolResults(calls []session.ToolCall) error {
+	for _, call := range calls {
+		message := session.Message{
+			Role: session.RoleTool, Content: session.InterruptedToolResult,
+			ToolCallID: call.ID, Name: call.Function.Name,
+		}
+		if _, err := r.session.AppendMessage(message); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (r *Runner) messages() ([]session.Message, error) {

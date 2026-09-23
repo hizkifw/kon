@@ -42,6 +42,9 @@ XDG_CONFIG_HOME="$(mktemp -d)" XDG_DATA_HOME="$(mktemp -d)" go run ./cmd/kon
 | `internal/contextfiles` | AGENTS.md/CLAUDE.md discovery up the directory tree | prompt assembly |
 | `internal/history` | bounded prompt recall | conversation context |
 
+Known structural debt and the planned restructuring order are tracked in
+[architecture-review.md](architecture-review.md).
+
 ## Identifier rules
 
 kon-owned IDs are immutable value objects with unexported storage. Add a prefix

@@ -171,6 +171,44 @@ func TestRunnerPersistsPartialTurnOnInterruptedStream(t *testing.T) {
 	}
 }
 
+type toolCallProvider struct{}
+
+func (toolCallProvider) Stream(context.Context, []session.Message, []provider.Tool, func(provider.Event)) (session.Message, error) {
+	return session.Message{Role: session.RoleAssistant, ToolCalls: []session.ToolCall{
+		{ID: typedid.ExternalToolCallID("first"), Function: session.ToolFunction{Name: "unknown", Arguments: []byte(`{}`)}},
+		{ID: typedid.ExternalToolCallID("second"), Function: session.ToolFunction{Name: "unknown", Arguments: []byte(`{}`)}},
+	}}, nil
+}
+
+func (toolCallProvider) Complete(context.Context, []session.Message, []provider.Tool, int) (session.Message, error) {
+	return session.Message{}, nil
+}
+
+func TestRunnerPersistsInterruptedResultsForRemainingToolCalls(t *testing.T) {
+	store, err := session.New(t.TempDir(), t.TempDir(), "test", "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	runner := New(config.Model{}, config.Compaction{}, toolCallProvider{}, store, tools.New(t.TempDir(), false))
+	if err := runner.Run(ctx, "hello", func(Event) {}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run error = %v, want context.Canceled", err)
+	}
+	// The durable log must hold the result; projection would synthesize it from
+	// an unanswered call either way, so only the entries prove the write.
+	var interrupted int
+	for _, entry := range store.ActivePath() {
+		if entry.Message != nil && entry.Message.Role == session.RoleTool && entry.Message.Content == session.InterruptedToolResult {
+			interrupted++
+		}
+	}
+	if interrupted != 1 {
+		t.Fatalf("interrupted results = %d, want 1: %#v", interrupted, store.ActivePath())
+	}
+}
+
 func containsInterrupted(messages []session.ContextMessage) bool {
 	for _, message := range messages {
 		if message.Message.Interrupted {
