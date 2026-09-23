@@ -10,7 +10,8 @@ object. The first line is a header; later lines form an append-only tree.
 ```
 
 The schema version governs the file representation. Readers accept only version
-4; earlier versions are not migrated.
+4. The startup migration converts version 1 sessions written by kon v0.1.1 to
+version 4 before a reader opens them. Versions 2 and 3 are not migrated.
 
 ## Entry envelope
 

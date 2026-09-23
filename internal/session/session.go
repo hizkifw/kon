@@ -547,6 +547,13 @@ func parseSession(path string) (parsedSession, error) {
 	return result, nil
 }
 
+// ValidateFile checks a session without opening it for append or changing it.
+// Storage migrations use this before replacing the original file.
+func ValidateFile(path string) error {
+	_, err := parseSession(path)
+	return err
+}
+
 // Summary describes a persisted session without opening it for append.
 type Summary struct {
 	ID        typedid.SessionID

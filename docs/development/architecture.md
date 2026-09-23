@@ -17,7 +17,8 @@ app runtime ────── agent runner ───── provider layer
 
 ## Runtime flow
 
-1. Resolve configuration and data roots. Create only missing files.
+1. Resolve configuration and data roots. Acquire a storage lease, run any
+   pending migrations, then create only missing config and history files.
 2. Create a cwd-scoped session and persist the exact system prompt. With
    `--resume`, open the newest existing session for the directory (or a named
    one) instead of creating a session, and replay its active path for display.
@@ -33,6 +34,44 @@ kon deliberately invokes the provider one generation step at a time. This
 keeps every assistant tool request and every tool result durable before the
 next network request. The provider layer owns wire formats and stream parsing;
 kon owns orchestration, persistence, and compaction.
+
+## Storage upgrades
+
+`internal/migrate` owns locking, version tracking, and the `Step` interface.
+`internal/migrations` owns the concrete steps. Its `Ordered` registry lists
+them explicitly, and numbered filenames show the same order. Each step names
+the version it produces, has a display name, and must be safe to retry.
+Version 1 is the unmarked baseline; version 2 upgrades v0.1.1 session files
+from v1 to v4 and leaves existing v4 files intact. A new installation records
+the baseline and immediately advances to version 2. An installation without a
+version marker checks session headers once before recording the baseline;
+session versions 2 and 3 are outside this migration's scope. Normal startup
+reads only the small `storage-version` file, without walking the session tree.
+The marker is an append-only sequence of
+completed versions, synced only after each step succeeds; an incomplete last
+line is discarded on retry. Session headers retain their separate version so
+individual files can still be validated.
+
+The v0.1.1 migration converts message content and tool calls to ordered parts,
+renames model-change `provider` to `wire_format`, derives the connection ID
+from qualified model names, and moves base64 images to content-addressed blob
+files. It writes and validates each converted session before replacing the
+original, and keeps a temporary v1 backup so an interrupted replacement can
+resume. Config and history need no transformation from v0.1.1.
+
+Every command that accesses durable state holds a shared lock on
+`instances.lock` until it finishes. Startup briefly holds a shared
+`upgrade.gate.lock` while joining the active instances. An upgrade takes the
+gate exclusively to stop new instances, then takes the instances lock
+exclusively after the existing ones exit. An upgrade started by a running kon
+releases its own shared instance lock while it waits, and reacquires it before
+reopening the gate. Both lock files stay in the data directory and are never
+removed during migration. Help and version output do not access storage. A
+future internal updater can use the same exclusive lease for its cutover and
+invoke the new binary's migration code before reporting completion.
+Releases from before this lock protocol cannot participate in it; they must
+be closed before the first upgrade that relies on these locks.
+See [migrations.md](migrations.md) for the upgrade contract and step authoring.
 
 The app runtime is the sole owner of the live store and runner. A new session is
 fully prepared before it replaces the current one, so creation failures leave

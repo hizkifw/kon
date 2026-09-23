@@ -46,6 +46,11 @@ provider, then `/model` to choose a model. Explicit profiles in `config.json`
 remain supported. See the [user guide](docs/product/index.md) for setup and
 [configuration](docs/product/configuration.md).
 
+When a release changes the on-disk format, kon runs its registered storage
+migrations before opening the prompt. It waits for other kon instances to exit
+before changing shared files. Normal launches check a small version marker and
+do not scan sessions.
+
 Run `kon docs` to extract the bundled product guide on demand and print its
 local directory. The files are ordinary Markdown, available offline. Each
 version gets its own directory, so renamed or removed pages from an older
@@ -61,6 +66,7 @@ kon never refreshes it on startup.
 - [Development](docs/development/index.md) — building and contributing
 - [Architecture](docs/development/architecture.md) — how the pieces fit together
 - [Session format](docs/development/session-format.md) — the on-disk JSONL contract
+- [Storage migrations](docs/development/migrations.md) — version upgrades and recovery
 - [Rendering performance](docs/development/rendering-performance.md) — how the TUI stays fast
 
 ## License

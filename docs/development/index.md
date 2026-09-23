@@ -36,6 +36,8 @@ XDG_CONFIG_HOME="$(mktemp -d)" XDG_DATA_HOME="$(mktemp -d)" go run ./cmd/kon
 | `internal/provider` | provider `Model` backends and durable-message conversion | session policy |
 | `internal/catalog` | bundled model metadata and local refresh cache | provider requests or configuration writes |
 | `internal/session` | domain messages and append-only context tree | provider requests |
+| `internal/migrate` | storage version tracking and process locks | session format conversion |
+| `internal/migrations` | ordered storage conversion steps | live runtime state |
 | `internal/tools` | tool registry, bounded tool schemas and execution | agent orchestration |
 | `internal/typedid` | identifier construction and parsing | storage or provider policy |
 | `internal/config` | paths, defaults, validation, credentials | runtime mutation |
@@ -74,9 +76,8 @@ these invariants:
 - no silent repair except truncating an incomplete final line;
 - context assembled by parent traversal rather than append order.
 
-Because no format has shipped yet, schema-breaking changes should update the
-current version and fixtures directly. Once a release is published, add an
-explicit reader migration or bump the schema version; never guess.
+Schema-breaking changes need a named migration in the ordered registry. See
+[migrations.md](migrations.md) for the authoring and retry contract.
 
 ## Release artifacts
 

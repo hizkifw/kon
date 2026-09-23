@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
 
@@ -12,6 +14,8 @@ import (
 	"github.com/hizkifw/kon/internal/app"
 	"github.com/hizkifw/kon/internal/config"
 	"github.com/hizkifw/kon/internal/history"
+	"github.com/hizkifw/kon/internal/migrate"
+	"github.com/hizkifw/kon/internal/migrations"
 	"github.com/hizkifw/kon/internal/typedid"
 	"github.com/hizkifw/kon/internal/ui"
 )
@@ -41,25 +45,27 @@ func main() {
 	}
 }
 
-func run(args []string) error {
+func run(args []string) (runErr error) {
 	if len(args) > 0 && args[0] == "models" {
 		paths, err := config.ResolvePaths()
 		if err != nil {
 			return err
 		}
-		return runModels(args[1:], paths.Catalog, os.Stdout)
+		return withStorage(paths, func() error { return runModels(args[1:], paths.Catalog, os.Stdout) })
 	}
 	if len(args) == 1 && args[0] == "docs" {
 		paths, err := config.ResolvePaths()
 		if err != nil {
 			return err
 		}
-		dir, err := productdocs.Extract(paths.DataDir)
-		if err != nil {
-			return err
-		}
-		fmt.Println("Documentation extracted to: " + dir)
-		return nil
+		return withStorage(paths, func() error {
+			dir, err := productdocs.Extract(paths.DataDir)
+			if err != nil {
+				return err
+			}
+			fmt.Println("Documentation extracted to: " + dir)
+			return nil
+		})
 	}
 	resume := false
 	resumeID := ""
@@ -98,6 +104,11 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
+	guard, err := enterStorage(paths)
+	if err != nil {
+		return err
+	}
+	defer func() { runErr = errors.Join(runErr, guard.Close()) }()
 	cfg, err := config.Initialize(paths)
 	if err != nil {
 		return err
@@ -128,7 +139,7 @@ func run(args []string) error {
 	}
 	model := ui.New(cwd, paths.ConfigFile, runtime, historyStore, historyEntries)
 	program := tea.NewProgram(model)
-	_, runErr := program.Run()
+	_, uiErr := program.Run()
 	// Capture the session ID before closing the runtime; Close releases the
 	// store that owns the header.
 	sessionID := runtime.SessionID()
@@ -136,5 +147,22 @@ func run(args []string) error {
 	if !sessionID.IsZero() {
 		fmt.Fprintf(os.Stderr, "\nresume with: kon --resume %s\n", sessionID)
 	}
-	return errors.Join(runErr, closeErr)
+	return errors.Join(uiErr, closeErr)
+}
+
+func enterStorage(paths config.Paths) (*migrate.Guard, error) {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	return migrate.Enter(ctx, paths, migrations.Ordered(), func(message string) {
+		fmt.Fprintln(os.Stderr, "kon:", message)
+	})
+}
+
+func withStorage(paths config.Paths, work func() error) (err error) {
+	guard, err := enterStorage(paths)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, guard.Close()) }()
+	return work()
 }
