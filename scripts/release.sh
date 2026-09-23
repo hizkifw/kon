@@ -1,6 +1,9 @@
 #!/bin/sh
 set -eu
 
+# kon upgrade in every published release builds these asset names and parses
+# checksums.txt. Changing either breaks upgrades from those releases.
+
 if [ "$#" -ne 1 ]; then
   echo "usage: $0 vX.Y.Z" >&2
   exit 2

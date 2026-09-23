@@ -56,6 +56,10 @@ local directory. The files are ordinary Markdown, available offline. Each
 version gets its own directory, so renamed or removed pages from an older
 release do not appear in the path returned by the new release.
 
+`kon upgrade` replaces the binary with the latest verified GitHub release and
+then runs the new version's migrations. `kon upgrade --check` only reports.
+kon never checks for updates on startup.
+
 `kon models` lists bundled or cached model IDs offline. Run
 `kon models --refresh` to explicitly fetch the latest catalog from models.dev;
 kon never refreshes it on startup.

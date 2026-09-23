@@ -38,9 +38,9 @@ kon owns orchestration, persistence, and compaction.
 ## CLI surface
 
 `cmd/kon` owns startup wiring and CLI metadata. Each subcommand lives in its own
-file (`docs.go`, `models.go`) as a thin adapter: it parses its flags, resolves
-paths, and delegates the work to an `internal/` package that owns the logic
-(`docs/product`, `internal/catalog`). Subcommands register in one table in
+file (`docs.go`, `models.go`, `upgrade.go`) as a thin adapter: it parses its
+flags, resolves paths, and delegates the work to an `internal/` package that
+owns the logic (`docs/product`, `internal/catalog`, `internal/selfupdate`). Subcommands register in one table in
 `cli.go`; the root `--help` index is rendered from that table, so a new command
 cannot be accepted without also being documented in help.
 
@@ -81,9 +81,7 @@ gate exclusively to stop new instances, then takes the instances lock
 exclusively after the existing ones exit. An upgrade started by a running kon
 releases its own shared instance lock while it waits, and reacquires it before
 reopening the gate. Both lock files stay in the data directory and are never
-removed during migration. Help and version output do not access storage. A
-future internal updater can use the same exclusive lease for its cutover and
-invoke the new binary's migration code before reporting completion.
+removed during migration. Help and version output do not access storage.
 Releases from before this lock protocol cannot participate in it; they must
 be closed before the first upgrade that relies on these locks.
 See [migrations.md](migrations.md) for the upgrade contract and step authoring.
@@ -128,6 +126,31 @@ model context, so it stays at the top across messages and resumed sessions.
 Streaming deltas are accumulated immediately but
 viewport rebuilds are capped at 20 frames per second. The runner owns no
 terminal state, and the UI owns no provider or session serialization.
+
+## Self-upgrade
+
+`kon upgrade` is split between two binaries. The running (old) binary uses
+`internal/selfupdate` to find the latest release, download the platform
+archive, and check it against `checksums.txt`. It then stages the executable
+beside the target, runs it with `--version`, and renames it over the target
+(symlinks resolved). On Windows the running executable is renamed to
+`kon.exe.old` first; the next upgrade deletes it. The release source is a
+compile-time constant: there is no environment or flag override, because one
+would let the environment choose what kon installs over itself.
+
+The old binary never takes a storage lease. It hands off by running the
+installed binary as `kon upgrade --finalize`, which enters storage like any
+other command and so applies the new binary's migrations under the normal
+exclusive locks. It then refreshes the models.dev catalog cache, since a new
+release is a natural point to pick up new models; a refresh failure only
+warns, because the bundled snapshot remains usable. Finalize accepts no input from the old binary; the on-disk
+marker and its own registry decide what runs. If it fails, the next launch
+retries the same retry-safe steps, so the binary is never rolled back.
+
+The old binary relies on three things in every later release: the asset names
+and checksum format written by `scripts/release.sh`, `--version` printing
+`kon <tag>`, and `upgrade --finalize` being accepted with no other arguments.
+Changing any of them breaks upgrades from earlier releases.
 
 ## Network identity
 

@@ -48,6 +48,7 @@ Each package owns one boundary. Do not reach across them.
 | `internal/config` | paths, defaults, validation, credentials | runtime mutation |
 | `internal/contextfiles` | AGENTS.md/CLAUDE.md discovery up the directory tree | prompt assembly |
 | `internal/history` | bounded prompt recall | conversation context |
+| `internal/selfupdate` | release lookup, verified download, and executable replacement | storage migrations or CLI parsing |
 
 The app runtime is the sole owner of the live store and runner. The runner owns
 no terminal state; the UI owns no provider or session serialization.

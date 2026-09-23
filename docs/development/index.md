@@ -44,6 +44,7 @@ XDG_CONFIG_HOME="$(mktemp -d)" XDG_DATA_HOME="$(mktemp -d)" go run ./cmd/kon
 | `internal/config` | paths, defaults, validation, credentials | runtime mutation |
 | `internal/contextfiles` | AGENTS.md/CLAUDE.md discovery up the directory tree | prompt assembly |
 | `internal/history` | bounded prompt recall | conversation context |
+| `internal/selfupdate` | release lookup, verified download, and executable replacement | storage migrations or CLI parsing |
 
 Known structural debt and the planned restructuring order are tracked in
 [architecture-review.md](architecture-review.md).

@@ -72,6 +72,11 @@ Every command that accesses durable state holds a shared `instances.lock` for
 its lifetime. Startup briefly holds a shared `upgrade.gate.lock` while joining
 the active instances. A migration takes the gate exclusively to stop new
 instances, then waits for an exclusive instances lock before changing files.
-This work completes before the TUI opens. Keep lock acquisition and version
+This work completes before the TUI opens. After `kon upgrade` replaces the
+executable, it runs the new binary as `kon upgrade --finalize`, which enters
+storage and then refreshes the model catalog, so pending steps run during the
+upgrade instead of on the next launch. The upgrading process holds no lease while it waits, and
+finalize takes no arguments: steps must derive everything from the files on
+disk. Keep lock acquisition and version
 tracking in `internal/migrate`; concrete steps belong in
 `internal/migrations`.

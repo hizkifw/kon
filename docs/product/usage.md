@@ -31,6 +31,22 @@ Type `/` at the start of the prompt to see the available commands.
 These are in-app commands. For the command-line surface, run `kon --help` to see
 the available subcommands; `kon <command> --help` prints the flags for one.
 
+## Upgrading
+
+`kon upgrade` installs the latest GitHub release over the running executable.
+It verifies the archive against the release checksums and runs the new binary
+once before replacing anything, so a failed download leaves the current kon in
+place. The new binary then applies any pending storage migrations, waiting for
+other kon instances to exit first, and refreshes the model catalog as
+`kon models --refresh` would. An offline refresh only warns. `kon upgrade --check` only reports whether a
+newer release exists.
+
+The release source is fixed and cannot be overridden. kon never checks for
+updates on its own. Builds from source (`go run`, `go install`) report version
+`dev` and cannot self-upgrade; reinstall them the same way instead. If the
+executable's directory is not writable, rerun the installer or fix the
+directory's permissions rather than running kon as root.
+
 ## Keys
 
 | Key | Action |

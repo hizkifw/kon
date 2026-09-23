@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -75,5 +77,74 @@ func TestCommandHelp(t *testing.T) {
 		if err := run([]string{cmd.name, "--help"}); err != nil {
 			t.Fatalf("%s --help: %v", cmd.name, err)
 		}
+	}
+}
+
+// stubCatalogRefresh replaces the models.dev refresh for one test and records
+// the cache path it was asked to write.
+func stubCatalogRefresh(t *testing.T, err error) *string {
+	t.Helper()
+	var cachePath string
+	original := refreshCatalog
+	refreshCatalog = func(_ context.Context, path string) error {
+		cachePath = path
+		return err
+	}
+	t.Cleanup(func() { refreshCatalog = original })
+	return &cachePath
+}
+
+// TestUpgradeFinalizeMigratesStorage checks the entrypoint earlier releases
+// invoke on their replacement: it must accept no input, bring storage to this
+// binary's version, and refresh the catalog cache in the data directory.
+func TestUpgradeFinalizeMigratesStorage(t *testing.T) {
+	configHome := t.TempDir()
+	dataHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	t.Setenv("XDG_DATA_HOME", dataHome)
+	refreshed := stubCatalogRefresh(t, nil)
+	if err := run([]string{"upgrade", "--finalize"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dataHome, "kon", "storage-version")); err != nil {
+		t.Fatalf("finalize did not record a storage version: %v", err)
+	}
+	if !strings.HasPrefix(*refreshed, filepath.Join(dataHome, "kon")) {
+		t.Fatalf("catalog refresh path = %q, want one under the data directory", *refreshed)
+	}
+	if _, err := os.Stat(filepath.Join(configHome, "kon", "config.json")); !os.IsNotExist(err) {
+		t.Fatalf("finalize initialized config: %v", err)
+	}
+}
+
+// TestUpgradeFinalizeToleratesRefreshFailure keeps an offline upgrade
+// successful: the binary is installed and migrated before the refresh runs.
+func TestUpgradeFinalizeToleratesRefreshFailure(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	stubCatalogRefresh(t, errors.New("offline"))
+	if err := run([]string{"upgrade", "--finalize"}); err != nil {
+		t.Fatalf("finalize failed on a refresh error: %v", err)
+	}
+}
+
+func TestUpgradeRejectsArguments(t *testing.T) {
+	for _, args := range [][]string{
+		{"upgrade", "--finalize", "v0.1.0"},
+		{"upgrade", "--check", "--finalize"},
+		{"upgrade", "--from=v0.1.0"},
+	} {
+		if err := run(args); err == nil {
+			t.Fatalf("run(%q) succeeded, want an error", args)
+		}
+	}
+}
+
+// TestUpgradeRefusesDevelopmentBuild runs before any network request: a
+// source build has no release version to compare against.
+func TestUpgradeRefusesDevelopmentBuild(t *testing.T) {
+	err := run([]string{"upgrade", "--check"})
+	if err == nil || !strings.Contains(err.Error(), "development build") {
+		t.Fatalf("error = %v, want a development build refusal", err)
 	}
 }
