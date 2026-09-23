@@ -33,6 +33,7 @@ XDG_CONFIG_HOME="$(mktemp -d)" XDG_DATA_HOME="$(mktemp -d)" go run ./cmd/kon
 | `internal/app` | live runner/store lifecycle and model switching | terminal presentation |
 | `internal/agent` | model/tool loop and compaction policy | terminal rendering |
 | `internal/provider` | provider `Model` backends and durable-message conversion | session policy |
+| `internal/catalog` | bundled model metadata and local refresh cache | provider requests or configuration writes |
 | `internal/session` | domain messages and append-only context tree | provider requests |
 | `internal/tools` | tool registry, bounded tool schemas and execution | agent orchestration |
 | `internal/typedid` | identifier construction and parsing | storage or provider policy |
@@ -75,10 +76,15 @@ explicit reader migration or bump the schema version; never guess.
 
 ## Release artifacts
 
+The bundled models.dev snapshot is committed at `internal/catalog/snapshot.json.gz`.
+Run `make catalog-update` to fetch and validate a new snapshot, then review and
+commit the generated file. Ordinary builds, tests, and releases use that file
+and do not need network access or a JavaScript toolchain.
+
 `scripts/release.sh VERSION` cross-builds every target and writes `dist/`:
 
 ```text
-kon_<version>_<os>_<arch>.tar.gz   linux and darwin, containing kon/, README, LICENSE
+kon_<version>_<os>_<arch>.tar.gz   linux and darwin, containing kon/, README, LICENSE, THIRD_PARTY_NOTICES
 kon_<version>_<os>_<arch>.zip      windows, same contents with kon.exe
 checksums.txt                      sha256 of every archive
 ```

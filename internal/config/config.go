@@ -72,6 +72,7 @@ type Paths struct {
 	DataDir    string
 	Sessions   string
 	History    string
+	Catalog    string
 }
 
 func ResolvePaths() (Paths, error) {
@@ -95,7 +96,11 @@ func ResolvePaths() (Paths, error) {
 		dataRoot = filepath.Join(home, ".local", "share")
 	}
 	configDir, dataDir := filepath.Join(configRoot, "kon"), filepath.Join(dataRoot, "kon")
-	return Paths{configDir, filepath.Join(configDir, filename), dataDir, filepath.Join(dataDir, "sessions"), filepath.Join(dataDir, "history.jsonl")}, nil
+	return Paths{
+		ConfigDir: configDir, ConfigFile: filepath.Join(configDir, filename),
+		DataDir: dataDir, Sessions: filepath.Join(dataDir, "sessions"),
+		History: filepath.Join(dataDir, "history.jsonl"), Catalog: filepath.Join(dataDir, "models.json.gz"),
+	}, nil
 }
 
 func Initialize(paths Paths) (Config, error) {

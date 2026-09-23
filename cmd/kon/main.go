@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -9,6 +10,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/hizkifw/kon/internal/app"
+	"github.com/hizkifw/kon/internal/catalog"
 	"github.com/hizkifw/kon/internal/config"
 	"github.com/hizkifw/kon/internal/history"
 	"github.com/hizkifw/kon/internal/typedid"
@@ -89,6 +91,10 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
+	catalogService, err := catalog.New(paths.Catalog)
+	if err != nil {
+		return err
+	}
 
 	var runtime *app.Runtime
 	switch {
@@ -102,6 +108,9 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
+	catalogCtx, stopCatalog := context.WithCancel(context.Background())
+	defer stopCatalog()
+	catalogService.Start(catalogCtx)
 	model := ui.New(cwd, paths.ConfigFile, runtime, historyStore, historyEntries)
 	program := tea.NewProgram(model)
 	_, runErr := program.Run()

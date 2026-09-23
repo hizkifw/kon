@@ -75,6 +75,23 @@ Streaming deltas are accumulated immediately but
 viewport rebuilds are capped at 20 frames per second. The runner owns no
 terminal state, and the UI owns no provider or session serialization.
 
+## Model catalog
+
+`internal/catalog` embeds a timestamped models.dev snapshot in the binary. Its
+read methods return provider and model metadata immediately. The CLI loads a
+valid compressed cache from the data directory when it is newer than the
+bundled snapshot, then starts a background refresh when the selected snapshot
+is at least 24 hours old. Refreshes use the upstream ETag, validate the whole
+response, and atomically replace the cache before publishing a new in-memory
+snapshot. An invalid cache or failed network request leaves the previous
+snapshot available. The cache is metadata only; configured models and session
+records are never rewritten by a catalog refresh.
+
+Catalog provider IDs and AI SDK package names describe upstream metadata.
+`internal/provider` remains responsible for deciding which wire formats kon
+can call. A catalog model may therefore be visible even when its provider is
+not yet supported by kon.
+
 ## Context
 
 The session store resolves context by following `parent_id` from the active leaf

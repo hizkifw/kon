@@ -35,7 +35,7 @@ for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 wi
     echo "$target binary is larger than 10 MiB ($size bytes)" >&2
     exit 1
   fi
-  cp "$root/README.md" "$root/LICENSE" "$dir/"
+  cp "$root/README.md" "$root/LICENSE" "$root/THIRD_PARTY_NOTICES" "$dir/"
   if [ "$os" = windows ]; then
     (cd "$stage" && zip -qr "$dist/$name.zip" "$name")
   else
