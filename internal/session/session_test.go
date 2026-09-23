@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -795,17 +796,36 @@ func TestImagePartRoundTripsThroughPersistence(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := store.Path()
-	uri := "data:image/png;base64,aGVsbG8="
+	image := []byte("hello")
+	part, err := store.SaveImage(image, "image/png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := store.SaveImage(image, "image/png")
+	if err != nil || again.ImageHash != part.ImageHash {
+		t.Fatalf("deduplicated image = %#v, %v", again, err)
+	}
 	if _, err := store.AppendMessage(Message{Role: RoleUser, Parts: []Part{{Type: PartText, Text: "look"}}}); err != nil {
 		t.Fatal(err)
 	}
 	imageResult := ToolResultMessage("call-1", "read", "loaded image")
-	imageResult.Parts = append(imageResult.Parts, Part{Type: PartImage, Text: uri})
+	imageResult.Parts = append(imageResult.Parts, part)
 	if _, err := store.AppendMessage(imageResult); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
+	}
+	line, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(line), "aGVsbG8=") || strings.Contains(string(line), "data:image") {
+		t.Fatal("image bytes were written into the JSONL")
+	}
+	blobs, err := os.ReadDir(path + ".blobs")
+	if err != nil || len(blobs) != 1 {
+		t.Fatalf("blob files = %v, %v", blobs, err)
 	}
 	reopened, err := Open(path)
 	if err != nil {
@@ -821,12 +841,25 @@ func TestImagePartRoundTripsThroughPersistence(t *testing.T) {
 		if item.Message.Role != RoleTool {
 			continue
 		}
-		if len(item.Message.Parts) != 2 || item.Message.Parts[1].Type != PartImage || item.Message.Parts[1].Text != uri {
+		if len(item.Message.Parts) != 2 || item.Message.Parts[1].Type != PartImage || item.Message.Parts[1].ImageHash != part.ImageHash || item.Message.Parts[1].ImageMIME != "image/png" {
 			t.Fatalf("tool parts = %#v", item.Message.Parts)
+		}
+		loaded, err := reopened.ReadImage(item.Message.Parts[1].ImageHash)
+		if err != nil || string(loaded) != string(image) {
+			t.Fatalf("blob after reopen = %q, %v", loaded, err)
 		}
 		found = true
 	}
 	if !found {
 		t.Fatal("tool result was not persisted")
+	}
+	if err := os.WriteFile(filepath.Join(path+".blobs", part.ImageHash), []byte("changed"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reopened.ReadImage(part.ImageHash); err == nil {
+		t.Fatal("corrupted image blob was accepted")
+	}
+	if _, err := reopened.ReadImage("../other"); err == nil {
+		t.Fatal("invalid image hash was accepted")
 	}
 }

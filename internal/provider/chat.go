@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,11 +24,12 @@ import (
 // serves it under /v1. kon builds and parses every message itself: request
 // bodies, SSE events, tool-call deltas, and usage reports are all owned here.
 type chatModel struct {
-	client  *http.Client
-	baseURL string
-	apiKey  string
-	headers map[string]string
-	model   string
+	client    *http.Client
+	baseURL   string
+	apiKey    string
+	headers   map[string]string
+	model     string
+	readImage func(string) ([]byte, error)
 }
 
 const (
@@ -49,7 +51,7 @@ const maxBodySize = 64 << 20
 // cancels.
 const completeTimeout = 10 * time.Minute
 
-func newChatModel(profile config.Model) *chatModel {
+func newChatModel(profile config.Model, readImage func(string) ([]byte, error)) *chatModel {
 	baseURL := profile.BaseURL
 	switch profile.WireType() {
 	case "openai":
@@ -71,11 +73,12 @@ func newChatModel(profile config.Model) *chatModel {
 		}
 	}
 	return &chatModel{
-		client:  &http.Client{},
-		baseURL: baseURL,
-		apiKey:  profile.APIKey,
-		headers: profile.Headers,
-		model:   profile.ModelID,
+		client:    &http.Client{},
+		baseURL:   baseURL,
+		apiKey:    profile.APIKey,
+		headers:   profile.Headers,
+		model:     profile.ModelID,
+		readImage: readImage,
 	}
 }
 
@@ -123,16 +126,16 @@ type chatContentPart struct {
 // contentParts renders content for models that accept multimodal input: an
 // ordered list of text and image parts. It returns nil when the message holds
 // no image parts, so plain-text messages keep the compact string form.
-func contentParts(message session.Message) *[]chatContentPart {
+func contentParts(message session.Message, readImage func(string) ([]byte, error)) (*[]chatContentPart, error) {
 	hasImage := false
 	for _, part := range message.Parts {
-		if part.Type == session.PartImage && part.Text != "" {
+		if part.Type == session.PartImage {
 			hasImage = true
 			break
 		}
 	}
 	if !hasImage {
-		return nil
+		return nil, nil
 	}
 	parts := make([]chatContentPart, 0, len(message.Parts))
 	for _, part := range message.Parts {
@@ -141,14 +144,22 @@ func contentParts(message session.Message) *[]chatContentPart {
 			parts = append(parts, chatContentPart{Type: "text", Text: part.Text})
 		case part.Type == session.PartToolResult && part.ToolOutput != "":
 			parts = append(parts, chatContentPart{Type: "text", Text: part.ToolOutput})
-		case part.Type == session.PartImage && part.Text != "":
-			parts = append(parts, chatContentPart{Type: "image_url", ImageURL: &chatImageURL{URL: part.Text}})
+		case part.Type == session.PartImage:
+			if readImage == nil {
+				return nil, errors.New("image blob reader is unavailable")
+			}
+			data, err := readImage(part.ImageHash)
+			if err != nil {
+				return nil, fmt.Errorf("load image blob %s: %w", part.ImageHash, err)
+			}
+			uri := "data:" + part.ImageMIME + ";base64," + base64.StdEncoding.EncodeToString(data)
+			parts = append(parts, chatContentPart{Type: "image_url", ImageURL: &chatImageURL{URL: uri}})
 		}
 	}
 	if len(parts) == 0 {
-		return nil
+		return nil, nil
 	}
-	return &parts
+	return &parts, nil
 }
 
 type chatToolCall struct {
@@ -180,7 +191,7 @@ type chatToolFunction struct {
 // Persisted reasoning parts are deliberately not replayed: the format has no
 // standard field for reasoning and several compatible servers reject it, so
 // reasoning is display-only for this wire format.
-func toChatMessages(messages []session.Message) ([]chatMessage, error) {
+func toChatMessages(messages []session.Message, readImage func(string) ([]byte, error)) ([]chatMessage, error) {
 	out := make([]chatMessage, 0, len(messages))
 	for i, message := range messages {
 		switch message.Role {
@@ -189,7 +200,11 @@ func toChatMessages(messages []session.Message) ([]chatMessage, error) {
 			wire := chatMessage{Role: string(message.Role), Content: &text}
 			// Image parts are honored on user messages (and tool messages
 			// below); the system prompt is plain text by construction.
-			if parts := contentParts(message); parts != nil && message.Role == session.RoleUser {
+			parts, err := contentParts(message, readImage)
+			if err != nil {
+				return nil, err
+			}
+			if parts != nil && message.Role == session.RoleUser {
 				wire.Content = parts
 			}
 			out = append(out, wire)
@@ -223,7 +238,11 @@ func toChatMessages(messages []session.Message) ([]chatMessage, error) {
 			id, _ := message.ToolResult()
 			text := message.Text()
 			wire := chatMessage{Role: string(message.Role), ToolCallID: id.String()}
-			if parts := contentParts(message); parts != nil {
+			parts, err := contentParts(message, readImage)
+			if err != nil {
+				return nil, err
+			}
+			if parts != nil {
 				wire.Content = parts
 			} else {
 				wire.Content = &text
@@ -250,7 +269,7 @@ func toChatTools(tools []Tool) []chatTool {
 // Stream runs one streamed generation and forwards text and reasoning deltas
 // through emit as they arrive.
 func (m *chatModel) Stream(ctx context.Context, messages []session.Message, tools []Tool, emit func(Event)) (Response, error) {
-	wireMessages, err := toChatMessages(messages)
+	wireMessages, err := toChatMessages(messages, m.readImage)
 	if err != nil {
 		return Response{}, err
 	}
@@ -305,7 +324,7 @@ func (m *chatModel) stream(ctx context.Context, payload chatRequest, emit func(E
 // so it can reuse the provider's cached prefix, while the summary itself can
 // never become a tool call.
 func (m *chatModel) Complete(ctx context.Context, messages []session.Message, tools []Tool, maxTokens int) (Response, error) {
-	wireMessages, err := toChatMessages(messages)
+	wireMessages, err := toChatMessages(messages, m.readImage)
 	if err != nil {
 		return Response{}, err
 	}

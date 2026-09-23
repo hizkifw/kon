@@ -73,12 +73,12 @@ reader accepts v2 files.
 
 ### 5. Move images out of session lines
 
-- [ ] Content-addressed blob storage beside session files
+- [x] Content-addressed blob storage beside session files
 
-Images are stored as base64 `data:` URIs inside JSONL lines. Every screenshot
-permanently inflates the file, stays resident in `Store.entries`, and makes
-`session.Open` parse megabytes. Store blobs by hash in a sibling directory and
-keep only the hash (and MIME type) in the part.
+Images now live in content-addressed files beside each session. Parts persist
+only the SHA-256 hash and MIME type; duplicate bytes share one blob, and the
+provider reads and verifies the blob only when building a vision request.
+The v3 reader rejects earlier session formats.
 
 ### 6. Rename the wire-format field in model-change entries
 

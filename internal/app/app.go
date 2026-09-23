@@ -106,7 +106,7 @@ func start(cfg config.Config, paths config.Paths, cwd, version string, resume bo
 	}
 	r.openSession = session.Open
 	r.createRunner = func(profile config.Model, store *session.Store) (*agent.Runner, error) {
-		client, err := provider.New(profile)
+		client, err := provider.New(profile, store.ReadImage)
 		if err != nil {
 			return nil, err
 		}
@@ -494,7 +494,7 @@ func (r *Runtime) openStore(path string) (*session.Store, *agent.Runner, error, 
 	if problem := r.active.Ready(); problem != nil {
 		return store, nil, problem, nil
 	}
-	client, err := provider.New(r.active)
+	client, err := provider.New(r.active, store.ReadImage)
 	if err != nil {
 		_ = store.Close()
 		return nil, nil, nil, err

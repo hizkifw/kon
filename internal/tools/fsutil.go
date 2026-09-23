@@ -2,7 +2,6 @@ package tools
 
 import (
 	"bytes"
-	"encoding/base64"
 	"fmt"
 	"io"
 	"os"
@@ -81,20 +80,6 @@ func detectUnsendableImageMIME(b []byte) (mime, format string) {
 	default:
 		return "", ""
 	}
-}
-
-// EncodeImages converts tool image attachments into base64 data URIs for
-// session persistence. Each value is self-describing, so the provider mapping
-// and session readers need no side table.
-func EncodeImages(images []Image) []string {
-	if len(images) == 0 {
-		return nil
-	}
-	uris := make([]string, 0, len(images))
-	for _, image := range images {
-		uris = append(uris, fmt.Sprintf("data:%s;base64,%s", image.MIME, base64.StdEncoding.EncodeToString(image.Data)))
-	}
-	return uris
 }
 
 // headTailWriter keeps the first and last limit bytes of everything written to

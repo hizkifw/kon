@@ -436,7 +436,7 @@ func TestToChatMessagesSkipsEmptyContent(t *testing.T) {
 		session.TextMessage(session.RoleUser, "hi"),
 		{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartToolCall, ToolCallID: "1", ToolName: "read", ToolInput: json.RawMessage(`{}`)}}},
 		session.ToolResultMessage("1", "read", ""),
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -455,7 +455,7 @@ func TestToChatMessagesSkipsEmptyContent(t *testing.T) {
 func TestToChatMessagesRejectsUnknownRole(t *testing.T) {
 	// A role this wire format cannot send must fail the request instead of
 	// silently truncating the conversation.
-	if _, err := toChatMessages([]session.Message{session.TextMessage("hyper", "hi")}); err == nil {
+	if _, err := toChatMessages([]session.Message{session.TextMessage("hyper", "hi")}, nil); err == nil {
 		t.Fatal("unknown role was accepted")
 	}
 }

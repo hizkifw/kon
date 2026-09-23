@@ -129,8 +129,12 @@ func TestRunPersistsImagePartsFromRead(t *testing.T) {
 	if tool == nil {
 		t.Fatal("no tool result was persisted")
 	}
-	if len(tool.Parts) != 2 || tool.Parts[1].Type != session.PartImage || !strings.HasPrefix(tool.Parts[1].Text, "data:image/png;base64,") {
+	if len(tool.Parts) != 2 || tool.Parts[1].Type != session.PartImage || tool.Parts[1].ImageMIME != "image/png" || tool.Parts[1].ImageHash == "" || tool.Parts[1].Text != "" {
 		t.Fatalf("tool parts = %#v", tool.Parts)
+	}
+	data, err := store.ReadImage(tool.Parts[1].ImageHash)
+	if err != nil || string(data) != string(pngHeader) {
+		t.Fatalf("stored image = %x, %v", data, err)
 	}
 	if tool.Text() == "" || strings.Contains(tool.Text(), "base64") {
 		t.Fatalf("tool content should describe, not inline, the image: %q", tool.Text())

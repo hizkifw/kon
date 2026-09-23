@@ -254,11 +254,14 @@ func (r *Runner) Run(ctx context.Context, prompt string, emit func(Event)) error
 			result, isError := r.tools.Execute(ctx, call.Function.Name, call.Function.Arguments, report)
 			message := session.ToolResultMessage(call.ID, call.Function.Name, result.Content)
 			message.IsError, message.Details = isError, result.Details
-			// Image attachments ride along as parts. They persist for exact
-			// replay and convert to wire image content for vision models; a
-			// non-vision mapping ignores them and the text stands alone.
-			for _, uri := range tools.EncodeImages(result.Images) {
-				message.Parts = append(message.Parts, session.Part{Type: session.PartImage, Text: uri})
+			// Image bytes are stored beside the session before the result
+			// references them; only their hashes stay in the context tree.
+			for _, image := range result.Images {
+				part, err := r.session.SaveImage(image.Data, image.MIME)
+				if err != nil {
+					return err
+				}
+				message.Parts = append(message.Parts, part)
 			}
 			if _, err := r.session.AppendMessage(message); err != nil {
 				return err

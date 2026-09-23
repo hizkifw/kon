@@ -6,11 +6,11 @@ object. The first line is a header; later lines form an append-only tree.
 ## Header
 
 ```json
-{"type":"session","version":2,"id":"ses_7Yk2mP9Qa4Zx8Vc1Nd6R","app_version":"v0.1.0","timestamp":"2026-09-21T08:00:00Z","cwd":"/work/project"}
+{"type":"session","version":3,"id":"ses_7Yk2mP9Qa4Zx8Vc1Nd6R","app_version":"v0.1.0","timestamp":"2026-09-21T08:00:00Z","cwd":"/work/project"}
 ```
 
 The schema version governs the file representation. Readers accept only version
-2; version 1 used duplicate content fields and is not migrated.
+3; earlier versions are not migrated.
 
 ## Entry envelope
 
@@ -23,7 +23,7 @@ Every entry has these fields:
 `parent_id` is `null` for the root system message. Session IDs use the `ses_`
 prefix and entry IDs use `ent_`, followed by 20 cryptographically random base62
 characters. A child may point to any earlier entry, so future rewind can append
-a new branch without modifying old lines. The active leaf in v2 is the final
+a new branch without modifying old lines. The active leaf in v3 is the final
 valid entry.
 
 Prefix and alphabet validation happens during JSON decoding. A session ID cannot
@@ -45,9 +45,12 @@ The `message` object uses provider-neutral roles while keeping provider metadata
 
 Assistant tool calls are `tool_call` parts with opaque IDs and JSON arguments.
 The `parts` array is the sole content source and preserves reasoning blocks,
-tool calls, text, and provider-owned metadata in order. An `image` part holds one
-base64 `data:` URI in `text` — an image attached to a tool result by the read
-tool for models configured with vision; text-only mappings skip it.
+tool calls, text, and provider-owned metadata in order. An `image` part holds
+`image_hash` (a lowercase SHA-256 digest) and `image_mime`. Its bytes live in a
+file named by the hash inside `<session.jsonl>.blobs/`; the JSONL contains no
+base64 image data. Equal bytes in one session share a blob. The provider
+verifies and loads blobs when it builds a vision request; text-only results
+carry no image part.
 
 Tool results may include `is_error: true` and a tool-owned `details` object.
 Shell details record `exit_code`, `duration`, and `output_bytes` (the byte

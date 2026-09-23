@@ -2,6 +2,7 @@ package provider
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -10,14 +11,15 @@ import (
 
 func TestToChatMessagesMapsImagePartsOnToolResults(t *testing.T) {
 	dataURI := "data:image/png;base64,aGVsbG8="
+	const hash = "0000000000000000000000000000000000000000000000000000000000000000"
 	messages, err := toChatMessages([]session.Message{
 		session.TextMessage(session.RoleUser, "look"),
 		{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartToolCall, ToolCallID: "1", ToolName: "read", ToolInput: json.RawMessage(`{"path":"p.png"}`)}}},
 		{
 			Role:  session.RoleTool,
-			Parts: []session.Part{{Type: session.PartToolResult, ToolCallID: "1", ToolName: "read", ToolOutput: "loaded image p.png"}, {Type: session.PartImage, Text: dataURI}},
+			Parts: []session.Part{{Type: session.PartToolResult, ToolCallID: "1", ToolName: "read", ToolOutput: "loaded image p.png"}, {Type: session.PartImage, ImageHash: hash, ImageMIME: "image/png"}},
 		},
-	})
+	}, func(string) ([]byte, error) { return []byte("hello"), nil })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,10 +42,21 @@ func TestToChatMessagesMapsImagePartsOnToolResults(t *testing.T) {
 	}
 }
 
+func TestToChatMessagesReportsMissingImageBlob(t *testing.T) {
+	message := session.Message{Role: session.RoleTool, Parts: []session.Part{
+		{Type: session.PartToolResult, ToolCallID: "1", ToolName: "read", ToolOutput: "loaded"},
+		{Type: session.PartImage, ImageHash: "0000000000000000000000000000000000000000000000000000000000000000", ImageMIME: "image/png"},
+	}}
+	_, err := toChatMessages([]session.Message{message}, func(string) ([]byte, error) { return nil, errors.New("missing") })
+	if err == nil || !strings.Contains(err.Error(), "missing") {
+		t.Fatalf("missing blob error = %v", err)
+	}
+}
+
 func TestToChatMessagesIgnoresNonImageParts(t *testing.T) {
 	messages, err := toChatMessages([]session.Message{
 		{Role: session.RoleTool, Parts: []session.Part{{Type: session.PartToolResult, ToolCallID: "1", ToolName: "shell", ToolOutput: "done"}, {Type: session.PartReasoning, Text: "thoughts"}}},
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +68,7 @@ func TestToChatMessagesIgnoresNonImageParts(t *testing.T) {
 func TestToChatMessagesToolWithoutPartsKeepsString(t *testing.T) {
 	messages, err := toChatMessages([]session.Message{
 		session.ToolResultMessage("1", "shell", "done"),
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,9 +80,10 @@ func TestToChatMessagesToolWithoutPartsKeepsString(t *testing.T) {
 
 func TestToChatMessagesEncodesImagePartsOnTheWire(t *testing.T) {
 	// The encoded JSON must match the chat-completions multimodal shape.
+	const hash = "0000000000000000000000000000000000000000000000000000000000000000"
 	messages, err := toChatMessages([]session.Message{
-		{Role: session.RoleTool, Parts: []session.Part{{Type: session.PartToolResult, ToolCallID: "1", ToolName: "read", ToolOutput: "loaded"}, {Type: session.PartImage, Text: "data:image/png;base64,AAA="}}},
-	})
+		{Role: session.RoleTool, Parts: []session.Part{{Type: session.PartToolResult, ToolCallID: "1", ToolName: "read", ToolOutput: "loaded"}, {Type: session.PartImage, ImageHash: hash, ImageMIME: "image/png"}}},
+	}, func(string) ([]byte, error) { return []byte{0}, nil })
 	if err != nil {
 		t.Fatal(err)
 	}

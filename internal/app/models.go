@@ -101,7 +101,7 @@ func (r *Runtime) resolveActive() error {
 	if !ok {
 		return nil
 	}
-	client, err := provider.New(profile)
+	client, err := provider.New(profile, r.store.ReadImage)
 	if err != nil {
 		return err
 	}
@@ -257,7 +257,7 @@ func (r *Runtime) Login(ctx context.Context, connection config.Provider) (int, b
 	if r.store != nil && r.active.Name != "" {
 		if profile, ok := r.resolveModel(r.active.Name); ok {
 			if profile.Ready() == nil {
-				client, err := provider.New(profile)
+				client, err := provider.New(profile, r.store.ReadImage)
 				if err == nil {
 					r.active = profile
 					r.runner = agent.New(profile, r.config.Compaction, client, r.store, tools.New(r.cwd, profile.Vision))

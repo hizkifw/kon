@@ -18,7 +18,7 @@ import (
 	"github.com/hizkifw/kon/internal/typedid"
 )
 
-const SchemaVersion = 2
+const SchemaVersion = 3
 
 // fileSuffix ends every persisted session file. Names begin with a fixed-width
 // UTC timestamp, so lexical order is creation order.
@@ -88,10 +88,12 @@ type Part struct {
 	ToolName        string             `json:"tool_name,omitempty"`
 	ToolInput       json.RawMessage    `json:"tool_input,omitempty"`
 	ToolOutput      string             `json:"tool_output,omitempty"`
+	ImageHash       string             `json:"image_hash,omitempty"`
+	ImageMIME       string             `json:"image_mime,omitempty"`
 	ProviderOptions json.RawMessage    `json:"provider_options,omitempty"`
 }
 
-// Content part types. An image part holds base64-encoded bytes in Text.
+// Content part types. An image part references bytes beside the session file.
 const (
 	PartReasoning  = "reasoning"
 	PartText       = "text"
@@ -197,6 +199,11 @@ func (m Message) Validate() error {
 		}
 	default:
 		return fmt.Errorf("unknown message role %q", m.Role)
+	}
+	for _, part := range m.Parts {
+		if part.Type == PartImage && (part.Text != "" || !validImageHash(part.ImageHash) || part.ImageMIME == "") {
+			return errors.New("image part requires a blob hash and MIME type")
+		}
 	}
 	return nil
 }
@@ -468,7 +475,7 @@ type parsedSession struct {
 	repairOffset int64 // byte length of the valid prefix, or -1 when the file is intact
 }
 
-// leafID is the final entry's ID, which is the active leaf in v1.
+// leafID is the final entry's ID, which is the active leaf in v3.
 func (p parsedSession) leafID() *typedid.EntryID {
 	if len(p.entries) == 0 {
 		return nil
@@ -749,6 +756,9 @@ func (s *Store) Close() error {
 	if s.empty {
 		if removeErr := os.Remove(s.path); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
 			err = errors.Join(err, fmt.Errorf("discard empty session: %w", removeErr))
+		}
+		if removeErr := os.RemoveAll(s.blobDir()); removeErr != nil {
+			err = errors.Join(err, fmt.Errorf("discard empty session blobs: %w", removeErr))
 		}
 	}
 	return errors.Join(err, closeErr)

@@ -36,11 +36,11 @@ type Client struct {
 func (c *Client) ModelID() typedid.ModelID { return c.modelID }
 
 // New builds the client for a configured model profile.
-func New(profile config.Model) (*Client, error) {
+func New(profile config.Model, readImage func(string) ([]byte, error)) (*Client, error) {
 	if err := profile.Ready(); err != nil {
 		return nil, err
 	}
-	model, err := newModel(profile)
+	model, err := newModel(profile, readImage)
 	if err != nil {
 		return nil, err
 	}
@@ -49,10 +49,10 @@ func New(profile config.Model) (*Client, error) {
 
 // newModel builds the backend for a profile. Add a case when a new wire
 // format lands.
-func newModel(profile config.Model) (Model, error) {
+func newModel(profile config.Model, readImage func(string) ([]byte, error)) (Model, error) {
 	switch profile.WireType() {
 	case "openai", "openai-compatible", "openrouter", "ollama":
-		return newChatModel(profile), nil
+		return newChatModel(profile, readImage), nil
 	default:
 		return nil, fmt.Errorf("unsupported type %q", profile.WireType())
 	}
