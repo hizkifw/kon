@@ -116,7 +116,11 @@ it once, leaving the executable uncompressed for subsequent launches.
 exactly that layout: they resolve the tag from the `/releases/latest` redirect
 or the `releases/latest` API, download the matching archive plus `checksums.txt`
 from `/releases/download/<tag>/`, verify the hash, extract, and place the binary
-on `PATH`. Both are self-contained, so they can be piped from `raw.githubusercontent.com`
+on `PATH`. Both then run the installed binary as `kon upgrade --finalize`, which
+applies any pending storage migrations and refreshes the model catalog, so the
+first launch starts clean. A finalize failure only warns: migrations are
+retry-safe and run again at next startup. Both are self-contained, so they can
+be piped from `raw.githubusercontent.com`
 straight into `sh` or `iex`.
 The PowerShell installer selects the Windows archive from `RuntimeInformation`
 when available, then falls back to the host and process architecture environment

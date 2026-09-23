@@ -75,7 +75,10 @@ instances, then waits for an exclusive instances lock before changing files.
 This work completes before the TUI opens. After `kon upgrade` replaces the
 executable, it runs the new binary as `kon upgrade --finalize`, which enters
 storage and then refreshes the model catalog, so pending steps run during the
-upgrade instead of on the next launch. The upgrading process holds no lease while it waits, and
+upgrade instead of on the next launch. The release installers (`scripts/install.sh`
+and `scripts/install.ps1`) invoke the same subcommand after placing the binary,
+so a fresh install migrates and refreshes before the first launch. The upgrading
+process holds no lease while it waits, and
 finalize takes no arguments: steps must derive everything from the files on
 disk. Keep lock acquisition and version
 tracking in `internal/migrate`; concrete steps belong in

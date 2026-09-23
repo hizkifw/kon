@@ -76,6 +76,11 @@ try {
   Copy-Item -Path (Join-Path $tmp "$name\kon.exe") -Destination $binary -Force
 
   Write-Host "installed kon $version to $binary"
+
+  & $binary upgrade --finalize
+  if ($LASTEXITCODE -ne 0) {
+    Write-Warning "finishing install failed; run `"$binary`" upgrade --finalize to retry"
+  }
 } finally {
   Remove-Item -Path $tmp -Recurse -Force -ErrorAction SilentlyContinue
 }

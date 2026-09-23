@@ -94,6 +94,11 @@ cp "$tmp/$name/kon" "$install_dir/kon"
 chmod 0755 "$install_dir/kon"
 
 printf 'installed kon %s to %s\n' "$version" "$install_dir/kon" >&2
+
+"$install_dir/kon" upgrade --finalize ||
+  printf 'kon: warning: finishing install failed; "%s" upgrade --finalize will retry\n' \
+    "$install_dir/kon" >&2
+
 case ":${PATH:-}:" in
   *":$install_dir:"*) ;;
   *)
