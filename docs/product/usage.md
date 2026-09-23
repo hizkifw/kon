@@ -41,7 +41,7 @@ Type `/` at the start of the prompt to see the available commands.
 | Page Up/Page Down | Scroll the transcript |
 | Mouse wheel | Scroll the transcript |
 | Ctrl+C | Cancel active work, or exit while idle |
-| Ctrl+D | Quit when the input is empty |
+| Ctrl+D | Quit when the input is empty, cancelling active work first |
 
 The status bar shows the working directory, context usage, and a status
 message; the header shows the active model. `ctx ~12.4k/128k` means usage is

@@ -901,9 +901,15 @@ func TestEnterWithoutBackslashSubmits(t *testing.T) {
 
 func TestCtrlDQuitsOnEmptyInput(t *testing.T) {
 	model := newTestModel(t)
+	canceled := false
+	model.busy = true
+	model.runCancel = func() { canceled = true }
 	_, cmd, handled := model.handleKey("ctrl+d")
 	if !handled || cmd == nil {
 		t.Fatal("ctrl+d on empty input was not handled")
+	}
+	if !canceled {
+		t.Fatal("ctrl+d did not cancel the active run")
 	}
 	if _, ok := cmd().(tea.QuitMsg); !ok {
 		t.Fatal("ctrl+d on empty input did not quit")
@@ -915,6 +921,50 @@ func TestCtrlDQuitsOnEmptyInput(t *testing.T) {
 	model.input.SetValue("hello")
 	if _, _, handled := model.handleKey("ctrl+d"); handled {
 		t.Fatal("ctrl+d with text was swallowed")
+	}
+}
+
+func TestRunForwardingStopsWhenEventsAreNoLongerRead(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		run  func(context.Context, func(agent.Event), chan<- struct{}) error
+	}{
+		{
+			name: "event send",
+			run: func(_ context.Context, emit func(agent.Event), started chan<- struct{}) error {
+				close(started)
+				emit(agent.Event{Kind: agent.EventText, Text: "hello"})
+				return nil
+			},
+		},
+		{
+			name: "completion send",
+			run: func(_ context.Context, _ func(agent.Event), started chan<- struct{}) error {
+				close(started)
+				return nil
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			events := make(chan tea.Msg)
+			finished := make(chan struct{})
+			started := make(chan struct{})
+			go func() {
+				runAndForward(ctx, events, func(ctx context.Context, emit func(agent.Event)) error {
+					return tc.run(ctx, emit, started)
+				})
+				close(finished)
+			}()
+			<-started
+			cancel()
+			select {
+			case <-finished:
+			case <-time.After(time.Second):
+				t.Fatal("run forwarding blocked after cancellation")
+			}
+		})
 	}
 }
 

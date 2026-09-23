@@ -36,19 +36,18 @@ still has none.
 
 ### 2. Quitting mid-run can hang kon on exit
 
-- [ ] Make `emit` non-blocking once the run is abandoned
+- [x] Make `emit` non-blocking once the run is abandoned
 
-Traced from code, not yet reproduced. `internal/ui/model.go:537` sends agent
-events on an unbuffered channel. `ctrl+d` quits even while a run is busy
-(`model.go:281`), after which nothing reads that channel. The shell tool's
-reporter goroutine then blocks on its send, `shell.go:252` waits for that
-goroutine forever, and `app.Runtime.Close` waits forever for the run. A
-streaming text delta can block the same way, because `decodeChatStream` calls
-`emit` synchronously and never gets back to observe cancellation.
-`tools.Env.report` documents "must not block", but nothing guarantees it.
+The original path sent agent events on an unbuffered channel. Ctrl+D could
+quit during a run, leaving no reader. The shell tool's reporter could then
+block on its send, holding up the shell result and `app.Runtime.Close`.
+Streaming text deltas could block at the same sink. Regression tests cover
+abandoned event and completion sends.
 
-Fix: have the event sink select on the run's context or a done channel so an
-abandoned run drops events instead of blocking.
+Fixed: Ctrl+D cancels the active run before quitting. Both agent events and
+the final completion message select on the run's context, so abandoned sends
+cannot hold the runner open after cancellation. A closed event channel after
+cancellation is treated as an interrupted run.
 
 ### 3. Tool outcome is not persisted; display parses model-facing text
 

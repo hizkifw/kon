@@ -280,6 +280,9 @@ func (m Model) handleKey(key string) (tea.Model, tea.Cmd, bool) {
 		return m, tea.Quit, true
 	case "ctrl+d":
 		if strings.TrimSpace(m.input.Value()) == "" {
+			if m.runCancel != nil {
+				m.runCancel()
+			}
 			return m, tea.Quit, true
 		}
 		return m, nil, false
@@ -533,19 +536,29 @@ func (m Model) startRun(status string, fn func(context.Context, func(agent.Event
 	m.runCancel = cancel
 	m.runEvents = make(chan tea.Msg)
 	events := m.runEvents
-	go func() {
-		err := fn(ctx, func(event agent.Event) { events <- runEventMsg{event: event} })
-		events <- runDoneMsg{err: err}
-		close(events)
-	}()
+	go runAndForward(ctx, events, fn)
 	return m, waitRunEvent(events)
+}
+
+func runAndForward(ctx context.Context, events chan tea.Msg, fn func(context.Context, func(agent.Event)) error) {
+	defer close(events)
+	err := fn(ctx, func(event agent.Event) {
+		select {
+		case events <- runEventMsg{event: event}:
+		case <-ctx.Done():
+		}
+	})
+	select {
+	case events <- runDoneMsg{err: err}:
+	case <-ctx.Done():
+	}
 }
 
 func waitRunEvent(events <-chan tea.Msg) tea.Cmd {
 	return func() tea.Msg {
 		msg, ok := <-events
 		if !ok {
-			return runDoneMsg{}
+			return runDoneMsg{err: context.Canceled}
 		}
 		return msg
 	}
