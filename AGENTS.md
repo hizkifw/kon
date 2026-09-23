@@ -62,7 +62,7 @@ no terminal state; the UI owns no provider or session serialization.
 - kon-owned IDs are immutable value objects with unexported storage. Add a
   prefix only for a new durable entity with its own identity: register it in
   `internal/typedid`, use 20 unbiased base62 characters, add JSON rejection
-  tests, and document it in `docs/session-format.md`.
+  tests, and document it in `docs/development/session-format.md`.
 - Never validate the shape of an ID owned by a provider. Wrap it in a distinct
   named type (`ToolCallID`, `ModelID`), validate only whether it is semantically
   required, and preserve its bytes exactly at the wire boundary.
@@ -70,5 +70,4 @@ no terminal state; the UI owns no provider or session serialization.
 ## When you finish
 
 - Run `make check`; run `make test-race` for concurrency-sensitive changes.
-- Update the relevant doc when a boundary, identifier, session record, or
-  provider wire type changes: `docs/*`, `README.md`.
+- Update the relevant docs: `docs/*`, `README.md`.

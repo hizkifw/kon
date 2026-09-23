@@ -107,6 +107,17 @@ func TestNewPersistsDiscoveredContextFiles(t *testing.T) {
 		t.Fatalf("session has no system prompt: %#v", entries)
 	}
 	prompt := entries[0].Message.Content
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	executable, err = filepath.Abs(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(prompt, "Current kon executable: "+executable) {
+		t.Fatalf("current executable missing from persisted prompt:\n%s", prompt)
+	}
 	if !strings.Contains(prompt, "workspace rules") || !strings.Contains(prompt, "service rules") {
 		t.Fatalf("context files missing from persisted prompt:\n%s", prompt)
 	}

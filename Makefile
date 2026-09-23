@@ -24,10 +24,10 @@ run:
 	go run ./cmd/kon
 
 fmt:
-	gofmt -w cmd internal
+	gofmt -w cmd internal docs/product
 
 fmt-check:
-	test -z "$$(gofmt -l cmd internal)"
+	test -z "$$(gofmt -l cmd internal docs/product)"
 
 vet:
 	go vet ./...

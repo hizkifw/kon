@@ -32,7 +32,7 @@ KON_BASE_URL=http://127.0.0.1:8731/download KON_VERSION=v0.1.0 \
 
 `make release VERSION=vX.Y.Z` writes the archives the scripts expect. The
 installers read the download name and checksum layout described in
-[Development](docs/development.md); update both together.
+[Development](docs/development/index.md); update both together.
 
-Read [Development](docs/development.md) before changing package boundaries,
+Read [Development](docs/development/index.md) before changing package boundaries,
 identifiers, session records, or provider wire types.

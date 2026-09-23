@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	productdocs "github.com/hizkifw/kon/docs/product"
 	"github.com/hizkifw/kon/internal/app"
 	"github.com/hizkifw/kon/internal/config"
 	"github.com/hizkifw/kon/internal/history"
@@ -18,6 +19,7 @@ import (
 var version = "dev"
 
 const usage = `usage: kon [--resume [<id>]] [--help] [--version]
+       kon docs
        kon models [--refresh]
 
 Start a full-screen kon agent session in the current directory.
@@ -26,6 +28,7 @@ Start a full-screen kon agent session in the current directory.
   --resume=<id>         resume a specific session
   --help, -h            show this help
   --version             print the version
+  docs                  extract bundled product docs and print their directory
   models                list bundled or cached models without network access
   models --refresh      fetch the latest models.dev catalog, then list models
 
@@ -45,6 +48,18 @@ func run(args []string) error {
 			return err
 		}
 		return runModels(args[1:], paths.Catalog, os.Stdout)
+	}
+	if len(args) == 1 && args[0] == "docs" {
+		paths, err := config.ResolvePaths()
+		if err != nil {
+			return err
+		}
+		dir, err := productdocs.Extract(paths.DataDir)
+		if err != nil {
+			return err
+		}
+		fmt.Println("Documentation extracted to: " + dir)
+		return nil
 	}
 	resume := false
 	resumeID := ""

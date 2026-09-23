@@ -1,0 +1,63 @@
+# Using kon
+
+## Sessions
+
+kon prints a resume hint when it exits:
+
+```text
+resume with: kon --resume ses_7Yk2mP9Qa4Zx8Vc1Nd6R
+```
+
+Use that command, or `kon --resume` alone to reopen the most recent session
+for the directory. `/resume` lists sessions inside the app, and `/resume <id>`
+switches to one. Typing `/resume ` opens a picker. Highlighting a row previews
+its recent turns without switching; `Esc` cancels the preview.
+
+Sessions are plain JSONL files under `~/.local/share/kon/sessions/` by default.
+On Windows, kon uses `%LOCALAPPDATA%\kon\sessions\`.
+
+## Commands
+
+Type `/` at the start of the prompt to see the available commands.
+
+| Command | Action |
+| --- | --- |
+| `/new` | Start a new session with the active model |
+| `/model [name]` | List model profiles, or switch to one |
+| `/resume [id]` | List sessions for this directory, or switch to one |
+| `/compact` | Summarize older context now |
+
+## Keys
+
+| Key | Action |
+| --- | --- |
+| Enter | Submit the prompt, or accept the selected suggestion |
+| Shift+Enter / Ctrl+Enter | Insert a newline |
+| Enter after a trailing `\` | Continue on a new line instead of submitting |
+| Tab / Shift+Tab | Fill in the selected suggestion |
+| Up/Down | Recall prompts, or move the suggestion selection |
+| Esc | Dismiss the popup, or cancel generation without killing a running command |
+| Page Up/Page Down | Scroll the transcript |
+| Mouse wheel | Scroll the transcript |
+| Ctrl+C | Cancel active work, or exit while idle |
+| Ctrl+D | Quit when the input is empty |
+
+The status bar shows the working directory, context usage, and a status
+message; the header shows the active model. `ctx ~12.4k/128k` means usage is
+estimated; `?` means the provider has not supplied enough information yet.
+
+## Tools and long conversations
+
+Tool calls run serially in the directory where kon was started:
+
+- `read` returns numbered file contents, at most 2,000 lines and 1 MiB.
+- `write` atomically creates or replaces a file.
+- `edit` replaces exactly one occurrence and fails on zero or multiple matches.
+- `shell` runs a command through `/bin/sh` (or the Windows shell) with a
+  model-specified timeout, capped at 600 seconds.
+
+There is no sandbox or confirmation prompt, and shell commands inherit your
+environment. Run kon with the same care you would give any coding agent.
+
+When the context nears the model's window, kon summarizes older turns and
+continues. Original session entries remain in the JSONL file.

@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/hizkifw/kon/internal/agent"
@@ -439,6 +441,14 @@ func (r *Runtime) Close() error {
 // systemPrompt resolves the context files that apply to the working directory,
 // when enabled, and builds the durable system prompt for a new session.
 func (r *Runtime) systemPrompt() (string, error) {
+	executable, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("find kon executable: %w", err)
+	}
+	executable, err = filepath.Abs(executable)
+	if err != nil {
+		return "", fmt.Errorf("resolve kon executable path: %w", err)
+	}
 	var files []contextfiles.File
 	if r.config.ContextFilesEnabled() {
 		discovered, err := contextfiles.Load(r.cwd)
@@ -447,7 +457,7 @@ func (r *Runtime) systemPrompt() (string, error) {
 		}
 		files = discovered
 	}
-	return agent.SystemPrompt(r.cwd, files, r.config.Instructions), nil
+	return agent.SystemPrompt(r.cwd, executable, files, r.config.Instructions), nil
 }
 
 func (r *Runtime) prepareSession(profile config.Model) (*session.Store, *agent.Runner, error, error) {

@@ -427,7 +427,7 @@ func newTestEntryID(t *testing.T) typedid.EntryID {
 }
 
 func TestSystemPromptRendersContextFilesInOrder(t *testing.T) {
-	prompt := SystemPrompt("/work/project", []contextfiles.File{
+	prompt := SystemPrompt("/work/project", "/usr/local/bin/kon", []contextfiles.File{
 		{Path: "/work/AGENTS.md", Content: "outer rules\n"},
 		{Path: "/work/project/AGENTS.md", Content: "inner rules"},
 	}, "")
@@ -445,14 +445,25 @@ func TestSystemPromptRendersContextFilesInOrder(t *testing.T) {
 }
 
 func TestSystemPromptOmitsContextSectionWhenEmpty(t *testing.T) {
-	prompt := SystemPrompt("/work", nil, "")
+	prompt := SystemPrompt("/work", "/usr/local/bin/kon", nil, "")
 	if strings.Contains(prompt, "project_instructions") || strings.Contains(prompt, "Project-specific instructions") {
 		t.Fatalf("empty context files produced a section:\n%s", prompt)
 	}
 }
 
+func TestSystemPromptPointsToBundledDocs(t *testing.T) {
+	executable := "/path with spaces/kon"
+	prompt := SystemPrompt("/work", executable, nil, "")
+	if !strings.Contains(prompt, "Current kon executable: "+executable) {
+		t.Fatalf("executable path missing from prompt:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "run `kon docs` using the executable path above") || !strings.Contains(prompt, "read the relevant bundled documentation") {
+		t.Fatalf("self-documentation instruction missing from prompt:\n%s", prompt)
+	}
+}
+
 func TestSystemPromptPlacesInstructionsLast(t *testing.T) {
-	prompt := SystemPrompt("/work", []contextfiles.File{{Path: "/work/AGENTS.md", Content: "project rules"}}, "user rules")
+	prompt := SystemPrompt("/work", "/usr/local/bin/kon", []contextfiles.File{{Path: "/work/AGENTS.md", Content: "project rules"}}, "user rules")
 	project := strings.Index(prompt, "project rules")
 	instructions := strings.Index(prompt, "Additional user instructions:\nuser rules")
 	if project < 0 || instructions < 0 || project > instructions {

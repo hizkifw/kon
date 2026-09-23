@@ -29,6 +29,7 @@ XDG_CONFIG_HOME="$(mktemp -d)" XDG_DATA_HOME="$(mktemp -d)" go run ./cmd/kon
 | Package | Owns | Must not own |
 | --- | --- | --- |
 | `cmd/kon` | startup wiring and CLI metadata | business logic |
+| `docs/product` | bundled user guide and on-demand extraction | terminal state or config mutation |
 | `internal/ui` | terminal state and presentation | HTTP or JSONL encoding |
 | `internal/app` | live runner/store lifecycle and model switching | terminal presentation |
 | `internal/agent` | model/tool loop and compaction policy | terminal rendering |
@@ -80,6 +81,14 @@ The bundled models.dev snapshot is committed at `internal/catalog/snapshot.json.
 Run `make catalog-update` to fetch and validate a new snapshot, then review and
 commit the generated file. Ordinary builds, tests, and releases use that file
 and do not need network access or a JavaScript toolchain.
+
+At runtime, `kon models` reads the bundled snapshot or newer local cache;
+`kon models --refresh` is the only user-facing command that requests the latest
+catalog from models.dev. Starting kon never refreshes it automatically.
+
+Product pages live in `docs/product` and are embedded in the binary. `kon docs`
+extracts only those Markdown files to a content-versioned directory under the
+data path. Development pages stay in `docs/development` and are not embedded.
 
 `scripts/release.sh VERSION` cross-builds every target and writes `dist/`:
 

@@ -78,14 +78,15 @@ terminal state, and the UI owns no provider or session serialization.
 ## Model catalog
 
 `internal/catalog` embeds a timestamped models.dev snapshot in the binary. Its
-read methods return provider and model metadata immediately. The CLI loads a
-valid compressed cache from the data directory when it is newer than the
-bundled snapshot, then starts a background refresh when the selected snapshot
-is at least 24 hours old. Refreshes use the upstream ETag, validate the whole
-response, and atomically replace the cache before publishing a new in-memory
-snapshot. An invalid cache or failed network request leaves the previous
-snapshot available. The cache is metadata only; configured models and session
-records are never rewritten by a catalog refresh.
+read methods return provider and model metadata immediately. `kon models`
+loads the bundled snapshot or a newer valid cache from the data directory and
+lists model IDs without network access. Only `kon models --refresh` contacts
+models.dev. Refreshes use the upstream ETag, validate the whole response, and
+atomically replace the cache before publishing a new in-memory snapshot. An
+invalid cache or failed network request leaves the previous snapshot
+available. The cache is metadata only; configured models and session records
+are never rewritten by a catalog refresh. Normal startup does not load the
+catalog or contact models.dev.
 
 Catalog provider IDs and AI SDK package names describe upstream metadata.
 `internal/provider` remains responsible for deciding which wire formats kon
@@ -108,10 +109,12 @@ compaction entry points to the first retained entry. Context projection combines
 4. messages appended after it.
 
 The system prompt is built once when the session is created. It carries the
-built-in rules, then any `AGENTS.md`-style project instructions discovered by
-walking up from the working directory (outermost first, tagged with their
-paths), then the working directory, and finally the user's configured
-instructions. Because the prompt is persisted verbatim and never rebuilt, edits
+built-in rules, the absolute path to the current kon executable and guidance to
+consult `kon docs` for self-questions, then any `AGENTS.md`-style project
+instructions discovered by walking up from the working directory (outermost
+first, tagged with their paths), the working directory, and finally the user's
+configured instructions. Because the prompt is persisted verbatim and never
+rebuilt, edits
 to an instruction file take effect on a new session rather than a resumed one;
 this is the same byte-stability the compaction design depends on.
 

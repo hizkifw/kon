@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -15,6 +17,22 @@ func TestRunNamesTheOffendingArgument(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), `"--resume"`) {
 		t.Fatalf("error blamed the wrong argument: %v", err)
+	}
+}
+
+func TestDocsDoesNotInitializeConfig(t *testing.T) {
+	configHome := t.TempDir()
+	dataHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	t.Setenv("XDG_DATA_HOME", dataHome)
+	if err := run([]string{"docs"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(configHome, "kon", "config.json")); !os.IsNotExist(err) {
+		t.Fatalf("docs initialized config: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dataHome, "kon", "docs")); err != nil {
+		t.Fatalf("docs were not extracted: %v", err)
 	}
 }
 

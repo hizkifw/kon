@@ -129,20 +129,25 @@ func (r *Runner) Interrupt(attempt int) bool {
 }
 
 // SystemPrompt builds the durable system prompt persisted as the session's root
-// message. contextFiles are AGENTS.md-style project instructions, ordered
+// message. executable is the absolute path to this kon binary. contextFiles
+// are AGENTS.md-style project instructions, ordered
 // outermost to innermost; they precede the cwd so a project can describe
 // conventions before the model sees where it is working. instructions is the
 // user's configured override and comes last, which makes it the most specific
 // signal in the prompt. The result is byte-stable for a given input, which is
 // what keeps the provider prompt cache valid across compactions.
-func SystemPrompt(cwd string, contextFiles []contextfiles.File, instructions string) string {
+func SystemPrompt(cwd, executable string, contextFiles []contextfiles.File, instructions string) string {
 	prompt := `You are kon, a coding agent. Work directly in the current working directory.
 Use read to inspect files, edit for exact replacements, write for complete files, and shell for commands.
 Inspect relevant code before changing it. Tools execute without a sandbox or confirmation.
 Your output will be displayed in a terminal with a markdown renderer.
 `
+	prompt += "\nCurrent kon executable: " + executable
+	prompt += "\nFor questions about kon itself, run `kon docs` using the executable path above, then read the relevant bundled documentation before answering."
+
 	prompt += renderContextFiles(contextFiles)
 	prompt += "\nCurrent working directory: " + filepath.Clean(cwd)
+
 	if strings.TrimSpace(instructions) != "" {
 		prompt += "\n\nAdditional user instructions:\n" + strings.TrimSpace(instructions)
 	}
