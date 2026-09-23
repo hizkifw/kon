@@ -48,13 +48,20 @@ try {
   Write-Host "downloading kon $version (windows/$arch)"
   $zipPath = Join-Path $tmp "$name.zip"
   Invoke-WebRequest -Uri "$assetUrl/$name.zip" -OutFile $zipPath -UseBasicParsing
-  $checksums = (Invoke-WebRequest -Uri "$assetUrl/checksums.txt" -UseBasicParsing).Content
+  # GitHub serves this as octet-stream, which comes back as a byte array from
+  # Invoke-WebRequest. Read it as a file so the text survives.
+  $checksumPath = Join-Path $tmp 'checksums.txt'
+  Invoke-WebRequest -Uri "$assetUrl/checksums.txt" -OutFile $checksumPath -UseBasicParsing
+  $checksums = Get-Content -Path $checksumPath
 
   $expected = (
-    $checksums -split "`n" |
-      Where-Object { $_.Trim() -match [regex]::Escape("$name.zip") } |
-      ForEach-Object { ($_.Trim() -split '\s+')[0] } |
-      Select-Object -First 1
+    $checksums |
+      ForEach-Object { $fields = $_ -split '\s+'; if ($fields.Count -ge 2) { [pscustomobject]@{
+        Hash = $fields[0]
+        File = $fields[-1] -replace '^\./', ''
+      } } } |
+      Where-Object { $_ -and $_.File -eq "$name.zip" } |
+      Select-Object -ExpandProperty Hash -First 1
   )
   if (-not $expected) { throw "no checksum for $name.zip" }
 
