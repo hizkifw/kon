@@ -13,8 +13,9 @@ import (
 // presentation only.
 func welcomeMessage(configPath string) string {
 	return "Hi, I'm kon — a coding agent for your terminal.\n\n" +
-		"I'm not configured yet, so I can't answer prompts. Add a model to\n" +
-		"`" + configPath + "` and restart me to get going.\n\n" +
+		"I'm not configured yet, so I can't answer prompts. Run `/login openai`\n" +
+		"to connect a provider, then use `/model` to choose a model. You can also\n" +
+		"edit `" + configPath + "` directly.\n\n" +
 		"- Press `/` to browse commands.\n" +
 		"- Press `Ctrl+D` to exit, or `Esc` to interrupt a running turn."
 }

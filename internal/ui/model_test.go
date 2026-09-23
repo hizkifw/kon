@@ -7,10 +7,14 @@ import (
 	"testing"
 	"time"
 
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"github.com/hizkifw/kon/internal/agent"
 	"github.com/hizkifw/kon/internal/app"
+	"github.com/hizkifw/kon/internal/catalog"
+	"github.com/hizkifw/kon/internal/config"
 	"github.com/hizkifw/kon/internal/history"
+	"github.com/hizkifw/kon/internal/provider"
 	"github.com/hizkifw/kon/internal/session"
 	"github.com/hizkifw/kon/internal/tools"
 	"github.com/hizkifw/kon/internal/typedid"
@@ -30,6 +34,8 @@ type fakeRuntime struct {
 	previewEntries []session.Entry
 	previewErr     error
 	previewed      string
+	loginProvider  config.Provider
+	catalogLoads   int
 }
 
 func (f *fakeRuntime) Models() []app.Model                                  { return f.models }
@@ -37,11 +43,35 @@ func (f *fakeRuntime) State() app.State                                     { re
 func (f *fakeRuntime) Run(context.Context, string, func(agent.Event)) error { return nil }
 func (f *fakeRuntime) Compact(context.Context, func(agent.Event)) error     { return nil }
 func (f *fakeRuntime) NewSession() error                                    { return nil }
-func (f *fakeRuntime) Interrupt(attempt int) bool                           { f.kills++; return !f.killFails }
-func (f *fakeRuntime) Resume(id typedid.SessionID) error                    { f.id = id; return nil }
-func (f *fakeRuntime) Sessions() ([]session.Summary, error)                 { return f.sessions, nil }
-func (f *fakeRuntime) SessionID() typedid.SessionID                         { return f.id }
-func (f *fakeRuntime) SessionHistory() []session.Entry                      { return f.entries }
+func (f *fakeRuntime) Login(_ context.Context, provider config.Provider) (int, bool, error) {
+	f.loginProvider = provider
+	return 0, true, nil
+}
+func (f *fakeRuntime) LoginProviders() []string {
+	return []string{"azure", "fireworks-ai", "ollama", "openai", "openai-compatible", "openrouter"}
+}
+func (f *fakeRuntime) LoginConnection(id string) (config.Provider, bool) {
+	if connection, ok := provider.LocalLoginConnection(id); ok {
+		return connection, true
+	}
+	entries := map[string]catalog.Provider{
+		"openai":       {ID: "openai", NPM: "@ai-sdk/openai"},
+		"openrouter":   {ID: "openrouter", NPM: "@openrouter/ai-sdk-provider", API: "https://openrouter.ai/api/v1"},
+		"fireworks-ai": {ID: "fireworks-ai", NPM: "@ai-sdk/openai-compatible", API: "https://api.fireworks.ai/inference/v1/"},
+		"azure":        {ID: "azure", NPM: "@ai-sdk/azure"},
+	}
+	entry, ok := entries[id]
+	if !ok {
+		return config.Provider{}, false
+	}
+	return provider.LoginConnection(entry)
+}
+func (f *fakeRuntime) LoadCatalog()                         { f.catalogLoads++ }
+func (f *fakeRuntime) Interrupt(attempt int) bool           { f.kills++; return !f.killFails }
+func (f *fakeRuntime) Resume(id typedid.SessionID) error    { f.id = id; return nil }
+func (f *fakeRuntime) Sessions() ([]session.Summary, error) { return f.sessions, nil }
+func (f *fakeRuntime) SessionID() typedid.SessionID         { return f.id }
+func (f *fakeRuntime) SessionHistory() []session.Entry      { return f.entries }
 func (f *fakeRuntime) SessionPreview(path string, maxTurns int) ([]session.Entry, error) {
 	f.previewed = path
 	return f.previewEntries, f.previewErr
@@ -82,8 +112,8 @@ func TestFitLineHonorsCellWidth(t *testing.T) {
 
 func TestSwitchModelUpdatesRuntimeState(t *testing.T) {
 	models := []app.Model{
-		{Name: "fast", Provider: "openai", ExternalID: "gpt", ContextWindow: 100},
-		{Name: "review", Provider: "anthropic", ExternalID: "claude", ContextWindow: 200},
+		{Name: "fast", Type: "openai", ExternalID: "gpt", ContextWindow: 100},
+		{Name: "review", Type: "anthropic", ExternalID: "claude", ContextWindow: 200},
 	}
 	runtime := &fakeRuntime{state: app.State{Active: models[0], Phase: app.PhaseReady}, models: models}
 	m := New("/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
@@ -91,6 +121,134 @@ func TestSwitchModelUpdatesRuntimeState(t *testing.T) {
 	got := updated.(Model)
 	if got.active.Name != "review" || got.active.ContextWindow != 200 || got.contextTokens != -1 {
 		t.Fatalf("unexpected state: %#v", got)
+	}
+}
+
+func TestLoginMasksKeyAndKeepsItOutOfTranscript(t *testing.T) {
+	m := newTestModel(t)
+	started, _ := m.startLogin("openai")
+	m = started.(Model)
+	m.login.input.SetValue("topsecret")
+	if strings.Contains(m.View().Content, "topsecret") {
+		t.Fatal("API key appeared in rendered view")
+	}
+	updated, cmd := m.updateLogin(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = updated.(Model)
+	if cmd == nil || !m.login.pending {
+		t.Fatal("login request was not started")
+	}
+	finished, _ := m.Update(cmd())
+	m = finished.(Model)
+	if m.login != nil || !strings.Contains(m.status, "connected") {
+		t.Fatalf("login did not finish: %q", m.status)
+	}
+	if strings.Contains(m.transcript.render(80), "topsecret") {
+		t.Fatal("API key entered the transcript")
+	}
+}
+
+func TestCompatibleLoginCollectsEndpointBeforeKey(t *testing.T) {
+	runtime := &fakeRuntime{state: app.State{Phase: app.PhaseNeedsConfiguration}}
+	m := New("/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
+	started, _ := m.startLogin("openai-compatible")
+	m = started.(Model)
+	m.login.input.SetValue("http://localhost:8080/v1")
+	updated, cmd := m.updateLogin(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = updated.(Model)
+	if cmd != nil || m.login.step != 1 || m.login.input.EchoMode != textinput.EchoPassword {
+		t.Fatalf("did not advance to hidden key step: %#v", m.login)
+	}
+	m.login.input.SetValue("secret")
+	updated, cmd = m.updateLogin(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("login command was not started")
+	}
+	updated, _ = updated.(Model).Update(cmd())
+	if runtime.loginProvider.BaseURL != "http://localhost:8080/v1" || runtime.loginProvider.APIKey != "secret" {
+		t.Fatalf("login received %#v", runtime.loginProvider)
+	}
+}
+
+func TestCatalogProviderLoginUsesKnownEndpoint(t *testing.T) {
+	runtime := &fakeRuntime{state: app.State{Phase: app.PhaseNeedsConfiguration}}
+	m := New("/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
+	started, _ := m.startLogin("fireworks-ai")
+	m = started.(Model)
+	if m.login.wantsURL() || m.login.input.EchoMode != textinput.EchoPassword {
+		t.Fatal("fixed-endpoint provider prompted for a URL")
+	}
+	m.login.input.SetValue("secret")
+	updated, cmd := m.updateLogin(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("login command was not started")
+	}
+	updated, _ = updated.(Model).Update(cmd())
+	connection := runtime.loginProvider
+	if connection.ID != "fireworks-ai" || connection.CatalogProvider != "fireworks-ai" || connection.Type != "openai-compatible" || connection.BaseURL != "https://api.fireworks.ai/inference/v1" {
+		t.Fatalf("login received %#v", connection)
+	}
+}
+
+func TestAzureLoginRequiresEndpointAndKey(t *testing.T) {
+	m := newTestModel(t)
+	started, _ := m.startLogin("azure")
+	m = started.(Model)
+	if !m.login.wantsURL() {
+		t.Fatal("Azure endpoint was not requested")
+	}
+	m.login.input.SetValue("https://example.openai.azure.com/openai/v1")
+	updated, _ := m.updateLogin(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = updated.(Model)
+	updated, cmd := m.updateLogin(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if cmd != nil || !strings.Contains(updated.(Model).status, "API key is required") {
+		t.Fatal("Azure accepted an empty API key")
+	}
+}
+
+func TestCancelledLoginCannotFinishNewFlow(t *testing.T) {
+	m := newTestModel(t)
+	started, _ := m.startLogin("openai")
+	m = started.(Model)
+	stale := m.login
+	stale.cancel = func() {}
+	cancelled, _ := m.updateLogin(tea.KeyPressMsg{Code: tea.KeyEscape})
+	m = cancelled.(Model)
+	started, _ = m.startLogin("openrouter")
+	m = started.(Model)
+	finished, _ := m.finishLogin(loginDoneMsg{flow: stale, verified: true})
+	if finished.(Model).login == nil || finished.(Model).login.connection.ID != "openrouter" {
+		t.Fatal("stale login response replaced the new flow")
+	}
+}
+
+func TestInitLoadsCatalogAndRefreshesHeader(t *testing.T) {
+	m := newTestModel(t)
+	runtime := m.runtime.(*fakeRuntime)
+	runtime.state.Active = app.Model{Name: "fw/deepseek", ConnectionID: "fw", DisplayName: "deepseek"}
+	m.syncRuntimeState()
+	var loaded tea.Msg
+	cmds := []tea.Cmd{m.Init()}
+	for len(cmds) > 0 {
+		cmd := cmds[0]
+		cmds = cmds[1:]
+		if cmd == nil {
+			continue
+		}
+		switch msg := cmd().(type) {
+		case tea.BatchMsg:
+			cmds = append(cmds, msg...)
+		case catalogLoadedMsg:
+			loaded = msg
+		}
+	}
+	if loaded == nil || runtime.catalogLoads != 1 {
+		t.Fatalf("Init did not load the catalog: loads=%d", runtime.catalogLoads)
+	}
+	runtime.state.Active = app.Model{Name: "fw/deepseek", ConnectionID: "fw", DisplayName: "DeepSeek V4 Pro", ContextWindow: 128_000}
+	updated, _ := m.Update(loaded)
+	view := plain(updated.(Model).View().Content)
+	if !strings.Contains(view, "kon · fw · DeepSeek V4 Pro") || !strings.Contains(view, "/128.0k") {
+		t.Fatalf("header/status not refreshed:\n%s", view)
 	}
 }
 
@@ -252,7 +410,7 @@ func newMultiModel(t testing.TB, names ...string) Model {
 	t.Helper()
 	models := make([]app.Model, 0, len(names))
 	for _, name := range names {
-		models = append(models, app.Model{Name: name, Provider: "anthropic", ExternalID: "claude"})
+		models = append(models, app.Model{Name: name, Type: "anthropic", ExternalID: "claude"})
 	}
 	runtime := &fakeRuntime{state: app.State{Active: models[0], Phase: app.PhaseReady}, models: models}
 	m := New("/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
@@ -280,10 +438,33 @@ func TestRegistryCompleteDispatchesToArgument(t *testing.T) {
 	}
 }
 
+func TestModelPickerShowsDisplayNameAndKeepsQualifiedValue(t *testing.T) {
+	const qualified = "fireworks-2/accounts/fireworks/models/deepseek-v4-pro"
+	models := []app.Model{{
+		Name: qualified, ConnectionID: "fireworks-2", DisplayName: "DeepSeek V4 Pro",
+		Type: "openai-compatible", ExternalID: "accounts/fireworks/models/deepseek-v4-pro", Source: "catalog",
+	}}
+	runtime := &fakeRuntime{state: app.State{Active: models[0], Phase: app.PhaseReady}, models: models}
+	m := New("/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
+	items := completeModelNames(m, "deepseek")
+	if len(items) != 1 || items[0].Value != qualified || items[0].Label != "fireworks-2 · DeepSeek V4 Pro" || items[0].Description != "accounts/fireworks/models/deepseek-v4-pro" {
+		t.Fatalf("picker items = %#v", items)
+	}
+	rendered := plain((menu{items: items}).render(100))
+	if !strings.Contains(rendered, "fireworks-2 · DeepSeek V4 Pro") || !strings.Contains(rendered, "accounts/fireworks/models/deepseek-v4-pro") || strings.Contains(rendered, "openai-compatible") {
+		t.Fatalf("picker row = %q", rendered)
+	}
+	m.input.SetValue("/model deepseek")
+	m.commands.Accept(&m, items[0].Value)
+	if got := m.input.Value(); got != "/model "+qualified+" " {
+		t.Fatalf("accepted value = %q", got)
+	}
+}
+
 func TestRegistryCompletesAllCommandsOnBareSlash(t *testing.T) {
 	m := newTestModel(t)
 	got := m.commands.completion(m, "/")
-	if len(got) != 4 || got[0].Value != "/new" || got[1].Value != "/model" || got[2].Value != "/resume" || got[3].Value != "/compact" {
+	if len(got) != 5 || got[0].Value != "/new" || got[1].Value != "/model" || got[2].Value != "/login" || got[3].Value != "/resume" || got[4].Value != "/compact" {
 		t.Fatalf("bare slash completion = %#v", got)
 	}
 }
@@ -395,7 +576,7 @@ func TestMenuPopupAppearsOnLeadingSlashAndClears(t *testing.T) {
 	m := newTestModel(t)
 	typed, _ := m.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
 	m = typed.(Model)
-	if !m.menu.open() || len(m.menu.items) != 4 {
+	if !m.menu.open() || len(m.menu.items) != 5 {
 		t.Fatalf("popup did not open on slash: %#v", m.menu)
 	}
 	// Typing ordinary text mid-prompt closes the popup and offers nothing.
@@ -814,7 +995,7 @@ func TestResumeCommandReplaysSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	models := []app.Model{{Name: "fast", Provider: "openai", ExternalID: "gpt"}}
+	models := []app.Model{{Name: "fast", Type: "openai", ExternalID: "gpt"}}
 	runtime := &fakeRuntime{
 		state:    app.State{Active: models[0], Phase: app.PhaseReady},
 		models:   models,
@@ -848,7 +1029,7 @@ func TestResumeCommandReplaysThinking(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	models := []app.Model{{Name: "fast", Provider: "openai", ExternalID: "gpt"}}
+	models := []app.Model{{Name: "fast", Type: "openai", ExternalID: "gpt"}}
 	runtime := &fakeRuntime{
 		state:    app.State{Active: models[0], Phase: app.PhaseReady},
 		models:   models,
@@ -880,7 +1061,7 @@ func TestResumeAdoptsPersistedContextUsage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	models := []app.Model{{Name: "fast", Provider: "openai", ExternalID: "gpt"}}
+	models := []app.Model{{Name: "fast", Type: "openai", ExternalID: "gpt"}}
 	runtime := &fakeRuntime{
 		state:         app.State{Active: models[0], Phase: app.PhaseReady},
 		models:        models,
@@ -1118,7 +1299,7 @@ func TestUnconfiguredLaunchGreetsInTranscript(t *testing.T) {
 
 func newTestModel(t testing.TB) Model {
 	t.Helper()
-	model := app.Model{Name: "fast", Provider: "openai", ExternalID: "gpt", ContextWindow: 100}
+	model := app.Model{Name: "fast", Type: "openai", ExternalID: "gpt", ContextWindow: 100}
 	runtime := &fakeRuntime{state: app.State{Active: model, Phase: app.PhaseReady}, models: []app.Model{model}}
 	result := New("/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
 	result.width, result.height = 80, 24

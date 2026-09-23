@@ -18,6 +18,9 @@ func (m *Model) resize() {
 		return
 	}
 	m.input.SetWidth(max(1, m.width))
+	if m.login != nil {
+		m.login.input.SetWidth(max(1, m.width-2))
+	}
 	// DynamicHeight sizes the input to its visual rows, but the transcript
 	// must keep at least one row, so the cap shrinks for small windows.
 	inputHeight := min(maxInputLines, max(1, m.height-4-m.menu.height()), max(1, m.input.Height()))
@@ -55,7 +58,14 @@ func (m Model) View() tea.View {
 	statusStyle := lipgloss.NewStyle().Foreground(colorFaint).Background(barBg).Width(max(1, m.width))
 	header := accentBrand(" kon")
 	if m.active.Name != "" {
-		header += " · " + m.active.Name
+		name := m.active.DisplayName
+		if name == "" {
+			name = m.active.Name
+		}
+		if m.active.ConnectionID != "" {
+			name = m.active.ConnectionID + " · " + name
+		}
+		header += " · " + name
 	}
 	ctx := "ctx ?"
 	if m.contextTokens >= 0 {
@@ -68,7 +78,7 @@ func (m Model) View() tea.View {
 	if m.active.ContextWindow > 0 {
 		ctx += "/" + compactNumber(m.active.ContextWindow)
 	}
-	status := " " + abbreviateHome(m.cwd) + "  ·  " + ctx + "  ·  " + m.status
+	status := " " + abbreviateHome(m.cwd) + " · " + ctx + " · " + m.status
 	sections := []string{headerStyle.Render(fitLine(header, m.width)), m.viewport.View(), statusStyle.Render(fitLine(status, m.width))}
 	if menu := m.menu.render(m.width); menu != "" {
 		sections = append(sections, menu)
@@ -77,11 +87,18 @@ func (m Model) View() tea.View {
 	for _, section := range sections {
 		inputTop += strings.Count(section, "\n") + 1
 	}
-	sections = append(sections, inputView(m.input.View(), m.width))
+	input := m.input.View()
+	if m.login != nil {
+		input = m.login.input.View()
+	}
+	sections = append(sections, inputView(input, m.width))
 	content := strings.Join(sections, "\n")
 	view := tea.NewView(content)
 	if m.terminalFocused {
 		view.Cursor = m.input.Cursor()
+		if m.login != nil {
+			view.Cursor = m.login.input.Cursor()
+		}
 		if view.Cursor != nil {
 			// inputView adds one cell of left inset except when the terminal is
 			// too narrow to afford it.

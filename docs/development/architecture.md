@@ -90,8 +90,24 @@ catalog or contact models.dev.
 
 Catalog provider IDs and AI SDK package names describe upstream metadata.
 `internal/provider` remains responsible for deciding which wire formats kon
-can call. A catalog model may therefore be visible even when its provider is
-not yet supported by kon.
+can call. Login maps recognized `npm` values to those formats and uses the
+catalog `api` URL when it is a concrete base endpoint. A small override table
+covers providers with missing URLs or special flows. A catalog model may
+therefore be visible even when its provider is not yet supported by kon.
+
+The `providers` config array stores named connections, while `models` holds
+standalone explicit profiles whose `type` names a wire format and never refers
+to a connection. `/login <provider>`
+checks the chosen provider on user request and caches returned model IDs in
+`provider-models.json` under the data directory. The runtime joins explicit
+profiles, cached discovery, and bundled catalog metadata into `/model` choices.
+Derived names are `<provider-id>/<model-id>` and are never materialized as
+config profiles. The catalog is never loaded before the first frame: the UI
+starts a background load after it renders, then refreshes the header's display
+name and the status bar's context window. The load happens at most once; the
+picker, `/login`, or a first request that arrives earlier waits for that same
+load, and a derived model's capabilities are always resolved before its first
+request. Neither startup nor model switching contacts a provider.
 
 ## Context
 

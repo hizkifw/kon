@@ -12,6 +12,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/hizkifw/kon/internal/agent"
 	"github.com/hizkifw/kon/internal/app"
+	"github.com/hizkifw/kon/internal/config"
 	"github.com/hizkifw/kon/internal/history"
 	"github.com/hizkifw/kon/internal/session"
 	"github.com/hizkifw/kon/internal/tools"
@@ -26,6 +27,10 @@ type Runtime interface {
 	Run(context.Context, string, func(agent.Event)) error
 	Compact(context.Context, func(agent.Event)) error
 	SwitchModel(string) error
+	Login(context.Context, config.Provider) (int, bool, error)
+	LoginProviders() []string
+	LoginConnection(string) (config.Provider, bool)
+	LoadCatalog()
 	NewSession() error
 	Resume(typedid.SessionID) error
 	Sessions() ([]session.Summary, error)
@@ -74,6 +79,7 @@ type Model struct {
 	// resumed conversation opens on its latest messages instead of at the top.
 	startAtBottom bool
 	menu          menu
+	login         *loginFlow
 	// preview is a scratch transcript shown in place of the live one while a
 	// popup row that carries a Preview is highlighted, so a picker can be
 	// browsed without committing. previewKey is that row's value; previewReturn
@@ -144,7 +150,19 @@ func New(cwd, configPath string, runtime Runtime, historyStore *history.Store, e
 	return model
 }
 
-func (m Model) Init() tea.Cmd { return m.input.Focus() }
+// catalogLoadedMsg reports that the runtime has applied catalog metadata, so
+// the active model's display name and context window can be refreshed.
+type catalogLoadedMsg struct{}
+
+// Init loads the catalog in the background so the first frame never waits
+// for it.
+func (m Model) Init() tea.Cmd {
+	runtime := m.runtime
+	return tea.Batch(m.input.Focus(), func() tea.Msg {
+		runtime.LoadCatalog()
+		return catalogLoadedMsg{}
+	})
+}
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var commands []tea.Cmd
@@ -175,6 +193,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case runDoneMsg:
 		m.busy, m.runCancel, m.runEvents, m.ctrlCPresses = false, nil, nil, 0
+		m.syncRuntimeState()
 		// An interrupted stream never received its done event, so finalize the
 		// live stream here to freeze the partial answer and reasoning that were
 		// already displayed. A cleanly finished run has nothing pending.
@@ -192,7 +211,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.refreshTranscript(true)
 		return m, nil
+	case loginDoneMsg:
+		return m.finishLogin(msg)
+	case catalogLoadedMsg:
+		m.syncRuntimeState()
+		return m, nil
 	case tea.KeyPressMsg:
+		if m.login != nil {
+			return m.updateLogin(msg)
+		}
 		updated, cmd, handled := m.handleKey(msg.String())
 		if handled {
 			return updated, cmd
@@ -200,6 +227,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// handleKey closed the popup and may have updated the model; keep
 		// those changes while normal input handling continues below.
 		m = updated.(Model)
+	}
+	if m.login != nil {
+		return m.updateLogin(msg)
 	}
 	var cmd tea.Cmd
 	before := m.input.Value()

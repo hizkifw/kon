@@ -86,6 +86,11 @@ At runtime, `kon models` reads the bundled snapshot or newer local cache;
 `kon models --refresh` is the only user-facing command that requests the latest
 catalog from models.dev. Starting kon never refreshes it automatically.
 
+`/login <provider>` explicitly checks a configured provider endpoint and
+caches its returned model IDs in the data directory. It does not refresh the
+models.dev catalog. Explicit profiles and derived provider/model names are
+merged by the app runtime without rewriting the user's `models` array.
+
 Product pages live in `docs/product` and are embedded in the binary. `kon docs`
 extracts only those Markdown files to a content-versioned directory under the
 data path. Development pages stay in `docs/development` and are not embedded.

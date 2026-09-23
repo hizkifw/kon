@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/hizkifw/kon/internal/app"
 	"github.com/hizkifw/kon/internal/session"
 	"github.com/hizkifw/kon/internal/typedid"
 )
@@ -214,6 +215,25 @@ func defaultRegistry() *registry {
 		},
 	})
 	registry.register(slashCommand{
+		name:    "login",
+		summary: "connect a provider",
+		arguments: []argument{{
+			name: "provider",
+			complete: func(m Model, prefix string) []menuItem {
+				var options []menuItem
+				for _, provider := range m.runtime.LoginProviders() {
+					if strings.HasPrefix(provider, prefix) {
+						options = append(options, menuItem{Value: provider})
+					}
+				}
+				return options
+			},
+		}},
+		run: func(m Model, args []string) (tea.Model, tea.Cmd) {
+			return m.startLogin(args[0])
+		},
+	})
+	registry.register(slashCommand{
 		name:    "resume",
 		summary: "resume a previous session",
 		arguments: []argument{{
@@ -235,19 +255,37 @@ func defaultRegistry() *registry {
 	return registry
 }
 
-// completeModelNames suggests configured models whose name matches prefix.
+// completeModelNames keeps stable model names as values while showing names
+// from the catalog in the picker.
 func completeModelNames(m Model, prefix string) []menuItem {
 	var candidates []menuItem
 	for _, option := range m.runtime.Models() {
-		if strings.HasPrefix(option.Name, prefix) {
+		label := modelLabel(option)
+		if strings.HasPrefix(option.Name, prefix) || strings.Contains(strings.ToLower(option.DisplayName), strings.ToLower(prefix)) {
 			candidates = append(candidates, menuItem{
 				Value:       option.Name,
-				Description: option.Provider + "/" + option.ExternalID,
+				Label:       label,
+				Description: option.ExternalID,
 			})
 		}
 	}
 	sort.Slice(candidates, func(i, j int) bool { return candidates[i].Value < candidates[j].Value })
 	return candidates
+}
+
+func modelLabel(option app.Model) string {
+	name := option.DisplayName
+	if name == "" {
+		name = option.Name
+	}
+	connectionID := option.ConnectionID
+	if connectionID == "" {
+		connectionID = option.Type
+	}
+	if connectionID == "" {
+		return name
+	}
+	return connectionID + " · " + name
 }
 
 func (m Model) newSession() (tea.Model, tea.Cmd) {
@@ -272,7 +310,11 @@ func (m Model) listModels() (tea.Model, tea.Cmd) {
 		if option.Name == m.active.Name {
 			marker = "* "
 		}
-		lines = append(lines, marker+option.Name+"  "+option.Provider+"/"+option.ExternalID)
+		line := marker + modelLabel(option) + "  " + option.ExternalID
+		if option.Source != "" {
+			line += "  [" + option.Source + "]"
+		}
+		lines = append(lines, line)
 	}
 	m.transcript.add(block{kind: blockModels, text: strings.Join(lines, "\n")})
 	m.input.Reset()
@@ -295,7 +337,7 @@ func (m Model) switchModel(name string) (tea.Model, tea.Cmd) {
 	m.contextTokens = -1
 	m.input.Reset()
 	m.status = "model: " + name + " (saved to config)"
-	m.transcript.add(block{kind: blockModel, text: m.active.Name + "  " + m.active.Provider + "/" + m.active.ExternalID})
+	m.transcript.add(block{kind: blockModel, text: m.active.Name + "  " + m.active.Type + "/" + m.active.ExternalID})
 	m.refreshTranscript(true)
 	return m, nil
 }
@@ -332,7 +374,7 @@ func completeSessionIDs(m Model, prefix string) []menuItem {
 		}
 		description := summary.CreatedAt.Local().Format("2006-01-02 15:04")
 		if summary.Title != "" {
-			description = summary.Title + "  ·  " + description
+			description = summary.Title + " · " + description
 		}
 		candidates = append(candidates, menuItem{
 			Value:       id,

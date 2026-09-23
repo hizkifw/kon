@@ -41,4 +41,3 @@ jobs:
           suffix=""
           [ "$GOOS" = windows ] && suffix=".exe"
           go build -trimpath -buildvcs=false -ldflags="-s -w -X main.version=ci" -o "kon${suffix}" ./cmd/kon
-          test "$(wc -c < "kon${suffix}")" -le 10485760

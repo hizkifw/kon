@@ -41,8 +41,9 @@ go install github.com/hizkifw/kon/cmd/kon@latest
 ## Getting started
 
 Run `kon` from the directory where you want it to work. On first launch it
-creates a config file and opens the prompt. Add a model, restart, and type a
-request. See the [user guide](docs/product/index.md) for setup and
+creates a config file and opens the prompt. Use `/login openai` to connect a
+provider, then `/model` to choose a model. Explicit profiles in `config.json`
+remain supported. See the [user guide](docs/product/index.md) for setup and
 [configuration](docs/product/configuration.md).
 
 Run `kon docs` to extract the bundled product guide on demand and print its

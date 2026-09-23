@@ -50,11 +50,11 @@ func New(profile config.Model) (*Client, error) {
 // newModel builds the backend for a profile. Add a case when a new wire
 // format lands.
 func newModel(profile config.Model) (Model, error) {
-	switch profile.Provider {
+	switch profile.WireType() {
 	case "openai", "openai-compatible", "openrouter", "ollama":
 		return newChatModel(profile), nil
 	default:
-		return nil, fmt.Errorf("unsupported provider %q", profile.Provider)
+		return nil, fmt.Errorf("unsupported type %q", profile.WireType())
 	}
 }
 

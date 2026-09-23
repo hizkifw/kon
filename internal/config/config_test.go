@@ -74,7 +74,7 @@ func TestInitializePreservesInvalidConfig(t *testing.T) {
 
 func TestSaveRewritesDefaultModel(t *testing.T) {
 	cfg := Default()
-	cfg.Models = append(cfg.Models, Model{Name: "review", Provider: "openai", ModelID: "gpt-4o", ContextWindowTokens: 100_000})
+	cfg.Models = append(cfg.Models, Model{Name: "review", Type: "openai", ModelID: "gpt-4o", ContextWindowTokens: 100_000})
 	path := filepath.Join(t.TempDir(), filename)
 	if err := cfg.Save(path); err != nil {
 		t.Fatal(err)
@@ -118,7 +118,7 @@ func TestContextFilesEnabledDefaultsTrue(t *testing.T) {
 func TestValidateNamedModels(t *testing.T) {
 	cfg := Default()
 	cfg.DefaultModel = "review"
-	cfg.Models = append(cfg.Models, Model{Name: "review", Provider: "openai", ModelID: "gpt-4o", ContextWindowTokens: 100_000})
+	cfg.Models = append(cfg.Models, Model{Name: "review", Type: "openai", ModelID: "gpt-4o", ContextWindowTokens: 100_000})
 	if err := cfg.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -133,9 +133,107 @@ func TestValidateNamedModels(t *testing.T) {
 
 func TestCompatibleModelRequiresBaseURL(t *testing.T) {
 	cfg := Default()
-	cfg.Models[0].Provider = "openai-compatible"
+	cfg.Models[0].Type = "openai-compatible"
 	cfg.Models[0].BaseURL = ""
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("missing base URL was accepted")
+	}
+}
+
+func TestProviderConnectionResolvesDerivedModels(t *testing.T) {
+	cfg := Default()
+	cfg.Providers = []Provider{{ID: "work", Type: "openai-compatible", BaseURL: "https://example.test/v1", APIKey: "secret"}}
+	cfg.DefaultModel = "work/private/model"
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	model, ok := cfg.ResolveModel("work/private/model")
+	if !ok || model.Type != "openai-compatible" || model.ModelID != "private/model" || model.BaseURL != "https://example.test/v1" || model.APIKey != "secret" {
+		t.Fatalf("ResolveModel = %#v, %v", model, ok)
+	}
+	if _, ok := cfg.ResolveModel("missing/model"); ok {
+		t.Fatal("accepted an unconfigured provider")
+	}
+}
+
+func TestExplicitModelIgnoresSameNamedProvider(t *testing.T) {
+	cfg := Default()
+	cfg.Providers = []Provider{{ID: "openai-compatible", Type: "openai-compatible", BaseURL: "https://remote.test/v1", APIKey: "remote", Headers: map[string]string{"X-Org": "a"}}}
+	cfg.Models = append(cfg.Models, Model{Name: "local", Type: "openai-compatible", ModelID: "m", BaseURL: "http://localhost:8080/v1"})
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	model, ok := cfg.ResolveModel("local")
+	if !ok || model.BaseURL != "http://localhost:8080/v1" || model.APIKey != "" || model.Headers != nil {
+		t.Fatalf("explicit model inherited a connection: %#v", model)
+	}
+}
+
+func TestModelTypeDefaultsToCompatible(t *testing.T) {
+	cfg := Default()
+	cfg.Models = append(cfg.Models, Model{Name: "local", ModelID: "m"})
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("untyped model without base_url was accepted")
+	}
+	cfg.Models[1].BaseURL = "http://localhost:8080/v1"
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if model, _ := cfg.ResolveModel("local"); model.Type != "openai-compatible" {
+		t.Fatalf("type = %q", model.Type)
+	}
+}
+
+func TestModelProviderFieldIsRejected(t *testing.T) {
+	path := filepath.Join(t.TempDir(), filename)
+	legacy := `{"default_model":"fast","models":[{"name":"fast","provider":"openai","model":"gpt"}],"compaction":{"reserve_tokens":1,"keep_recent_tokens":1}}`
+	if err := os.WriteFile(path, []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "provider") {
+		t.Fatalf("legacy provider field: %v", err)
+	}
+}
+
+func TestAliasedCatalogProviderConnection(t *testing.T) {
+	cfg := Default()
+	cfg.Providers = []Provider{{ID: "fireworks-2", CatalogProvider: "fireworks-ai", Type: "openai-compatible", BaseURL: "https://api.fireworks.ai/inference/v1", APIKey: "secret"}}
+	cfg.DefaultModel = "fireworks-2/accounts/acme/models/example"
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	model, ok := cfg.ResolveModel(cfg.DefaultModel)
+	if !ok || model.Type != "openai-compatible" || model.ModelID != "accounts/acme/models/example" || model.APIKey != "secret" {
+		t.Fatalf("resolved = %#v, %v", model, ok)
+	}
+}
+
+func TestDuplicateProviderIDsAreRejected(t *testing.T) {
+	cfg := Default()
+	cfg.Providers = []Provider{{ID: "openai", Type: "openai"}, {ID: "openai", Type: "openrouter"}}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("accepted duplicate provider IDs")
+	}
+}
+
+func TestProviderOnlyConfigCanSelectDerivedDefault(t *testing.T) {
+	cfg := Default()
+	cfg.Models = nil
+	cfg.Providers = []Provider{{ID: "openai", Type: "openai", APIKey: "secret"}}
+	cfg.DefaultModel = "openai/private/model"
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), filename)
+	if err := cfg.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	model, ok := loaded.ResolveModel(loaded.DefaultModel)
+	if !ok || model.Type != "openai" || model.ModelID != "private/model" {
+		t.Fatalf("derived default = %#v, %v", model, ok)
 	}
 }

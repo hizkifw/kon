@@ -12,6 +12,7 @@ const maxMenuRows = 8
 // menuItem is one selectable row in a popup.
 type menuItem struct {
 	Value       string
+	Label       string
 	Description string
 	// Preview, when set, builds a read-only transcript to show in place of the
 	// live one while this row is highlighted, so a picker can be scrolled
@@ -78,7 +79,11 @@ func (m menu) render(width int) string {
 	lines := make([]string, 0, end-start)
 	for i := start; i < end; i++ {
 		item := m.items[i]
-		line := " " + item.Value
+		label := item.Label
+		if label == "" {
+			label = item.Value
+		}
+		line := " " + label
 		if item.Description != "" {
 			line += "  " + description.Render(item.Description)
 		}

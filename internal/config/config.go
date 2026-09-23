@@ -17,6 +17,7 @@ const filename = "config.json"
 
 type Config struct {
 	DefaultModel string     `json:"default_model"`
+	Providers    []Provider `json:"providers,omitempty"`
 	Models       []Model    `json:"models"`
 	Compaction   Compaction `json:"compaction"`
 	Instructions string     `json:"instructions"`
@@ -26,16 +27,28 @@ type Config struct {
 	ContextFiles *bool `json:"context_files,omitempty"`
 }
 
+// Provider is a named connection shared by explicit and discovered models.
+type Provider struct {
+	ID   string `json:"id"`
+	Type string `json:"type"`
+	// CatalogProvider is the models.dev key when ID names another connection.
+	CatalogProvider string            `json:"catalog_provider,omitempty"`
+	BaseURL         string            `json:"base_url,omitempty"`
+	APIKey          string            `json:"api_key,omitempty"`
+	Headers         map[string]string `json:"headers,omitempty"`
+}
+
 // ContextFilesEnabled reports whether AGENTS.md discovery is on. An unset value
 // means enabled, so the default config and older configs behave as expected.
 func (c Config) ContextFilesEnabled() bool {
 	return c.ContextFiles == nil || *c.ContextFiles
 }
 
-// Model is a named profile. Name belongs to kon; ModelID belongs to the provider.
+// Model is a standalone named profile. Name belongs to kon; ModelID belongs to
+// the provider. Type is the wire format and never refers to providers[].
 type Model struct {
 	Name                string            `json:"name"`
-	Provider            string            `json:"provider"`
+	Type                string            `json:"type,omitempty"`
 	ModelID             string            `json:"model"`
 	BaseURL             string            `json:"base_url,omitempty"`
 	APIKey              string            `json:"api_key"`
@@ -56,23 +69,37 @@ type Compaction struct {
 // Google) return once a backend implements provider.Model.
 var supportedProviders = []string{"openai", "openai-compatible", "openrouter", "ollama"}
 
+func SupportedProviders() []string { return slices.Clone(supportedProviders) }
+
+// DefaultModelType is the wire format of a model profile with no type.
+const DefaultModelType = "openai-compatible"
+
+// WireType reports the profile's wire format, applying the default.
+func (m Model) WireType() string {
+	if m.Type == "" {
+		return DefaultModelType
+	}
+	return m.Type
+}
+
 func Default() Config {
 	return Config{
 		DefaultModel: "default",
 		Models: []Model{{
-			Name: "default", Provider: "openai", BaseURL: "https://api.openai.com/v1",
+			Name: "default", Type: "openai", BaseURL: "https://api.openai.com/v1",
 		}},
 		Compaction: Compaction{ReserveTokens: 16_384, KeepRecentTokens: 20_000},
 	}
 }
 
 type Paths struct {
-	ConfigDir  string
-	ConfigFile string
-	DataDir    string
-	Sessions   string
-	History    string
-	Catalog    string
+	ConfigDir      string
+	ConfigFile     string
+	DataDir        string
+	Sessions       string
+	History        string
+	Catalog        string
+	ProviderModels string
 }
 
 func ResolvePaths() (Paths, error) {
@@ -100,6 +127,7 @@ func ResolvePaths() (Paths, error) {
 		ConfigDir: configDir, ConfigFile: filepath.Join(configDir, filename),
 		DataDir: dataDir, Sessions: filepath.Join(dataDir, "sessions"),
 		History: filepath.Join(dataDir, "history.jsonl"), Catalog: filepath.Join(dataDir, "models.json.gz"),
+		ProviderModels: filepath.Join(dataDir, "provider-models.json"),
 	}, nil
 }
 
@@ -115,25 +143,30 @@ func Initialize(paths Paths) (Config, error) {
 	if err := ensureFile(paths.History); err != nil {
 		return Config{}, err
 	}
-	b, err := os.ReadFile(paths.ConfigFile)
+	return Load(paths.ConfigFile)
+}
+
+// Load reads and validates an existing config without creating any files.
+func Load(path string) (Config, error) {
+	b, err := os.ReadFile(path)
 	if err != nil {
-		return Config{}, fmt.Errorf("read config %s: %w", paths.ConfigFile, err)
+		return Config{}, fmt.Errorf("read config %s: %w", path, err)
 	}
 	cfg := Default()
 	dec := json.NewDecoder(strings.NewReader(string(b)))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&cfg); err != nil {
-		return Config{}, fmt.Errorf("parse config %s: %w", paths.ConfigFile, err)
+		return Config{}, fmt.Errorf("parse config %s: %w", path, err)
 	}
 	var extra any
 	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
 		if err == nil {
-			return Config{}, fmt.Errorf("parse config %s: multiple JSON values", paths.ConfigFile)
+			return Config{}, fmt.Errorf("parse config %s: multiple JSON values", path)
 		}
-		return Config{}, fmt.Errorf("parse config %s: %w", paths.ConfigFile, err)
+		return Config{}, fmt.Errorf("parse config %s: %w", path, err)
 	}
 	if err := cfg.Validate(); err != nil {
-		return Config{}, fmt.Errorf("validate config %s: %w", paths.ConfigFile, err)
+		return Config{}, fmt.Errorf("validate config %s: %w", path, err)
 	}
 	return cfg, nil
 }
@@ -169,13 +202,32 @@ func (c Config) Validate() error {
 	if strings.TrimSpace(c.DefaultModel) == "" {
 		return errors.New("default_model must not be empty")
 	}
-	if len(c.Models) == 0 {
-		return errors.New("models must contain at least one profile")
+	if len(c.Models) == 0 && len(c.Providers) == 0 {
+		return errors.New("configure at least one model or provider")
 	}
 	if c.Compaction.ReserveTokens <= 0 || c.Compaction.KeepRecentTokens <= 0 {
 		return errors.New("compaction token budgets must be positive")
 	}
 	seen := make(map[string]bool, len(c.Models))
+	connections := make(map[string]bool, len(c.Providers))
+	for i, provider := range c.Providers {
+		if !validName(provider.ID) {
+			return fmt.Errorf("providers[%d].id must use letters, digits, '.', '_' or '-'", i)
+		}
+		if connections[provider.ID] {
+			return fmt.Errorf("duplicate provider id %q", provider.ID)
+		}
+		if !slices.Contains(supportedProviders, provider.Type) {
+			return fmt.Errorf("provider %q has unsupported type %q", provider.ID, provider.Type)
+		}
+		if provider.CatalogProvider != "" && !validName(provider.CatalogProvider) {
+			return fmt.Errorf("provider %q has invalid catalog_provider", provider.ID)
+		}
+		if provider.Type == "openai-compatible" && strings.TrimSpace(provider.BaseURL) == "" {
+			return fmt.Errorf("provider %q requires base_url", provider.ID)
+		}
+		connections[provider.ID] = true
+	}
 	for i, model := range c.Models {
 		if !validName(model.Name) {
 			return fmt.Errorf("models[%d].name must use letters, digits, '.', '_' or '-'", i)
@@ -184,10 +236,10 @@ func (c Config) Validate() error {
 			return fmt.Errorf("duplicate model name %q", model.Name)
 		}
 		seen[model.Name] = true
-		if !slices.Contains(supportedProviders, model.Provider) {
-			return fmt.Errorf("model %q has unsupported provider %q (supported: %s)", model.Name, model.Provider, strings.Join(supportedProviders, ", "))
+		if !slices.Contains(supportedProviders, model.WireType()) {
+			return fmt.Errorf("model %q has unsupported type %q (supported: %s)", model.Name, model.Type, strings.Join(supportedProviders, ", "))
 		}
-		if model.Provider == "openai-compatible" && strings.TrimSpace(model.BaseURL) == "" {
+		if model.WireType() == "openai-compatible" && strings.TrimSpace(model.BaseURL) == "" {
 			return fmt.Errorf("model %q requires base_url for openai-compatible", model.Name)
 		}
 		if model.ContextWindowTokens < 0 {
@@ -197,10 +249,30 @@ func (c Config) Validate() error {
 			return fmt.Errorf("model %q context window must exceed both compaction budgets", model.Name)
 		}
 	}
-	if !seen[c.DefaultModel] {
+	if !seen[c.DefaultModel] && !c.DerivedModel(c.DefaultModel) {
 		return fmt.Errorf("default_model %q does not name a configured model", c.DefaultModel)
 	}
 	return nil
+}
+
+func (c Config) Provider(id string) (Provider, bool) {
+	for _, provider := range c.Providers {
+		if provider.ID == id {
+			return provider, true
+		}
+	}
+	return Provider{}, false
+}
+
+// DerivedModel accepts a qualified provider/model ID without requiring a
+// matching catalog entry. Catalogs can lag private or newly released models.
+func (c Config) DerivedModel(name string) bool {
+	providerID, modelID, ok := strings.Cut(name, "/")
+	if !ok || modelID == "" {
+		return false
+	}
+	_, connected := c.Provider(providerID)
+	return connected
 }
 
 func validName(name string) bool {
@@ -259,6 +331,28 @@ func (c Config) Model(name string) (Model, bool) {
 		}
 	}
 	return Model{}, false
+}
+
+// ResolveModel returns an explicit profile as written, with its wire type
+// defaulted, or builds a profile from a qualified provider/model ID using
+// that provider's connection. Explicit profiles never inherit from providers.
+func (c Config) ResolveModel(name string) (Model, bool) {
+	if model, ok := c.Model(name); ok {
+		model.Type = model.WireType()
+		return model, true
+	}
+	providerID, modelID, ok := strings.Cut(name, "/")
+	if !ok || modelID == "" {
+		return Model{}, false
+	}
+	connection, found := c.Provider(providerID)
+	if !found {
+		return Model{}, false
+	}
+	return Model{
+		Name: name, Type: connection.Type, ModelID: modelID,
+		BaseURL: connection.BaseURL, APIKey: connection.APIKey, Headers: connection.Headers,
+	}, true
 }
 
 func (m Model) Ready() error {

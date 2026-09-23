@@ -269,6 +269,9 @@ func (s *Service) Provider(id string) (Provider, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	record, ok := s.providers[id]
+	if !ok {
+		return Provider{}, false
+	}
 	provider := record.Provider
 	provider.Env = slices.Clone(provider.Env)
 	return provider, ok

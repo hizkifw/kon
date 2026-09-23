@@ -24,6 +24,7 @@ Type `/` at the start of the prompt to see the available commands.
 | --- | --- |
 | `/new` | Start a new session with the active model |
 | `/model [name]` | List model profiles, or switch to one |
+| `/login <provider>` | Connect and check a supported provider |
 | `/resume [id]` | List sessions for this directory, or switch to one |
 | `/compact` | Summarize older context now |
 

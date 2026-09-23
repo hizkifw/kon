@@ -9,8 +9,10 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 
 	"github.com/hizkifw/kon/internal/agent"
+	"github.com/hizkifw/kon/internal/catalog"
 	"github.com/hizkifw/kon/internal/config"
 	"github.com/hizkifw/kon/internal/contextfiles"
 	"github.com/hizkifw/kon/internal/provider"
@@ -27,9 +29,12 @@ var (
 
 type Model struct {
 	Name          string
-	Provider      string
+	ConnectionID  string
+	DisplayName   string
+	Type          string
 	ExternalID    string
 	ContextWindow int
+	Source        string
 }
 
 type Phase string
@@ -52,18 +57,22 @@ func (s State) Ready() bool { return s.Phase == PhaseReady }
 type Runtime struct {
 	mu sync.Mutex
 
-	config config.Config
-	paths  config.Paths
-	cwd    string
+	config         config.Config
+	paths          config.Paths
+	cwd            string
+	catalogOnce    sync.Once
+	catalog        atomic.Pointer[catalog.Service]
+	providerModels map[string][]string
 
-	active     config.Model
-	store      *session.Store
-	runner     *agent.Runner
-	problem    error
-	cleanupErr error
-	phase      Phase
-	runCancel  context.CancelFunc
-	runDone    chan struct{}
+	active         config.Model
+	activeResolved bool
+	store          *session.Store
+	runner         *agent.Runner
+	problem        error
+	cleanupErr     error
+	phase          Phase
+	runCancel      context.CancelFunc
+	runDone        chan struct{}
 
 	createSession func() (*session.Store, error)
 	openSession   func(string) (*session.Store, error)
@@ -87,7 +96,7 @@ func NewResumedID(cfg config.Config, paths config.Paths, cwd, version string, id
 }
 
 func start(cfg config.Config, paths config.Paths, cwd, version string, resume bool, id typedid.SessionID) (*Runtime, error) {
-	r := &Runtime{config: cfg, paths: paths, cwd: cwd}
+	r := &Runtime{config: cfg, paths: paths, cwd: cwd, providerModels: loadProviderModels(paths.ProviderModels)}
 	r.createSession = func() (*session.Store, error) {
 		prompt, err := r.systemPrompt()
 		if err != nil {
@@ -101,15 +110,16 @@ func start(cfg config.Config, paths config.Paths, cwd, version string, resume bo
 		if err != nil {
 			return nil, err
 		}
-		selection := session.ModelSelection{Name: profile.Name, Provider: profile.Provider, ExternalID: client.ModelID()}
+		selection := session.ModelSelection{Name: profile.Name, Provider: profile.WireType(), ExternalID: client.ModelID()}
 		if _, err := store.AppendModelChange(selection); err != nil {
 			return nil, err
 		}
 		return agent.New(profile, cfg.Compaction, client, store, tools.New(cwd, profile.Vision)), nil
 	}
 
-	profile, _ := cfg.Model(cfg.DefaultModel)
+	profile, _ := cfg.ResolveModel(cfg.DefaultModel)
 	r.active = profile
+	_, r.activeResolved = cfg.Model(cfg.DefaultModel)
 
 	var (
 		store   *session.Store
@@ -165,20 +175,10 @@ func (r *Runtime) openTarget(id typedid.SessionID) (*session.Store, *agent.Runne
 	return store, runner, problem, nil
 }
 
-func (r *Runtime) Models() []Model {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	models := make([]Model, 0, len(r.config.Models))
-	for _, profile := range r.config.Models {
-		models = append(models, describe(profile))
-	}
-	return models
-}
-
 func (r *Runtime) State() State {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return State{Active: describe(r.active), Phase: r.phase, Problem: r.problem}
+	return State{Active: r.describeActive(), Phase: r.phase, Problem: r.problem}
 }
 
 func (r *Runtime) Run(ctx context.Context, prompt string, emit func(agent.Event)) error {
@@ -195,6 +195,12 @@ func (r *Runtime) Run(ctx context.Context, prompt string, emit func(agent.Event)
 		problem := r.problem
 		r.mu.Unlock()
 		return fmt.Errorf("%w: %v in %s", ErrNotReady, problem, r.paths.ConfigFile)
+	}
+	// Startup leaves catalog metadata to LoadCatalog; make sure the model's
+	// capabilities are resolved before its first provider request.
+	if err := r.resolveActive(); err != nil {
+		r.mu.Unlock()
+		return err
 	}
 	runner := r.runner
 	runCtx, cancel := context.WithCancel(ctx)
@@ -281,7 +287,7 @@ func (r *Runtime) SwitchModel(name string) error {
 	if name == r.active.Name {
 		return nil
 	}
-	profile, ok := r.config.Model(name)
+	profile, ok := r.resolveModel(name)
 	if !ok {
 		return fmt.Errorf("unknown model %q", name)
 	}
@@ -298,6 +304,7 @@ func (r *Runtime) SwitchModel(name string) error {
 		return fmt.Errorf("model switched to %s, but saving config: %w", name, err)
 	}
 	r.active, r.runner, r.problem, r.phase = profile, runner, nil, PhaseReady
+	r.activeResolved = true
 	return nil
 }
 
@@ -507,5 +514,5 @@ func (r *Runtime) mutable() error {
 }
 
 func describe(profile config.Model) Model {
-	return Model{Name: profile.Name, Provider: profile.Provider, ExternalID: profile.ModelID, ContextWindow: profile.ContextWindowTokens}
+	return Model{Name: profile.Name, Type: profile.WireType(), ExternalID: profile.ModelID, ContextWindow: profile.ContextWindowTokens}
 }

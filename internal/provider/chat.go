@@ -50,7 +50,7 @@ const completeTimeout = 10 * time.Minute
 
 func newChatModel(profile config.Model) *chatModel {
 	baseURL := profile.BaseURL
-	switch profile.Provider {
+	switch profile.WireType() {
 	case "openai":
 		if baseURL == "" {
 			baseURL = defaultOpenAIBaseURL

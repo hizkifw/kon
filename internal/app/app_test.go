@@ -4,9 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/hizkifw/kon/internal/agent"
@@ -33,7 +37,7 @@ func TestNewSessionFailureKeepsCurrentSession(t *testing.T) {
 	store := testStore(t)
 	runner := new(agent.Runner)
 	runtime := &Runtime{
-		active: config.Model{Name: "default", Provider: "openai", ModelID: "model"},
+		active: config.Model{Name: "default", Type: "openai", ModelID: "model"},
 		store:  store, runner: runner,
 		createSession: func() (*session.Store, error) { return nil, errors.New("disk full") },
 	}
@@ -52,7 +56,7 @@ func TestNewSessionSwapsThenClosesPreviousStore(t *testing.T) {
 	previous := testStore(t)
 	replacement := testStore(t)
 	runtime := &Runtime{
-		active: config.Model{Name: "default", Provider: "openai", ModelID: "model"},
+		active: config.Model{Name: "default", Type: "openai", ModelID: "model"},
 		store:  previous, runner: new(agent.Runner),
 		createSession: func() (*session.Store, error) { return replacement, nil },
 		createRunner:  func(config.Model, *session.Store) (*agent.Runner, error) { return new(agent.Runner), nil },
@@ -79,6 +83,201 @@ func TestUnconfiguredDefaultIsExplicitState(t *testing.T) {
 	state := runtime.State()
 	if state.Ready() || state.Phase != PhaseNeedsConfiguration || state.Problem == nil || state.Active.Name != "default" {
 		t.Fatalf("unexpected state: %#v", state)
+	}
+}
+
+func TestLoginAddsDerivedModelWithoutMaterializingIt(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer secret" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		w.Write([]byte(`{"data":[{"id":"private/model"}]}`))
+	}))
+	defer server.Close()
+	root := t.TempDir()
+	paths := config.Paths{
+		ConfigFile:     filepath.Join(root, "config.json"),
+		Sessions:       filepath.Join(root, "sessions"),
+		ProviderModels: filepath.Join(root, "provider-models.json"),
+	}
+	if err := config.Default().Save(paths.ConfigFile); err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := New(config.Default(), paths, t.TempDir(), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+	count, verified, err := runtime.Login(context.Background(), config.Provider{ID: "openai", Type: "openai", BaseURL: server.URL, APIKey: "secret"})
+	if err != nil || !verified || count != 1 {
+		t.Fatalf("login: count=%d verified=%v error=%v", count, verified, err)
+	}
+	const derived = "openai/private/model"
+	found := false
+	for _, model := range runtime.Models() {
+		if model.Name == derived {
+			if model.Source != "provider list" {
+				t.Fatalf("source = %q", model.Source)
+			}
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("discovered model missing from picker")
+	}
+	if err := runtime.SwitchModel(derived); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := config.Load(paths.ConfigFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.DefaultModel != derived || len(saved.Models) != 1 || saved.Models[0].Name != "default" {
+		t.Fatalf("derived selection was materialized: %#v", saved)
+	}
+	if len(loadProviderModels(paths.ProviderModels)["openai"]) != 1 {
+		t.Fatal("provider discovery was not cached")
+	}
+	reopened, err := New(saved, paths, t.TempDir(), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	found = false
+	for _, model := range reopened.Models() {
+		if model.Name == derived {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("derived model was not available offline after restart")
+	}
+}
+
+func TestLoginProvidersComeFromCatalog(t *testing.T) {
+	root := t.TempDir()
+	paths := config.Paths{ConfigFile: filepath.Join(root, "config.json"), Sessions: filepath.Join(root, "sessions")}
+	runtime, err := New(config.Default(), paths, t.TempDir(), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+	if runtime.catalog.Load() != nil {
+		t.Fatal("catalog loaded at startup")
+	}
+	ids := runtime.LoginProviders()
+	for _, id := range []string{"fireworks-ai", "deepinfra", "ai21", "openai", "ollama"} {
+		if !slices.Contains(ids, id) {
+			t.Fatalf("%q missing from login options", id)
+		}
+	}
+	connection, ok := runtime.LoginConnection("fireworks-ai")
+	if !ok || connection.BaseURL != "https://api.fireworks.ai/inference/v1" {
+		t.Fatalf("catalog connection = %#v, %v", connection, ok)
+	}
+	if _, ok := runtime.LoginConnection("does-not-exist"); ok {
+		t.Fatal("unknown catalog provider was accepted")
+	}
+}
+
+func TestCatalogModelUsesDisplayNameWithConnectionID(t *testing.T) {
+	root := t.TempDir()
+	paths := config.Paths{ConfigFile: filepath.Join(root, "config.json"), Sessions: filepath.Join(root, "sessions")}
+	cfg := config.Default()
+	cfg.Providers = []config.Provider{{ID: "fireworks-2", CatalogProvider: "fireworks-ai", Type: "openai-compatible", BaseURL: "https://api.fireworks.ai/inference/v1"}}
+	runtime, err := New(cfg, paths, t.TempDir(), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+	const name = "fireworks-2/accounts/fireworks/models/deepseek-v4-pro"
+	for _, model := range runtime.Models() {
+		if model.Name == name {
+			if model.ConnectionID != "fireworks-2" || model.DisplayName != "DeepSeek V4 Pro" || model.ExternalID != "accounts/fireworks/models/deepseek-v4-pro" {
+				t.Fatalf("model = %#v", model)
+			}
+			return
+		}
+	}
+	t.Fatalf("%s missing from model list", name)
+}
+
+func TestLoadCatalogPopulatesActiveDerivedModel(t *testing.T) {
+	root := t.TempDir()
+	paths := config.Paths{ConfigFile: filepath.Join(root, "config.json"), Sessions: filepath.Join(root, "sessions")}
+	cfg := config.Default()
+	cfg.Providers = []config.Provider{{ID: "fireworks-2", CatalogProvider: "fireworks-ai", Type: "openai-compatible", BaseURL: "https://api.fireworks.ai/inference/v1"}}
+	cfg.DefaultModel = "fireworks-2/accounts/fireworks/models/deepseek-v4-pro"
+	runtime, err := New(cfg, paths, t.TempDir(), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+	before := runtime.State().Active
+	if runtime.catalog.Load() != nil {
+		t.Fatal("State loaded the catalog")
+	}
+	if before.ContextWindow != 0 || before.DisplayName != "accounts/fireworks/models/deepseek-v4-pro" || before.ConnectionID != "fireworks-2" {
+		t.Fatalf("before catalog = %#v", before)
+	}
+	runtime.LoadCatalog()
+	after := runtime.State().Active
+	if after.ContextWindow <= 0 || after.DisplayName != "DeepSeek V4 Pro" || after.Name != cfg.DefaultModel {
+		t.Fatalf("after catalog = %#v", after)
+	}
+	if !runtime.State().Ready() {
+		t.Fatal("runtime is not ready after catalog load")
+	}
+}
+
+func TestFailedLoginDoesNotSaveProvider(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+	root := t.TempDir()
+	paths := config.Paths{ConfigFile: filepath.Join(root, "config.json"), Sessions: filepath.Join(root, "sessions")}
+	if err := config.Default().Save(paths.ConfigFile); err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := New(config.Default(), paths, t.TempDir(), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+	if _, _, err := runtime.Login(context.Background(), config.Provider{ID: "openai", Type: "openai", BaseURL: server.URL, APIKey: "bad"}); err == nil {
+		t.Fatal("invalid key accepted")
+	}
+	saved, err := config.Load(paths.ConfigFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(saved.Providers) != 0 {
+		t.Fatalf("failed login changed config: %#v", saved.Providers)
+	}
+}
+
+func TestConfiguredProviderDoesNotTriggerStartupNetwork(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		w.Write([]byte(`{"data":[]}`))
+	}))
+	defer server.Close()
+	cfg := config.Default()
+	cfg.Providers = []config.Provider{{ID: "openai", Type: "openai", BaseURL: server.URL, APIKey: "secret"}}
+	cfg.DefaultModel = "openai/private/model"
+	root := t.TempDir()
+	paths := config.Paths{ConfigFile: filepath.Join(root, "config.json"), Sessions: filepath.Join(root, "sessions")}
+	runtime, err := New(cfg, paths, t.TempDir(), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+	_ = runtime.Models()
+	if got := requests.Load(); got != 0 {
+		t.Fatalf("startup or model listing made %d provider requests", got)
 	}
 }
 
@@ -153,7 +352,7 @@ func TestNewSkipsContextFilesWhenDisabled(t *testing.T) {
 
 func TestCloseCancelsAndWaitsForActiveRun(t *testing.T) {
 	store := testStore(t)
-	profile := config.Model{Name: "default", Provider: "openai", ModelID: "model"}
+	profile := config.Model{Name: "default", Type: "openai", ModelID: "model"}
 	provider := &blockingProvider{started: make(chan struct{})}
 	runtime := &Runtime{
 		active: profile, store: store, phase: PhaseReady,
@@ -175,11 +374,11 @@ func TestCloseCancelsAndWaitsForActiveRun(t *testing.T) {
 
 func TestSwitchModelPersistsDefaultModel(t *testing.T) {
 	cfg := config.Default()
-	cfg.Models = append(cfg.Models, config.Model{Name: "review", Provider: "anthropic", ModelID: "claude", ContextWindowTokens: 100_000})
+	cfg.Models = append(cfg.Models, config.Model{Name: "review", Type: "anthropic", ModelID: "claude", ContextWindowTokens: 100_000})
 	dir := t.TempDir()
 	paths := config.Paths{ConfigFile: filepath.Join(dir, "config.json"), Sessions: filepath.Join(dir, "sessions")}
 	store := testStore(t)
-	profile := config.Model{Name: "default", Provider: "openai", ModelID: "model"}
+	profile := config.Model{Name: "default", Type: "openai", ModelID: "model"}
 	runtime := &Runtime{
 		config: cfg, paths: paths,
 		active: profile, store: store, phase: PhaseReady,
@@ -392,7 +591,7 @@ func TestNewResumedWithoutSessionsStartsFresh(t *testing.T) {
 func TestCompactRefusesWhileRunning(t *testing.T) {
 	store := testStore(t)
 	runtime := &Runtime{
-		active: config.Model{Name: "default", Provider: "openai", ModelID: "model"},
+		active: config.Model{Name: "default", Type: "openai", ModelID: "model"},
 		store:  store, phase: PhaseRunning,
 	}
 	if err := runtime.Compact(context.Background(), func(agent.Event) {}); !errors.Is(err, ErrBusy) {
