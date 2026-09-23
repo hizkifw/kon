@@ -113,7 +113,7 @@ request. Neither startup nor model switching contacts a provider.
 
 The session store resolves context by following `parent_id` from the active leaf
 to the root. File order is append order, not conversation order. This distinction
-is already enforced in v3 even though the UI cannot move the leaf yet.
+is already enforced in v4 even though the UI cannot move the leaf yet.
 
 Compaction selects a legal boundary while preserving complete user turns when
 possible and never separates an assistant tool call from its results. A

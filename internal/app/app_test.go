@@ -203,6 +203,48 @@ func TestCatalogModelUsesDisplayNameWithConnectionID(t *testing.T) {
 	t.Fatalf("%s missing from model list", name)
 }
 
+func TestDerivedModelChangeRecordsConnectionAndWireFormat(t *testing.T) {
+	cfg := config.Default()
+	cfg.Providers = []config.Provider{{ID: "fireworks-2", Type: "openai-compatible", BaseURL: "https://example.test/v1"}}
+	cfg.DefaultModel = "fireworks-2/deepseek-v4"
+	root := t.TempDir()
+	runtime, err := New(cfg, config.Paths{Sessions: filepath.Join(root, "sessions"), ConfigFile: filepath.Join(root, "config.json")}, t.TempDir(), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+	for _, entry := range runtime.SessionHistory() {
+		if entry.Model == nil {
+			continue
+		}
+		if entry.Model.Name != cfg.DefaultModel || entry.Model.WireFormat != "openai-compatible" || entry.Model.ConnectionID != "fireworks-2" || entry.Model.ExternalID.String() != "deepseek-v4" {
+			t.Fatalf("model selection = %#v", entry.Model)
+		}
+		return
+	}
+	t.Fatal("initial model selection was not recorded")
+}
+
+func TestExplicitModelChangeOmitsConnectionID(t *testing.T) {
+	cfg := config.Default()
+	cfg.Models[0].ModelID = "gpt-4o"
+	root := t.TempDir()
+	runtime, err := New(cfg, config.Paths{Sessions: filepath.Join(root, "sessions"), ConfigFile: filepath.Join(root, "config.json")}, t.TempDir(), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+	for _, entry := range runtime.SessionHistory() {
+		if entry.Model != nil {
+			if entry.Model.WireFormat != "openai" || entry.Model.ConnectionID != "" {
+				t.Fatalf("explicit model selection = %#v", entry.Model)
+			}
+			return
+		}
+	}
+	t.Fatal("initial model selection was not recorded")
+}
+
 func TestLoadCatalogPopulatesActiveDerivedModel(t *testing.T) {
 	root := t.TempDir()
 	paths := config.Paths{ConfigFile: filepath.Join(root, "config.json"), Sessions: filepath.Join(root, "sessions")}

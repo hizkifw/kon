@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -110,7 +111,14 @@ func start(cfg config.Config, paths config.Paths, cwd, version string, resume bo
 		if err != nil {
 			return nil, err
 		}
-		selection := session.ModelSelection{Name: profile.Name, Provider: profile.WireType(), ExternalID: client.ModelID()}
+		selection := session.ModelSelection{Name: profile.Name, WireFormat: profile.WireType(), ExternalID: client.ModelID()}
+		if _, explicit := r.config.Model(profile.Name); !explicit {
+			if id, _, ok := strings.Cut(profile.Name, "/"); ok {
+				if connection, found := r.config.Provider(id); found {
+					selection.ConnectionID = connection.ID
+				}
+			}
+		}
 		if _, err := store.AppendModelChange(selection); err != nil {
 			return nil, err
 		}

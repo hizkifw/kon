@@ -47,7 +47,7 @@ func TestModelChangeAloneKeepsSessionEmpty(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := store.Path()
-	if _, err := store.AppendModelChange(ModelSelection{Name: "review", Provider: "anthropic", ExternalID: typedid.ExternalModelID("claude")}); err != nil {
+	if _, err := store.AppendModelChange(ModelSelection{Name: "review", WireFormat: "anthropic", ExternalID: typedid.ExternalModelID("claude")}); err != nil {
 		t.Fatal(err)
 	}
 	if !store.Empty() {
@@ -767,7 +767,7 @@ func TestModelChangeIsDurableButExcludedFromContext(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	if _, err := store.AppendModelChange(ModelSelection{Name: "review", Provider: "anthropic", ExternalID: typedid.ExternalModelID("claude")}); err != nil {
+	if _, err := store.AppendModelChange(ModelSelection{Name: "work/claude", WireFormat: "anthropic", ConnectionID: "work", ExternalID: typedid.ExternalModelID("claude")}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.AppendMessage(Message{Role: RoleUser, Parts: []Part{{Type: PartText, Text: "hello"}}}); err != nil {
@@ -784,7 +784,7 @@ func TestModelChangeIsDurableButExcludedFromContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(b), `"type":"model_change"`) || !strings.Contains(string(b), `"external_id":"claude"`) {
+	if !strings.Contains(string(b), `"type":"model_change"`) || !strings.Contains(string(b), `"wire_format":"anthropic"`) || !strings.Contains(string(b), `"connection_id":"work"`) || !strings.Contains(string(b), `"external_id":"claude"`) || strings.Contains(string(b), `"provider":"anthropic"`) {
 		t.Fatal("model change missing from session log")
 	}
 }

@@ -68,8 +68,7 @@ Messages now persist content only as ordered parts (`text`, `reasoning`,
 `tool_call`, `tool_result`, `image`). Plain text and tool-call views are derived.
 The chat backend assembles streaming parts in arrival order, and a backend
 response carries those parts unchanged into the session. Each part can retain
-opaque provider-owned JSON metadata. This breaks the v1 session format; the
-reader accepts v2 files.
+opaque provider-owned JSON metadata. This introduced the v2 session format.
 
 ### 5. Move images out of session lines
 
@@ -78,16 +77,16 @@ reader accepts v2 files.
 Images now live in content-addressed files beside each session. Parts persist
 only the SHA-256 hash and MIME type; duplicate bytes share one blob, and the
 provider reads and verifies the blob only when building a vision request.
-The v3 reader rejects earlier session formats.
+This advanced the session format to v3.
 
 ### 6. Rename the wire-format field in model-change entries
 
-- [ ] Rename `ModelSelection.Provider`
+- [x] Rename `ModelSelection.Provider`
 
-`ModelSelection.Provider` is set to `profile.WireType()`, so it records
-`"openai-compatible"`, while `config.Providers` means named connections. Fix the
-name, and decide whether to record the connection ID too, before the format
-ships. See item 15 for the broader vocabulary problem.
+Model changes now record `wire_format` and, for models resolved through a named
+connection, `connection_id`. Standalone profiles omit `connection_id` because
+they do not use one. The current session format is v4. See item 15 for the
+broader vocabulary problem.
 
 ## Tier 2 — restructure before building more
 

@@ -6,11 +6,11 @@ object. The first line is a header; later lines form an append-only tree.
 ## Header
 
 ```json
-{"type":"session","version":3,"id":"ses_7Yk2mP9Qa4Zx8Vc1Nd6R","app_version":"v0.1.0","timestamp":"2026-09-21T08:00:00Z","cwd":"/work/project"}
+{"type":"session","version":4,"id":"ses_7Yk2mP9Qa4Zx8Vc1Nd6R","app_version":"v0.1.0","timestamp":"2026-09-21T08:00:00Z","cwd":"/work/project"}
 ```
 
 The schema version governs the file representation. Readers accept only version
-3; earlier versions are not migrated.
+4; earlier versions are not migrated.
 
 ## Entry envelope
 
@@ -23,7 +23,7 @@ Every entry has these fields:
 `parent_id` is `null` for the root system message. Session IDs use the `ses_`
 prefix and entry IDs use `ent_`, followed by 20 cryptographically random base62
 characters. A child may point to any earlier entry, so future rewind can append
-a new branch without modifying old lines. The active leaf in v3 is the final
+a new branch without modifying old lines. The active leaf in v4 is the final
 valid entry.
 
 Prefix and alphabet validation happens during JSON decoding. A session ID cannot
@@ -76,10 +76,12 @@ durable log — the repair is rebuilt on each projection.
 ## Model change entries
 
 ```json
-{"type":"model_change","id":"ent_2xM8vQ5kR9cT3Np7Za4L","parent_id":"ent_9qW4mK7zT2bN8Vc5Rx1A","timestamp":"...","model":{"name":"fast","provider":"openai","external_id":"gpt-4o"}}
+{"type":"model_change","id":"ent_2xM8vQ5kR9cT3Np7Za4L","parent_id":"ent_9qW4mK7zT2bN8Vc5Rx1A","timestamp":"...","model":{"name":"fireworks-2/gpt-4o","wire_format":"openai-compatible","connection_id":"fireworks-2","external_id":"gpt-4o"}}
 ```
 
-The name is kon's configured alias. The external ID remains opaque. Model
+The name is kon's selected profile. `wire_format` names the request protocol;
+`connection_id` names the configured connection used for a derived model and
+is omitted for a standalone profile. The external ID remains opaque. Model
 change entries record which profile applies to subsequent turns and do not
 enter model context.
 

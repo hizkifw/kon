@@ -18,7 +18,7 @@ import (
 	"github.com/hizkifw/kon/internal/typedid"
 )
 
-const SchemaVersion = 3
+const SchemaVersion = 4
 
 // fileSuffix ends every persisted session file. Names begin with a fixed-width
 // UTC timestamp, so lexical order is creation order.
@@ -233,9 +233,10 @@ type Entry struct {
 }
 
 type ModelSelection struct {
-	Name       string          `json:"name"`
-	Provider   string          `json:"provider"`
-	ExternalID typedid.ModelID `json:"external_id"`
+	Name         string          `json:"name"`
+	WireFormat   string          `json:"wire_format"`
+	ConnectionID string          `json:"connection_id,omitempty"`
+	ExternalID   typedid.ModelID `json:"external_id"`
 }
 
 type ContextMessage struct {
@@ -475,7 +476,7 @@ type parsedSession struct {
 	repairOffset int64 // byte length of the valid prefix, or -1 when the file is intact
 }
 
-// leafID is the final entry's ID, which is the active leaf in v3.
+// leafID is the final entry's ID, which is the active leaf in v4.
 func (p parsedSession) leafID() *typedid.EntryID {
 	if len(p.entries) == 0 {
 		return nil
@@ -786,8 +787,8 @@ func (s *Store) AppendCompaction(summary string, firstKeptID typedid.EntryID, to
 }
 
 func (s *Store) AppendModelChange(selection ModelSelection) (typedid.EntryID, error) {
-	if selection.Name == "" || selection.Provider == "" || selection.ExternalID.String() == "" {
-		return typedid.EntryID{}, errors.New("model change requires name, provider, and external ID")
+	if selection.Name == "" || selection.WireFormat == "" || selection.ExternalID.String() == "" {
+		return typedid.EntryID{}, errors.New("model change requires name, wire format, and external ID")
 	}
 	return s.append(Entry{Type: EntryTypeModelChange, Model: &selection})
 }
@@ -1028,8 +1029,8 @@ func (entry Entry) validate() error {
 			return errors.New("compaction entry requires a summary and retained entry ID")
 		}
 	case EntryTypeModelChange:
-		if entry.Model == nil || entry.Model.Name == "" || entry.Model.Provider == "" || entry.Model.ExternalID.String() == "" {
-			return errors.New("model change requires name, provider, and external ID")
+		if entry.Model == nil || entry.Model.Name == "" || entry.Model.WireFormat == "" || entry.Model.ExternalID.String() == "" {
+			return errors.New("model change requires name, wire format, and external ID")
 		}
 	}
 	// Unknown types retain their envelope for forward-compatible readers.
