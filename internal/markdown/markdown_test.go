@@ -76,6 +76,11 @@ func TestRenderBasics(t *testing.T) {
 		}, 40},
 		{"soft break joins", "one\ntwo", []string{"one two"}, 40},
 		{"hard break keeps", "one  \ntwo", []string{"one", "two"}, 40},
+		// A soft break after an inline node (code span) lands on an empty
+		// text node; it must still fold to a space, not vanish.
+		{"soft break after code", "test `code`\nmore text", []string{"test code more text"}, 40},
+		{"soft break after code only", "`code`\nmore", []string{"code more"}, 40},
+		{"hard break after code", "test `code`  \nmore text", []string{"test code", "more text"}, 40},
 		{"two paragraphs", "first\n\nsecond", []string{"first", "", "second"}, 40},
 		{"heading then para", "# Title\n\nbody text", []string{"Title", "", "body text"}, 40},
 		{"para then list", "intro\n\n- a\n- b", []string{"intro", "", "• a", "• b"}, 40},

@@ -56,14 +56,17 @@ func appendInlinePieces(n ast.Node, source []byte, theme Theme, style Style) []p
 		switch v := c.(type) {
 		case *ast.Text:
 			text := unescape(v.Text(source))
-			if text == "" {
-				continue
-			}
 			switch {
 			case v.HardLineBreak():
 				text += "\n"
 			case v.SoftLineBreak():
 				text += " "
+			}
+			// A break may land on an empty text node (goldmark attaches it
+			// after an inline node like a code span), so resolve the break
+			// before the empty-text guard rather than dropping it.
+			if text == "" {
+				continue
 			}
 			out = append(out, piece{text: text, style: style})
 		case *ast.String:
