@@ -27,7 +27,7 @@ go install github.com/hizkifw/kon/cmd/kon@latest
 
 Run `kon` from your project directory. On first launch it creates a config file
 and opens the prompt. Nothing is sent to a model until you submit a prompt.
-Run `/login openai` to enter an API key, then `/model` to choose a model. You
+Run `/login <provider>` to enter an API key, then `/model` to choose a model. You
 can also add an explicit model to the config file and restart kon. For example:
 
 ```json
