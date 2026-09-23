@@ -20,7 +20,19 @@ It is built on a few beliefs:
 
 ## Install
 
-Grab a release archive for Linux, macOS, or Windows, or install with Go:
+One line, Linux and macOS:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/hizkifw/kon/main/scripts/install.sh | sh
+```
+
+Windows, in PowerShell:
+
+```powershell
+iwr -useb https://raw.githubusercontent.com/hizkifw/kon/main/scripts/install.ps1 | iex
+```
+
+Install with Go:
 
 ```sh
 go install github.com/hizkifw/kon/cmd/kon@latest

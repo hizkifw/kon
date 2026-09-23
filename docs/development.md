@@ -73,6 +73,23 @@ Because no format has shipped yet, schema-breaking changes should update the
 current version and fixtures directly. Once a release is published, add an
 explicit reader migration or bump the schema version; never guess.
 
+## Release artifacts
+
+`scripts/release.sh VERSION` cross-builds every target and writes `dist/`:
+
+```text
+kon_<version>_<os>_<arch>.tar.gz   linux and darwin, containing kon/, README, LICENSE
+kon_<version>_<os>_<arch>.zip      windows, same contents with kon.exe
+checksums.txt                      sha256 of every archive
+```
+
+`scripts/install.sh` (POSIX) and `scripts/install.ps1` (PowerShell) consume
+exactly that layout: they resolve the tag from the `/releases/latest` redirect
+or the `releases/latest` API, download the matching archive plus `checksums.txt`
+from `/releases/download/<tag>/`, verify the hash, extract, and place the binary
+on `PATH`. Both are self-contained, so they can be piped from `raw.githubusercontent.com`
+straight into `sh` or `iex`.
+
 ## Testing seams
 
 The provider, agent, tools, session store, and Bubble Tea model can all be tested
