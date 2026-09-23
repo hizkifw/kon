@@ -695,6 +695,34 @@ func TestMessageValidationRejectsDuplicateExternalToolCallIDs(t *testing.T) {
 	}
 }
 
+func TestToolOutcomeSurvivesReopen(t *testing.T) {
+	dir := t.TempDir()
+	store, err := New(dir, dir, "test", "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := store.Path()
+	message := Message{
+		Role: RoleTool, Content: "exit code: 3", ToolCallID: typedid.ExternalToolCallID("call-1"),
+		Name: "shell", IsError: true, Details: json.RawMessage(`{"exit_code":3,"duration":"4ms"}`),
+	}
+	if _, err := store.AppendMessage(message); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	got := reopened.ActivePath()[1].Message
+	if got == nil || !got.IsError || string(got.Details) != string(message.Details) {
+		t.Fatalf("tool outcome after reopen = %#v", got)
+	}
+}
+
 func TestModelChangeIsDurableButExcludedFromContext(t *testing.T) {
 	store, err := New(t.TempDir(), t.TempDir(), "test", "system")
 	if err != nil {

@@ -77,8 +77,8 @@ func (f *fakeRuntime) SessionPreview(path string, maxTurns int) ([]session.Entry
 	return f.previewEntries, f.previewErr
 }
 func (f *fakeRuntime) ContextUsage() (int, bool) { return f.contextTokens, f.contextKnown }
-func (f *fakeRuntime) DescribeTool(name string, args json.RawMessage, result string, failed bool) tools.Display {
-	return tools.Describe(name, args, result, failed, "/tmp")
+func (f *fakeRuntime) DescribeTool(name string, args json.RawMessage, result string, failed bool, details json.RawMessage) tools.Display {
+	return tools.Describe(name, args, result, failed, details, "/tmp")
 }
 func (f *fakeRuntime) SwitchModel(name string) error {
 	for _, model := range f.models {
@@ -383,6 +383,20 @@ func TestReadErrorsStillRender(t *testing.T) {
 	got := plain(updated.(Model).viewport.View())
 	if !strings.Contains(got, "no such file or directory") {
 		t.Fatalf("read error was hidden: %q", got)
+	}
+}
+
+func TestReplayedToolOutcomeUsesPersistedErrorAndDetails(t *testing.T) {
+	model := newTestModel(t)
+	callID := typedid.ExternalToolCallID("failed-call")
+	entries := []session.Entry{
+		{Message: &session.Message{Role: session.RoleAssistant, ToolCalls: []session.ToolCall{{ID: callID, Function: session.ToolFunction{Name: "shell", Arguments: json.RawMessage(`{"command":"./build"}`)}}}}},
+		{Message: &session.Message{Role: session.RoleTool, Name: "shell", ToolCallID: callID, Content: "unstructured output", IsError: true, Details: json.RawMessage(`{"exit_code":3,"duration":"4ms","output_bytes":0}`)}},
+	}
+	model.applyHistory(entries)
+	result := model.transcript.blocks[len(model.transcript.blocks)-1]
+	if result.display.State != tools.StateFailed || result.display.Note != "exit 3 · took 4ms" {
+		t.Fatalf("replayed outcome = %#v", result.display)
 	}
 }
 

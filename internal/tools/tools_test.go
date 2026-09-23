@@ -58,7 +58,7 @@ func TestShellCapturesExitCode(t *testing.T) {
 		t.Fatalf("shell = %q, failed=%v", result.Content, failed)
 	}
 	if !strings.Contains(result.Content, "(took ") {
-		t.Fatalf("shell result is missing the wall-clock duration: %q", result)
+		t.Fatalf("shell result is missing the wall-clock duration: %q", result.Content)
 	}
 }
 
@@ -98,7 +98,7 @@ func TestShellTimesOutWithPartialOutput(t *testing.T) {
 		return
 	}
 	if !strings.Contains(result.Content, "before") {
-		t.Fatalf("timed-out command lost its partial output: %q", result)
+		t.Fatalf("timed-out command lost its partial output: %q", result.Content)
 	}
 }
 
@@ -239,7 +239,7 @@ func TestShellReportsTickingProgressWhileRunning(t *testing.T) {
 	}
 	// The finished result carries the exit-code status instead of the clock.
 	shell := &shellTool{}
-	done := shell.Describe(raw(map[string]any{"command": "echo start; sleep 1"}), result.Content, false, "/tmp")
+	done := shell.Describe(raw(map[string]any{"command": "echo start; sleep 1"}), result.Content, false, nil, "/tmp")
 	if !strings.HasPrefix(done.Status, "exit 0 · took ") {
 		t.Fatalf("finished status = %q", done.Status)
 	}

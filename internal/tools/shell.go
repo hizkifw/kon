@@ -44,6 +44,12 @@ type shellTool struct {
 	running *exec.Cmd // command currently running, if any
 }
 
+type shellDetails struct {
+	ExitCode    *int   `json:"exit_code"`
+	Duration    string `json:"duration"`
+	OutputBytes int    `json:"output_bytes"`
+}
+
 func (t *shellTool) Definition() provider.Tool {
 	return provider.Tool{
 		Name:        "shell",
@@ -68,18 +74,22 @@ func (t *shellTool) Summarize(raw json.RawMessage, cwd string) string {
 	return strings.ReplaceAll(args.Command, "\n", "; ")
 }
 
-// Describe renders the finished call. The persisted result ends with the
-// "exit code: N (took D)" marker the tool appends; the marker becomes the
-// state-colored status line under the output tail. Successful calls with no
-// output collapse to the request line alone. A failed call always shows its
-// message. replay args may be nil when the session did not persist them (old
-// sessions); the command summary is then unknown and only the result shows.
-func (t *shellTool) Describe(raw json.RawMessage, result string, failed bool, cwd string) Display {
+// Describe renders the finished call from persisted details. Older sessions
+// without details still use the trailing marker in the model-facing text.
+func (t *shellTool) Describe(raw json.RawMessage, result string, failed bool, details json.RawMessage, cwd string) Display {
 	summary := ""
 	if len(raw) > 0 {
 		summary = t.Summarize(raw, cwd)
 	}
-	output, exit, took, hasExit := splitResult(result)
+	var output, exit, took string
+	var hasExit bool
+	var meta shellDetails
+	if len(details) > 0 && json.Unmarshal(details, &meta) == nil && meta.ExitCode != nil && meta.OutputBytes >= 0 && meta.OutputBytes <= len(result) {
+		output = strings.TrimRight(result[:meta.OutputBytes], "\n")
+		exit, took, hasExit = fmt.Sprint(*meta.ExitCode), meta.Duration, true
+	} else {
+		output, exit, took, hasExit = splitResult(result)
+	}
 	status := ""
 	if hasExit {
 		status = "exit " + exit
@@ -286,7 +296,8 @@ func (t *shellTool) Run(ctx context.Context, env Env, raw json.RawMessage) (Resu
 		}
 		exitCode = exitErr.ExitCode()
 	}
-	return Result{Content: fmt.Sprintf("%sexit code: %d (took %s)", output, exitCode, elapsed)}, nil
+	details, _ := json.Marshal(shellDetails{ExitCode: &exitCode, Duration: elapsed.String(), OutputBytes: len(output)})
+	return Result{Content: fmt.Sprintf("%sexit code: %d (took %s)", output, exitCode, elapsed), Details: details, IsError: exitCode != 0}, nil
 }
 
 // normalizeShellOutput ensures captured output ends with a newline so a

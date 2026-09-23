@@ -41,7 +41,7 @@ type Runtime interface {
 	SessionPreview(path string, maxTurns int) ([]session.Entry, error)
 	// DescribeTool resolves a persisted tool call's transcript display through
 	// the tool that owns it, so replay matches live rendering.
-	DescribeTool(name string, args json.RawMessage, result string, failed bool) tools.Display
+	DescribeTool(name string, args json.RawMessage, result string, failed bool, details json.RawMessage) tools.Display
 	// ContextUsage reports the last provider-reported context size and whether it
 	// is known, so a resumed session can show it instead of an unknown value.
 	ContextUsage() (int, bool)

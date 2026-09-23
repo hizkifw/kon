@@ -3,6 +3,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -44,6 +45,7 @@ type Event struct {
 	Tool      string
 	Arguments string
 	IsError   bool
+	Details   json.RawMessage
 	Tokens    int
 	Estimated bool
 	// Display carries an EventToolOutput snapshot: the running tool's own
@@ -251,6 +253,7 @@ func (r *Runner) Run(ctx context.Context, prompt string, emit func(Event)) error
 			result, isError := r.tools.Execute(ctx, call.Function.Name, call.Function.Arguments, report)
 			message := session.Message{
 				Role: session.RoleTool, Content: result.Content, ToolCallID: call.ID, Name: call.Function.Name,
+				IsError: isError, Details: result.Details,
 			}
 			// Image attachments ride along as parts. They persist for exact
 			// replay and convert to wire image content for vision models; a
@@ -264,7 +267,7 @@ func (r *Runner) Run(ctx context.Context, prompt string, emit func(Event)) error
 			// The done event carries the raw result; the transcript resolves
 			// the final display through the owning tool, which supersedes any
 			// live snapshots the call published.
-			emit(Event{Kind: EventToolDone, Tool: call.Function.Name, Arguments: arguments, Text: result.Content, IsError: isError})
+			emit(Event{Kind: EventToolDone, Tool: call.Function.Name, Arguments: arguments, Text: result.Content, IsError: isError, Details: result.Details})
 			if ctx.Err() != nil {
 				if err := r.appendInterruptedToolResults(assistant.ToolCalls[i+1:]); err != nil {
 					return err
@@ -282,7 +285,7 @@ func (r *Runner) appendInterruptedToolResults(calls []session.ToolCall) error {
 	for _, call := range calls {
 		message := session.Message{
 			Role: session.RoleTool, Content: session.InterruptedToolResult,
-			ToolCallID: call.ID, Name: call.Function.Name,
+			ToolCallID: call.ID, Name: call.Function.Name, IsError: true,
 		}
 		if _, err := r.session.AppendMessage(message); err != nil {
 			return err

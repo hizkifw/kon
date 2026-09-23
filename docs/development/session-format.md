@@ -50,6 +50,12 @@ needed to replay provider-native conversations. An `image` part holds one
 base64 `data:` URI in `text` — an image attached to a tool result by the read
 tool for models configured with vision; text-only mappings skip it.
 
+Tool results may include `is_error: true` and a tool-owned `details` object.
+Shell details record `exit_code`, `duration`, and `output_bytes` (the byte
+length of output before the model-facing status marker). Text reads record
+`line_count` and, for an empty file, `empty_file`. The transcript uses these
+details to replay the tool's display without parsing its model-facing text.
+
 A turn that is interrupted before completion (user cancellation or a dropped
 connection) is written with `interrupted: true`, carrying whatever answer text
 and reasoning arrived. Its `finish_reason` and `usage` are omitted because the

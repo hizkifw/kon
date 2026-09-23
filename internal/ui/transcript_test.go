@@ -23,13 +23,13 @@ func plain(s string) string {
 // toolCallBlock builds a running tool-call block with its owned display
 // resolved for cwd.
 func toolCallBlock(name, args, cwd string) block {
-	return block{kind: blockTool, name: name, args: args, display: tools.Describe(name, []byte(args), "", false, cwd)}
+	return block{kind: blockTool, name: name, args: args, display: tools.Describe(name, []byte(args), "", false, nil, cwd)}
 }
 
 // toolDoneBlock builds a finished tool-result block with its owned display
 // resolved for cwd.
 func toolDoneBlock(name, args, result string, failed bool, cwd string) block {
-	return block{kind: blockResult, name: name, args: args, display: tools.Describe(name, []byte(args), result, failed, cwd)}
+	return block{kind: blockResult, name: name, args: args, display: tools.Describe(name, []byte(args), result, failed, nil, cwd)}
 }
 
 func TestNormalizeTextTrimsAndCollapsesBlanks(t *testing.T) {

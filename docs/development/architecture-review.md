@@ -51,18 +51,13 @@ cancellation is treated as an interrupted run.
 
 ### 3. Tool outcome is not persisted; display parses model-facing text
 
-- [ ] Persist `is_error` on tool results
-- [ ] Persist structured tool `details` alongside model-facing content
+- [x] Persist `is_error` on tool results
+- [x] Persist structured tool `details` alongside model-facing content
 
-A tool-result message has no error flag, so replay always passes
-`failed=false` (`internal/ui/events.go:129`): failed calls look successful after
-a resume. Anthropic's wire format also needs `is_error` on tool results.
-
-Separately, `shellTool.Describe` recovers the exit code by parsing the
-`"exit code: N (took D)"` marker out of the model-facing content, and
-`readTool.Describe` parses its own `%6d` line-number rows. The text the model
-sees has become a display API. Persist structured details (error flag, exit
-code, duration, line count) next to the content, and let `Displayer` read them.
+Tool-result messages now persist `is_error` and tool-owned `details`. Shell
+results record exit code, duration, and output length; text reads record line
+count. Live and replayed displays use those fields. Legacy results without
+details still use the model-facing text as a fallback.
 
 ### 4. Make ordered parts the single source of message content
 

@@ -47,5 +47,5 @@ func (e *Executor) Execute(ctx context.Context, name string, arguments json.RawM
 	if err != nil {
 		return Result{Content: "error: " + err.Error()}, true
 	}
-	return result, false
+	return result, result.IsError
 }

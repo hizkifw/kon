@@ -47,10 +47,13 @@ type Image struct {
 // Result is one tool call's output. Content is the text the model and the
 // transcript see; it stands alone, so providers that cannot send attachments
 // (or a vision-disabled configuration) lose nothing textual. Images, when
-// non-empty, additionally attach binary content for vision models.
+// non-empty, additionally attach binary content for vision models. Details
+// carries tool-owned display metadata so replay need not parse Content.
 type Result struct {
 	Content string
 	Images  []Image
+	Details json.RawMessage
+	IsError bool
 }
 
 // Env is the environment one tool call runs in. Tools keep their runtime

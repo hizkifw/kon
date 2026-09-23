@@ -25,6 +25,11 @@ const (
 // loads an image whole for models with vision.
 type readTool struct{}
 
+type readDetails struct {
+	LineCount int  `json:"line_count"`
+	EmptyFile bool `json:"empty_file,omitempty"`
+}
+
 func (readTool) Definition() provider.Tool {
 	return provider.Tool{
 		Name:        "read",
@@ -55,15 +60,27 @@ func (readTool) Summarize(raw json.RawMessage, cwd string) string {
 }
 
 // Describe renders the call: successful reads collapse to a line count and
-// carry no body, so file contents never reach the transcript. The count
-// derives from the persisted numbered rows, and a failure falls back to the
-// error message.
-func (t readTool) Describe(raw json.RawMessage, result string, failed bool, cwd string) Display {
+// carry no body, so file contents never reach the transcript. Older sessions
+// without details still derive the count from numbered rows.
+func (t readTool) Describe(raw json.RawMessage, result string, failed bool, details json.RawMessage, cwd string) Display {
 	summary := t.Summarize(raw, cwd)
 	if failed {
 		return failureDisplay(summary, result)
 	}
-	note := readNote(result)
+	note := ""
+	var meta readDetails
+	if len(details) > 0 && json.Unmarshal(details, &meta) == nil && meta.LineCount > 0 {
+		switch {
+		case meta.EmptyFile:
+			note = "empty file"
+		case meta.LineCount == 1:
+			note = "1 line"
+		default:
+			note = fmt.Sprintf("%d lines", meta.LineCount)
+		}
+	} else {
+		note = readNote(result)
+	}
 	if note == "" {
 		lines, more := tailLines(result, maxToolLines)
 		return Display{State: StateDone, Summary: summary, Lines: lines, More: more}
@@ -227,5 +244,6 @@ func (t readTool) readText(args struct {
 	if end < len(lines) {
 		fmt.Fprintf(&out, "\n… %d more lines", len(lines)-end)
 	}
-	return Result{Content: out.String()}, nil
+	details, _ := json.Marshal(readDetails{LineCount: len(lines), EmptyFile: len(b) == 0})
+	return Result{Content: out.String(), Details: details}, nil
 }

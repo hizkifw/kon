@@ -108,6 +108,8 @@ type Message struct {
 	ToolCalls       []ToolCall         `json:"tool_calls,omitempty"`
 	ToolCallID      typedid.ToolCallID `json:"tool_call_id,omitempty"`
 	Name            string             `json:"name,omitempty"`
+	IsError         bool               `json:"is_error,omitempty"`
+	Details         json.RawMessage    `json:"details,omitempty"`
 	Model           typedid.ModelID    `json:"model,omitempty"`
 	Finish          FinishReason       `json:"finish_reason,omitempty"`
 	Usage           *Usage             `json:"usage,omitempty"`
@@ -944,7 +946,7 @@ func fillUnansweredToolCalls(messages []ContextMessage, owner []int) []ContextMe
 					continue
 				}
 				out = append(out, ContextMessage{Message: Message{
-					Role: RoleTool, Content: InterruptedToolResult,
+					Role: RoleTool, Content: InterruptedToolResult, IsError: true,
 					ToolCallID: call.ID, Name: call.Function.Name,
 				}})
 			}

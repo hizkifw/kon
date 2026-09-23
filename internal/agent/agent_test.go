@@ -201,6 +201,9 @@ func TestRunnerPersistsInterruptedResultsForRemainingToolCalls(t *testing.T) {
 	var interrupted int
 	for _, entry := range store.ActivePath() {
 		if entry.Message != nil && entry.Message.Role == session.RoleTool && entry.Message.Content == session.InterruptedToolResult {
+			if !entry.Message.IsError {
+				t.Fatal("interrupted tool result was not marked as an error")
+			}
 			interrupted++
 		}
 	}

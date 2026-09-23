@@ -44,7 +44,7 @@ func (editTool) Summarize(raw json.RawMessage, cwd string) string {
 }
 
 // Describe renders the call. Like write, the edit never echoes file bodies.
-func (editTool) Describe(raw json.RawMessage, result string, failed bool, cwd string) Display {
+func (editTool) Describe(raw json.RawMessage, result string, failed bool, _ json.RawMessage, cwd string) Display {
 	summary := editTool{}.Summarize(raw, cwd)
 	if failed {
 		return failureDisplay(summary, result)

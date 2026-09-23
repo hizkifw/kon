@@ -60,7 +60,7 @@ func (m *Model) applyAgentEvent(event agent.Event) bool {
 // any result exists.
 func (m *Model) toolBlock(name string, args string) block {
 	b := block{kind: blockTool, name: name, args: args}
-	b.display = tools.Describe(name, []byte(args), "", false, m.cwd)
+	b.display = tools.Describe(name, []byte(args), "", false, nil, m.cwd)
 	return b
 }
 
@@ -70,11 +70,15 @@ func (m *Model) toolBlock(name string, args string) block {
 // full text.
 func (m *Model) toolResultBlock(event agent.Event) block {
 	text := sanitize(event.Text)
+	display := tools.Describe(event.Tool, []byte(sanitize(event.Arguments)), text, event.IsError, event.Details, m.cwd)
 	if len(text) > maxResultChars {
-		half := maxResultChars / 2
-		text = text[:half] + "\n… display truncated …\n" + text[len(text)-half:]
+		for i, line := range display.Lines {
+			if len(line) > maxResultChars {
+				half := maxResultChars / 2
+				display.Lines[i] = line[:half] + "… display truncated …" + line[len(line)-half:]
+			}
+		}
 	}
-	display := tools.Describe(event.Tool, []byte(sanitize(event.Arguments)), text, event.IsError, m.cwd)
 	return block{
 		kind:    blockResult,
 		name:    event.Tool,
@@ -126,7 +130,7 @@ func (m *Model) applyHistoryTo(t *transcript, entries []session.Entry) {
 			// The display comes from the owning tool, resolved against the
 			// persisted content and the call's arguments, so a resumed
 			// transcript renders exactly like the live one did.
-			display := m.runtime.DescribeTool(entry.Message.Name, callArgs[entry.Message.ToolCallID], sanitize(entry.Message.Content), false)
+			display := m.runtime.DescribeTool(entry.Message.Name, callArgs[entry.Message.ToolCallID], sanitize(entry.Message.Content), entry.Message.IsError, entry.Message.Details)
 			t.add(block{kind: blockResult, name: entry.Message.Name, display: display})
 		}
 	}

@@ -54,18 +54,18 @@ type Displayer interface {
 	// It is shown while the call runs and reused as the request line of the
 	// finished display.
 	Summarize(args json.RawMessage, cwd string) string
-	// Describe renders a finished call. result is the persisted Result.Content
-	// verbatim and failed reports whether the call errored.
-	Describe(args json.RawMessage, result string, failed bool, cwd string) Display
+	// Describe renders a finished call from its persisted content, outcome,
+	// and tool-owned details.
+	Describe(args json.RawMessage, result string, failed bool, details json.RawMessage, cwd string) Display
 }
 
 // Describe resolves the display for a tool call through the tool that owns it,
 // falling back to a generic rendering for unknown names and tools without a
 // Displayer. cwd anchors relative path shortening.
-func Describe(name string, args json.RawMessage, result string, failed bool, cwd string) Display {
+func Describe(name string, args json.RawMessage, result string, failed bool, details json.RawMessage, cwd string) Display {
 	if tool, ok := defaultDisplays.Lookup(name); ok {
 		if d, ok := tool.(Displayer); ok {
-			return d.Describe(args, result, failed, cwd)
+			return d.Describe(args, result, failed, details, cwd)
 		}
 	}
 	summary := FallbackSummary(args)

@@ -40,7 +40,7 @@ func (writeTool) Summarize(raw json.RawMessage, cwd string) string {
 
 // Describe renders the call. The tool never echoes the file body; a failure
 // shows the error message.
-func (writeTool) Describe(raw json.RawMessage, result string, failed bool, cwd string) Display {
+func (writeTool) Describe(raw json.RawMessage, result string, failed bool, _ json.RawMessage, cwd string) Display {
 	summary := writeTool{}.Summarize(raw, cwd)
 	if failed {
 		return failureDisplay(summary, result)
