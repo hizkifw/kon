@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -10,7 +9,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/hizkifw/kon/internal/app"
-	"github.com/hizkifw/kon/internal/catalog"
 	"github.com/hizkifw/kon/internal/config"
 	"github.com/hizkifw/kon/internal/history"
 	"github.com/hizkifw/kon/internal/typedid"
@@ -20,6 +18,7 @@ import (
 var version = "dev"
 
 const usage = `usage: kon [--resume [<id>]] [--help] [--version]
+       kon models [--refresh]
 
 Start a full-screen kon agent session in the current directory.
 
@@ -27,6 +26,8 @@ Start a full-screen kon agent session in the current directory.
   --resume=<id>         resume a specific session
   --help, -h            show this help
   --version             print the version
+  models                list bundled or cached models without network access
+  models --refresh      fetch the latest models.dev catalog, then list models
 
 On exit, kon prints the session ID so the session can be resumed later.`
 
@@ -38,6 +39,13 @@ func main() {
 }
 
 func run(args []string) error {
+	if len(args) > 0 && args[0] == "models" {
+		paths, err := config.ResolvePaths()
+		if err != nil {
+			return err
+		}
+		return runModels(args[1:], paths.Catalog, os.Stdout)
+	}
 	resume := false
 	resumeID := ""
 	for i := 0; i < len(args); i++ {
@@ -91,11 +99,6 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
-	catalogService, err := catalog.New(paths.Catalog)
-	if err != nil {
-		return err
-	}
-
 	var runtime *app.Runtime
 	switch {
 	case resumeID != "":
@@ -108,9 +111,6 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
-	catalogCtx, stopCatalog := context.WithCancel(context.Background())
-	defer stopCatalog()
-	catalogService.Start(catalogCtx)
 	model := ui.New(cwd, paths.ConfigFile, runtime, historyStore, historyEntries)
 	program := tea.NewProgram(model)
 	_, runErr := program.Run()

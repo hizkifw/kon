@@ -23,10 +23,9 @@ import (
 const sourceURL = "https://models.dev/api.json"
 
 const (
-	refreshInterval = 24 * time.Hour
-	requestTimeout  = 15 * time.Second
-	maxCatalogSize  = 16 << 20
-	maxCacheSize    = 8 << 20
+	requestTimeout = 15 * time.Second
+	maxCatalogSize = 16 << 20
+	maxCacheSize   = 8 << 20
 )
 
 //go:generate go run ./generate
@@ -99,19 +98,18 @@ type cacheFile struct {
 	Catalog   json.RawMessage `json:"catalog"`
 }
 
-// Service answers reads without network work while Refresh updates a complete
-// snapshot in the background. Returned values never share mutable slices or
-// maps with the service.
+// Service answers reads without network work. Refresh is only called on an
+// explicit user request. Returned values never share mutable slices or maps
+// with the service.
 type Service struct {
-	mu         sync.RWMutex
-	refreshMu  sync.Mutex
-	providers  map[string]*providerRecord
-	fetchedAt  time.Time
-	etag       string
-	refreshing bool
-	cachePath  string
-	client     *http.Client
-	url        string
+	mu        sync.RWMutex
+	refreshMu sync.Mutex
+	providers map[string]*providerRecord
+	fetchedAt time.Time
+	etag      string
+	cachePath string
+	client    *http.Client
+	url       string
 }
 
 // New loads the bundled snapshot, then a valid local cache when present.
@@ -174,34 +172,8 @@ func New(cachePath string) (*Service, error) {
 	return s, nil
 }
 
-// Start schedules one refresh when the cache is stale. Reads remain available
-// immediately, including when the network is unavailable.
-func (s *Service) Start(ctx context.Context) {
-	s.mu.RLock()
-	stale := time.Since(s.fetchedAt) >= refreshInterval
-	s.mu.RUnlock()
-	if !stale {
-		return
-	}
-	s.mu.Lock()
-	if s.refreshing {
-		s.mu.Unlock()
-		return
-	}
-	s.refreshing = true
-	s.mu.Unlock()
-	go func() {
-		defer func() {
-			s.mu.Lock()
-			s.refreshing = false
-			s.mu.Unlock()
-		}()
-		_ = s.Refresh(ctx)
-	}()
-}
-
 // Refresh fetches and validates a complete catalog before publishing it.
-// Callers may use this directly for an explicit refresh command later.
+// Callers must only use it for an explicit refresh command.
 func (s *Service) Refresh(ctx context.Context) error {
 	s.refreshMu.Lock()
 	defer s.refreshMu.Unlock()

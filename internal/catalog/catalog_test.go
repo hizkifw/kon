@@ -211,42 +211,6 @@ func TestConcurrentReadsDuringRefresh(t *testing.T) {
 	}
 }
 
-func TestStartRefreshesStaleCatalog(t *testing.T) {
-	s, err := New("")
-	if err != nil {
-		t.Fatal(err)
-	}
-	called := make(chan struct{}, 1)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(testCatalog))
-		called <- struct{}{}
-	}))
-	defer server.Close()
-	s.client, s.url = server.Client(), server.URL
-	s.mu.Lock()
-	s.fetchedAt = time.Time{}
-	s.mu.Unlock()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	s.Start(ctx)
-	select {
-	case <-called:
-	case <-time.After(3 * time.Second):
-		t.Fatal("background refresh did not start")
-	}
-	deadline := time.After(3 * time.Second)
-	for {
-		if _, ok := s.Model("example", "new-model"); ok {
-			break
-		}
-		select {
-		case <-deadline:
-			t.Fatal("background refresh was not published")
-		case <-time.After(time.Millisecond):
-		}
-	}
-}
-
 func TestParseRejectsEmptyCatalog(t *testing.T) {
 	for _, input := range []string{`{}`, `null`, `[]`} {
 		if _, err := parse(json.RawMessage(input)); err == nil {
