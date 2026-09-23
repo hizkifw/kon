@@ -112,26 +112,30 @@ func (m *Model) applyHistoryTo(t *transcript, entries []session.Entry) {
 		}
 		switch entry.Message.Role {
 		case session.RoleUser:
-			t.add(block{kind: blockUser, text: sanitize(entry.Message.Content)})
+			t.add(block{kind: blockUser, text: sanitize(entry.Message.Text())})
 		case session.RoleAssistant:
 			for _, part := range entry.Message.Parts {
-				if part.Type == provider.PartReasoning && part.Text != "" {
-					t.add(block{kind: blockThinking, text: sanitize(part.Text)})
+				switch part.Type {
+				case provider.PartReasoning:
+					if part.Text != "" {
+						t.add(block{kind: blockThinking, text: sanitize(part.Text)})
+					}
+				case provider.PartText:
+					if part.Text != "" {
+						t.add(block{kind: blockAssistant, text: sanitize(part.Text)})
+					}
+				case provider.PartToolCall:
+					callArgs[part.ToolCallID] = part.ToolInput
+					t.add(m.toolBlock(part.ToolName, sanitize(string(part.ToolInput))))
 				}
-			}
-			if content := sanitize(entry.Message.Content); content != "" {
-				t.add(block{kind: blockAssistant, text: content})
-			}
-			for _, call := range entry.Message.ToolCalls {
-				callArgs[call.ID] = call.Function.Arguments
-				t.add(m.toolBlock(call.Function.Name, sanitize(string(call.Function.Arguments))))
 			}
 		case session.RoleTool:
 			// The display comes from the owning tool, resolved against the
 			// persisted content and the call's arguments, so a resumed
 			// transcript renders exactly like the live one did.
-			display := m.runtime.DescribeTool(entry.Message.Name, callArgs[entry.Message.ToolCallID], sanitize(entry.Message.Content), entry.Message.IsError, entry.Message.Details)
-			t.add(block{kind: blockResult, name: entry.Message.Name, display: display})
+			id, name := entry.Message.ToolResult()
+			display := m.runtime.DescribeTool(name, callArgs[id], sanitize(entry.Message.Text()), entry.Message.IsError, entry.Message.Details)
+			t.add(block{kind: blockResult, name: name, display: display})
 		}
 	}
 }

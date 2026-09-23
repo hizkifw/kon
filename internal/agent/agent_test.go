@@ -22,12 +22,12 @@ type fakeProvider struct {
 func (f *fakeProvider) Stream(_ context.Context, _ []session.Message, _ []provider.Tool, emit func(provider.Event)) (session.Message, error) {
 	f.streamCalls++
 	emit(provider.Event{Text: "done"})
-	return session.Message{Role: session.RoleAssistant, Content: "done", Finish: "stop", Usage: &session.Usage{PromptTokens: 100, CompletionTokens: 1, TotalTokens: 101}}, nil
+	return session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: "done"}}, Finish: "stop", Usage: &session.Usage{PromptTokens: 100, CompletionTokens: 1, TotalTokens: 101}}, nil
 }
 
 func (f *fakeProvider) Complete(_ context.Context, _ []session.Message, _ []provider.Tool, _ int) (session.Message, error) {
 	f.completeCalls++
-	return session.Message{Role: session.RoleAssistant, Content: "summary", Usage: &session.Usage{PromptTokens: 50, CompletionTokens: 5, TotalTokens: 55}}, nil
+	return session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: "summary"}}, Usage: &session.Usage{PromptTokens: 50, CompletionTokens: 5, TotalTokens: 55}}, nil
 }
 
 func TestRunnerCompactsOlderTurnsBeforeRequest(t *testing.T) {
@@ -37,10 +37,10 @@ func TestRunnerCompactsOlderTurnsBeforeRequest(t *testing.T) {
 	}
 	defer store.Close()
 	for i := 0; i < 3; i++ {
-		if _, err := store.AppendMessage(session.Message{Role: session.RoleUser, Content: strings.Repeat("question ", 80)}); err != nil {
+		if _, err := store.AppendMessage(session.Message{Role: session.RoleUser, Parts: []session.Part{{Type: session.PartText, Text: strings.Repeat("question ", 80)}}}); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := store.AppendMessage(session.Message{Role: session.RoleAssistant, Content: strings.Repeat("answer ", 80)}); err != nil {
+		if _, err := store.AppendMessage(session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: strings.Repeat("answer ", 80)}}}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -76,11 +76,11 @@ func TestNewSeedsUsageFromPersistedAssistantMessages(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := store.Path()
-	if _, err := store.AppendMessage(session.Message{Role: session.RoleUser, Content: "hi"}); err != nil {
+	if _, err := store.AppendMessage(session.Message{Role: session.RoleUser, Parts: []session.Part{{Type: session.PartText, Text: "hi"}}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.AppendMessage(session.Message{
-		Role: session.RoleAssistant, Content: "answer",
+		Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: "answer"}},
 		Usage: &session.Usage{PromptTokens: 900, CompletionTokens: 40, TotalTokens: 940},
 	}); err != nil {
 		t.Fatal(err)
@@ -106,7 +106,7 @@ func TestContextUsageUnknownBeforeFirstReport(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	if _, err := store.AppendMessage(session.Message{Role: session.RoleUser, Content: "hi"}); err != nil {
+	if _, err := store.AppendMessage(session.Message{Role: session.RoleUser, Parts: []session.Part{{Type: session.PartText, Text: "hi"}}}); err != nil {
 		t.Fatal(err)
 	}
 	cfg := config.Default()
@@ -128,7 +128,6 @@ func (p *interruptingProvider) Stream(_ context.Context, _ []session.Message, _ 
 	emit(provider.Event{Text: "half an answer"})
 	return session.Message{
 		Role:        session.RoleAssistant,
-		Content:     "half an answer",
 		Interrupted: true,
 		Parts: []session.Part{
 			{Type: provider.PartReasoning, Text: "partial thought"},
@@ -138,7 +137,7 @@ func (p *interruptingProvider) Stream(_ context.Context, _ []session.Message, _ 
 }
 
 func (p *interruptingProvider) Complete(_ context.Context, _ []session.Message, _ []provider.Tool, _ int) (session.Message, error) {
-	return session.Message{Role: session.RoleAssistant, Content: "summary"}, nil
+	return session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: "summary"}}}, nil
 }
 
 func TestRunnerPersistsPartialTurnOnInterruptedStream(t *testing.T) {
@@ -158,7 +157,7 @@ func TestRunnerPersistsPartialTurnOnInterruptedStream(t *testing.T) {
 		t.Fatal(err)
 	}
 	last := contextMessages[len(contextMessages)-1].Message
-	if last.Role != session.RoleAssistant || !last.Interrupted || last.Content != "half an answer" {
+	if last.Role != session.RoleAssistant || !last.Interrupted || last.Text() != "half an answer" {
 		t.Fatalf("partial turn was not persisted: %#v", last)
 	}
 	if len(last.Parts) != 2 || last.Parts[0].Type != provider.PartReasoning {
@@ -174,9 +173,9 @@ func TestRunnerPersistsPartialTurnOnInterruptedStream(t *testing.T) {
 type toolCallProvider struct{}
 
 func (toolCallProvider) Stream(context.Context, []session.Message, []provider.Tool, func(provider.Event)) (session.Message, error) {
-	return session.Message{Role: session.RoleAssistant, ToolCalls: []session.ToolCall{
-		{ID: typedid.ExternalToolCallID("first"), Function: session.ToolFunction{Name: "unknown", Arguments: []byte(`{}`)}},
-		{ID: typedid.ExternalToolCallID("second"), Function: session.ToolFunction{Name: "unknown", Arguments: []byte(`{}`)}},
+	return session.Message{Role: session.RoleAssistant, Parts: []session.Part{
+		{Type: session.PartToolCall, ToolCallID: typedid.ExternalToolCallID("first"), ToolName: "unknown", ToolInput: []byte(`{}`)},
+		{Type: session.PartToolCall, ToolCallID: typedid.ExternalToolCallID("second"), ToolName: "unknown", ToolInput: []byte(`{}`)},
 	}}, nil
 }
 
@@ -200,7 +199,7 @@ func TestRunnerPersistsInterruptedResultsForRemainingToolCalls(t *testing.T) {
 	// an unanswered call either way, so only the entries prove the write.
 	var interrupted int
 	for _, entry := range store.ActivePath() {
-		if entry.Message != nil && entry.Message.Role == session.RoleTool && entry.Message.Content == session.InterruptedToolResult {
+		if entry.Message != nil && entry.Message.Role == session.RoleTool && entry.Message.Text() == session.InterruptedToolResult {
 			if !entry.Message.IsError {
 				t.Fatal("interrupted tool result was not marked as an error")
 			}
@@ -226,11 +225,11 @@ type reasoningProvider struct{}
 func (reasoningProvider) Stream(_ context.Context, _ []session.Message, _ []provider.Tool, emit func(provider.Event)) (session.Message, error) {
 	emit(provider.Event{Text: "pondering", Thinking: true})
 	emit(provider.Event{Text: "answer"})
-	return session.Message{Role: session.RoleAssistant, Content: "answer", Finish: "stop"}, nil
+	return session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: "answer"}}, Finish: "stop"}, nil
 }
 
 func (reasoningProvider) Complete(_ context.Context, _ []session.Message, _ []provider.Tool, _ int) (session.Message, error) {
-	return session.Message{Role: session.RoleAssistant, Content: "summary"}, nil
+	return session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: "summary"}}}, nil
 }
 
 func TestRunnerEmitsThinkingBeforeText(t *testing.T) {
@@ -257,12 +256,12 @@ func TestRunnerEmitsThinkingBeforeText(t *testing.T) {
 
 func TestSelectCutNeverStartsAtToolResult(t *testing.T) {
 	items := []session.ContextMessage{
-		{EntryID: newTestEntryID(t), Message: session.Message{Role: session.RoleSystem, Content: "system"}},
-		{EntryID: newTestEntryID(t), Message: session.Message{Role: session.RoleUser, Content: strings.Repeat("x", 100)}},
-		{EntryID: newTestEntryID(t), Message: session.Message{Role: session.RoleAssistant, ToolCalls: []session.ToolCall{{ID: typedid.ExternalToolCallID("1")}}}},
-		{EntryID: newTestEntryID(t), Message: session.Message{Role: session.RoleTool, Content: strings.Repeat("y", 100)}},
-		{EntryID: newTestEntryID(t), Message: session.Message{Role: session.RoleAssistant, Content: "done"}},
-		{EntryID: newTestEntryID(t), Message: session.Message{Role: session.RoleUser, Content: "new"}},
+		{EntryID: newTestEntryID(t), Message: session.Message{Role: session.RoleSystem, Parts: []session.Part{{Type: session.PartText, Text: "system"}}}},
+		{EntryID: newTestEntryID(t), Message: session.Message{Role: session.RoleUser, Parts: []session.Part{{Type: session.PartText, Text: strings.Repeat("x", 100)}}}},
+		{EntryID: newTestEntryID(t), Message: session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartToolCall, ToolCallID: typedid.ExternalToolCallID("1")}}}},
+		{EntryID: newTestEntryID(t), Message: session.ToolResultMessage("1", "shell", strings.Repeat("y", 100))},
+		{EntryID: newTestEntryID(t), Message: session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: "done"}}}},
+		{EntryID: newTestEntryID(t), Message: session.Message{Role: session.RoleUser, Parts: []session.Part{{Type: session.PartText, Text: "new"}}}},
 	}
 	cut := selectCut(items, 10)
 	if cut < 0 || items[cut].Message.Role == session.RoleTool {
@@ -277,10 +276,10 @@ func TestCompactForcesCompactionBelowThreshold(t *testing.T) {
 	}
 	defer store.Close()
 	for i := 0; i < 3; i++ {
-		if _, err := store.AppendMessage(session.Message{Role: session.RoleUser, Content: strings.Repeat("question ", 80)}); err != nil {
+		if _, err := store.AppendMessage(session.Message{Role: session.RoleUser, Parts: []session.Part{{Type: session.PartText, Text: strings.Repeat("question ", 80)}}}); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := store.AppendMessage(session.Message{Role: session.RoleAssistant, Content: strings.Repeat("answer ", 80)}); err != nil {
+		if _, err := store.AppendMessage(session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: strings.Repeat("answer ", 80)}}}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -319,7 +318,7 @@ func TestCompactForcesCompactionBelowThreshold(t *testing.T) {
 // summary, which is now a standalone message rather than system-prompt text.
 func containsSummary(messages []session.ContextMessage) bool {
 	for _, message := range messages {
-		if message.Summary && strings.Contains(message.Message.Content, "summary") {
+		if message.Summary && strings.Contains(message.Message.Text(), "summary") {
 			return true
 		}
 	}
@@ -350,10 +349,10 @@ func TestCompactFallsBackToIsolatedSummaryWhenLiveContextWouldOverflow(t *testin
 	}
 	defer store.Close()
 	for i := 0; i < 3; i++ {
-		if _, err := store.AppendMessage(session.Message{Role: session.RoleUser, Content: strings.Repeat("question ", 80)}); err != nil {
+		if _, err := store.AppendMessage(session.Message{Role: session.RoleUser, Parts: []session.Part{{Type: session.PartText, Text: strings.Repeat("question ", 80)}}}); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := store.AppendMessage(session.Message{Role: session.RoleAssistant, Content: strings.Repeat("answer ", 80)}); err != nil {
+		if _, err := store.AppendMessage(session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: strings.Repeat("answer ", 80)}}}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -379,8 +378,8 @@ func TestCompactFallsBackToIsolatedSummaryWhenLiveContextWouldOverflow(t *testin
 	if len(provider.tools[0]) != 0 {
 		t.Fatal("fallback request should not send the live tool roster")
 	}
-	if !strings.Contains(request[1].Content, "[user]") {
-		t.Fatalf("fallback request should carry the serialized history: %q", request[1].Content)
+	if !strings.Contains(request[1].Text(), "[user]") {
+		t.Fatalf("fallback request should carry the serialized history: %q", request[1].Text())
 	}
 }
 
@@ -395,18 +394,18 @@ func TestCompactUsesPreviousSummaryWithoutReSummarizingIt(t *testing.T) {
 		if content == "old answer" {
 			role = session.RoleAssistant
 		}
-		if _, err := store.AppendMessage(session.Message{Role: role, Content: content}); err != nil {
+		if _, err := store.AppendMessage(session.Message{Role: role, Parts: []session.Part{{Type: session.PartText, Text: content}}}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	kept, err := store.AppendMessage(session.Message{Role: session.RoleUser, Content: "kept question"})
+	kept, err := store.AppendMessage(session.Message{Role: session.RoleUser, Parts: []session.Part{{Type: session.PartText, Text: "kept question"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.AppendCompaction("existing summary", kept, 100, false, nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.AppendMessage(session.Message{Role: session.RoleUser, Content: strings.Repeat("more ", 200)}); err != nil {
+	if _, err := store.AppendMessage(session.Message{Role: session.RoleUser, Parts: []session.Part{{Type: session.PartText, Text: strings.Repeat("more ", 200)}}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -425,18 +424,18 @@ func TestCompactUsesPreviousSummaryWithoutReSummarizingIt(t *testing.T) {
 	request := provider.requests[0]
 	// The summary request is the live prefix plus one trailing user message, so
 	// the provider can reuse the cache the streaming turn populated.
-	if request[0].Role != session.RoleSystem || request[0].Content != "system" {
+	if request[0].Role != session.RoleSystem || request[0].Text() != "system" {
 		t.Fatalf("system prompt not reused verbatim: %#v", request[0])
 	}
 	if len(request) != 5 {
 		t.Fatalf("request has %d messages, want the live prefix plus the trailing request", len(request))
 	}
 	last := request[len(request)-1]
-	if last.Role != session.RoleUser || !strings.Contains(last.Content, "Context is running low") {
+	if last.Role != session.RoleUser || !strings.Contains(last.Text(), "Context is running low") {
 		t.Fatalf("trailing summary request missing: %#v", last)
 	}
-	if !strings.Contains(request[1].Content, "existing summary") {
-		t.Fatalf("previous summary missing from projected prefix: %q", request[1].Content)
+	if !strings.Contains(request[1].Text(), "existing summary") {
+		t.Fatalf("previous summary missing from projected prefix: %q", request[1].Text())
 	}
 	if len(provider.tools[0]) == 0 {
 		t.Fatal("tool roster not sent, so the cached prefix would not match the live turn")
@@ -449,13 +448,13 @@ type recordingProvider struct {
 }
 
 func (p *recordingProvider) Stream(context.Context, []session.Message, []provider.Tool, func(provider.Event)) (session.Message, error) {
-	return session.Message{Role: session.RoleAssistant, Content: "done"}, nil
+	return session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: "done"}}}, nil
 }
 
 func (p *recordingProvider) Complete(_ context.Context, messages []session.Message, toolList []provider.Tool, _ int) (session.Message, error) {
 	p.requests = append(p.requests, messages)
 	p.tools = append(p.tools, toolList)
-	return session.Message{Role: session.RoleAssistant, Content: "summary"}, nil
+	return session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: "summary"}}}, nil
 }
 
 func newTestEntryID(t *testing.T) typedid.EntryID {

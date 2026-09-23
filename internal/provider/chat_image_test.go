@@ -11,11 +11,11 @@ import (
 func TestToChatMessagesMapsImagePartsOnToolResults(t *testing.T) {
 	dataURI := "data:image/png;base64,aGVsbG8="
 	messages, err := toChatMessages([]session.Message{
-		{Role: session.RoleUser, Content: "look"},
-		{Role: session.RoleAssistant, ToolCalls: []session.ToolCall{{ID: "1", Function: session.ToolFunction{Name: "read", Arguments: json.RawMessage(`{"path":"p.png"}`)}}}},
+		session.TextMessage(session.RoleUser, "look"),
+		{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartToolCall, ToolCallID: "1", ToolName: "read", ToolInput: json.RawMessage(`{"path":"p.png"}`)}}},
 		{
-			Role: session.RoleTool, Content: "loaded image p.png", ToolCallID: "1", Name: "read",
-			Parts: []session.Part{{Type: session.PartImage, Text: dataURI}},
+			Role:  session.RoleTool,
+			Parts: []session.Part{{Type: session.PartToolResult, ToolCallID: "1", ToolName: "read", ToolOutput: "loaded image p.png"}, {Type: session.PartImage, Text: dataURI}},
 		},
 	})
 	if err != nil {
@@ -42,8 +42,7 @@ func TestToChatMessagesMapsImagePartsOnToolResults(t *testing.T) {
 
 func TestToChatMessagesIgnoresNonImageParts(t *testing.T) {
 	messages, err := toChatMessages([]session.Message{
-		{Role: session.RoleTool, Content: "done", ToolCallID: "1", Name: "shell",
-			Parts: []session.Part{{Type: session.PartReasoning, Text: "thoughts"}}},
+		{Role: session.RoleTool, Parts: []session.Part{{Type: session.PartToolResult, ToolCallID: "1", ToolName: "shell", ToolOutput: "done"}, {Type: session.PartReasoning, Text: "thoughts"}}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -55,7 +54,7 @@ func TestToChatMessagesIgnoresNonImageParts(t *testing.T) {
 
 func TestToChatMessagesToolWithoutPartsKeepsString(t *testing.T) {
 	messages, err := toChatMessages([]session.Message{
-		{Role: session.RoleTool, Content: "done", ToolCallID: "1", Name: "shell"},
+		session.ToolResultMessage("1", "shell", "done"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -69,8 +68,7 @@ func TestToChatMessagesToolWithoutPartsKeepsString(t *testing.T) {
 func TestToChatMessagesEncodesImagePartsOnTheWire(t *testing.T) {
 	// The encoded JSON must match the chat-completions multimodal shape.
 	messages, err := toChatMessages([]session.Message{
-		{Role: session.RoleTool, Content: "loaded", ToolCallID: "1", Name: "read",
-			Parts: []session.Part{{Type: session.PartImage, Text: "data:image/png;base64,AAA="}}},
+		{Role: session.RoleTool, Parts: []session.Part{{Type: session.PartToolResult, ToolCallID: "1", ToolName: "read", ToolOutput: "loaded"}, {Type: session.PartImage, Text: "data:image/png;base64,AAA="}}},
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -28,21 +28,18 @@ func (p *toolCallingProvider) Stream(_ context.Context, messages []session.Messa
 	p.asked++
 	if p.asked == 1 {
 		return session.Message{
-			Role: session.RoleAssistant,
-			ToolCalls: []session.ToolCall{{
-				ID: "call-1", Type: "function",
-				Function: session.ToolFunction{Name: p.toolName, Arguments: json.RawMessage(p.arguments)},
-			}},
+			Role:   session.RoleAssistant,
+			Parts:  []session.Part{{Type: session.PartToolCall, ToolCallID: "call-1", ToolName: p.toolName, ToolInput: json.RawMessage(p.arguments)}},
 			Finish: "tool_calls",
 			Usage:  &session.Usage{PromptTokens: 30, CompletionTokens: 5, TotalTokens: 35},
 		}, nil
 	}
-	return session.Message{Role: session.RoleAssistant, Content: "saw it", Finish: "stop", Usage: &session.Usage{PromptTokens: 2000, CompletionTokens: 5, TotalTokens: 2005}}, nil
+	return session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: "saw it"}}, Finish: "stop", Usage: &session.Usage{PromptTokens: 2000, CompletionTokens: 5, TotalTokens: 2005}}, nil
 }
 
 func (p *toolCallingProvider) Complete(_ context.Context, _ []session.Message, _ []provider.Tool, _ int) (session.Message, error) {
 	p.completed++
-	return session.Message{Role: session.RoleAssistant, Content: "summary"}, nil
+	return session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: "summary"}}}, nil
 }
 
 // TestImageResultDoesNotForceCompaction pins the compaction behavior for
@@ -132,10 +129,10 @@ func TestRunPersistsImagePartsFromRead(t *testing.T) {
 	if tool == nil {
 		t.Fatal("no tool result was persisted")
 	}
-	if len(tool.Parts) != 1 || tool.Parts[0].Type != session.PartImage || !strings.HasPrefix(tool.Parts[0].Text, "data:image/png;base64,") {
+	if len(tool.Parts) != 2 || tool.Parts[1].Type != session.PartImage || !strings.HasPrefix(tool.Parts[1].Text, "data:image/png;base64,") {
 		t.Fatalf("tool parts = %#v", tool.Parts)
 	}
-	if tool.Content == "" || strings.Contains(tool.Content, "base64") {
-		t.Fatalf("tool content should describe, not inline, the image: %q", tool.Content)
+	if tool.Text() == "" || strings.Contains(tool.Text(), "base64") {
+		t.Fatalf("tool content should describe, not inline, the image: %q", tool.Text())
 	}
 }

@@ -10,6 +10,14 @@ import (
 	"github.com/hizkifw/kon/internal/typedid"
 )
 
+func messageWithCalls(calls []ToolCall) Message {
+	m := Message{Role: RoleAssistant}
+	for _, call := range calls {
+		m.Parts = append(m.Parts, Part{Type: PartToolCall, ToolCallID: call.ID, ToolName: call.Function.Name, ToolInput: call.Function.Arguments})
+	}
+	return m
+}
+
 func TestEmptySessionIsDiscardedOnClose(t *testing.T) {
 	root, cwd := t.TempDir(), t.TempDir()
 	store, err := New(root, cwd, "test", "system")
@@ -58,7 +66,7 @@ func TestSessionWithMessageIsKeptOnClose(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.AppendMessage(Message{Role: RoleUser, Content: "hello"}); err != nil {
+	if _, err := store.AppendMessage(Message{Role: RoleUser, Parts: []Part{{Type: PartText, Text: "hello"}}}); err != nil {
 		t.Fatal(err)
 	}
 	if store.Empty() {
@@ -83,7 +91,7 @@ func TestDiscoverFindsSessionsNewestFirst(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := first.AppendMessage(Message{Role: RoleUser, Content: "one"}); err != nil {
+	if _, err := first.AppendMessage(Message{Role: RoleUser, Parts: []Part{{Type: PartText, Text: "one"}}}); err != nil {
 		t.Fatal(err)
 	}
 	first.Close()
@@ -92,7 +100,7 @@ func TestDiscoverFindsSessionsNewestFirst(t *testing.T) {
 		t.Fatal(err)
 	}
 	secondID := second.ID()
-	if _, err := second.AppendMessage(Message{Role: RoleUser, Content: "two"}); err != nil {
+	if _, err := second.AppendMessage(Message{Role: RoleUser, Parts: []Part{{Type: PartText, Text: "two"}}}); err != nil {
 		t.Fatal(err)
 	}
 	second.Close()
@@ -131,13 +139,13 @@ func TestDiscoverReadsOnlySessionHead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.AppendMessage(Message{Role: RoleUser, Content: "opening question"}); err != nil {
+	if _, err := store.AppendMessage(Message{Role: RoleUser, Parts: []Part{{Type: PartText, Text: "opening question"}}}); err != nil {
 		t.Fatal(err)
 	}
 	// Pad past the head window with valid turns, then append a corrupt record
 	// directly to the file.
 	for i := 0; i < 50; i++ {
-		store.AppendMessage(Message{Role: RoleAssistant, Content: strings.Repeat("x", 200)})
+		store.AppendMessage(Message{Role: RoleAssistant, Parts: []Part{{Type: PartText, Text: strings.Repeat("x", 200)}}})
 	}
 	path := store.Path()
 	if err := store.Close(); err != nil {
@@ -166,8 +174,8 @@ func TestTailEntriesReadsTrailingTurnsWithoutOpening(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := 0; i < 5; i++ {
-		store.AppendMessage(Message{Role: RoleUser, Content: "question"})
-		store.AppendMessage(Message{Role: RoleAssistant, Content: "answer"})
+		store.AppendMessage(Message{Role: RoleUser, Parts: []Part{{Type: PartText, Text: "question"}}})
+		store.AppendMessage(Message{Role: RoleAssistant, Parts: []Part{{Type: PartText, Text: "answer"}}})
 	}
 	path := store.Path()
 	store.Close()
@@ -177,7 +185,7 @@ func TestTailEntriesReadsTrailingTurnsWithoutOpening(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Two user turns, each with its answer, and nothing from earlier turns.
-	if len(entries) != 4 || entries[0].Message.Content != "question" || entries[2].Message.Content != "question" {
+	if len(entries) != 4 || entries[0].Message.Text() != "question" || entries[2].Message.Text() != "question" {
 		t.Fatalf("TailEntries = %#v", entries)
 	}
 	if _, err := os.Stat(path); err != nil {
@@ -191,8 +199,8 @@ func TestTailEntriesReturnsWholeSessionWhenShorter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	store.AppendMessage(Message{Role: RoleUser, Content: "only question"})
-	store.AppendMessage(Message{Role: RoleAssistant, Content: "only answer"})
+	store.AppendMessage(Message{Role: RoleUser, Parts: []Part{{Type: PartText, Text: "only question"}}})
+	store.AppendMessage(Message{Role: RoleAssistant, Parts: []Part{{Type: PartText, Text: "only answer"}}})
 	path := store.Path()
 	store.Close()
 
@@ -200,7 +208,7 @@ func TestTailEntriesReturnsWholeSessionWhenShorter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 3 || entries[0].Message.Role != RoleSystem || entries[2].Message.Content != "only answer" {
+	if len(entries) != 3 || entries[0].Message.Role != RoleSystem || entries[2].Message.Text() != "only answer" {
 		t.Fatalf("TailEntries = %#v", entries)
 	}
 }
@@ -211,10 +219,10 @@ func TestTailEntriesFollowsParentChainInWindow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	store.AppendMessage(Message{Role: RoleUser, Content: "first"})
-	store.AppendMessage(Message{Role: RoleAssistant, Content: "answer one"})
-	store.AppendMessage(Message{Role: RoleUser, Content: "second"})
-	store.AppendMessage(Message{Role: RoleAssistant, Content: "answer two"})
+	store.AppendMessage(Message{Role: RoleUser, Parts: []Part{{Type: PartText, Text: "first"}}})
+	store.AppendMessage(Message{Role: RoleAssistant, Parts: []Part{{Type: PartText, Text: "answer one"}}})
+	store.AppendMessage(Message{Role: RoleUser, Parts: []Part{{Type: PartText, Text: "second"}}})
+	store.AppendMessage(Message{Role: RoleAssistant, Parts: []Part{{Type: PartText, Text: "answer two"}}})
 	path := store.Path()
 	store.Close()
 
@@ -227,7 +235,7 @@ func TestTailEntriesFollowsParentChainInWindow(t *testing.T) {
 	got := make([]string, 0, len(entries))
 	for _, entry := range entries {
 		if entry.Message != nil {
-			got = append(got, string(entry.Message.Role)+":"+entry.Message.Content)
+			got = append(got, string(entry.Message.Role)+":"+entry.Message.Text())
 		}
 	}
 	want := []string{"user:first", "assistant:answer one", "user:second", "assistant:answer two"}
@@ -247,10 +255,10 @@ func TestTailEntriesReadsAcrossBlocks(t *testing.T) {
 	// Pad the file well past one tailBlock so two user turns sit more than a
 	// block away from each other.
 	large := strings.Repeat("x", tailBlock)
-	store.AppendMessage(Message{Role: RoleUser, Content: "old question"})
-	store.AppendMessage(Message{Role: RoleAssistant, Content: large})
-	store.AppendMessage(Message{Role: RoleUser, Content: "recent question"})
-	store.AppendMessage(Message{Role: RoleAssistant, Content: "recent answer"})
+	store.AppendMessage(Message{Role: RoleUser, Parts: []Part{{Type: PartText, Text: "old question"}}})
+	store.AppendMessage(Message{Role: RoleAssistant, Parts: []Part{{Type: PartText, Text: large}}})
+	store.AppendMessage(Message{Role: RoleUser, Parts: []Part{{Type: PartText, Text: "recent question"}}})
+	store.AppendMessage(Message{Role: RoleAssistant, Parts: []Part{{Type: PartText, Text: "recent answer"}}})
 	path := store.Path()
 	store.Close()
 
@@ -258,7 +266,7 @@ func TestTailEntriesReadsAcrossBlocks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 2 || entries[0].Message.Content != "recent question" || entries[1].Message.Content != "recent answer" {
+	if len(entries) != 2 || entries[0].Message.Text() != "recent question" || entries[1].Message.Text() != "recent answer" {
 		t.Fatalf("TailEntries across blocks = %#v", entries)
 	}
 }
@@ -269,7 +277,7 @@ func TestSummaryTitleIsFirstUserMessage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	store.AppendMessage(Message{Role: RoleUser, Content: "\n  Fix the flaky test  \nmore detail"})
+	store.AppendMessage(Message{Role: RoleUser, Parts: []Part{{Type: PartText, Text: "\n  Fix the flaky test  \nmore detail"}}})
 	store.Close()
 
 	summaries, err := Discover(root, cwd)
@@ -291,7 +299,7 @@ func TestLatestAndFind(t *testing.T) {
 		t.Fatal(err)
 	}
 	firstID := first.ID()
-	if _, err := first.AppendMessage(Message{Role: RoleUser, Content: "keep me"}); err != nil {
+	if _, err := first.AppendMessage(Message{Role: RoleUser, Parts: []Part{{Type: PartText, Text: "keep me"}}}); err != nil {
 		t.Fatal(err)
 	}
 	first.Close()
@@ -320,7 +328,7 @@ func TestDiscoverSkipsUnreadableFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := store.Path()
-	if _, err := store.AppendMessage(Message{Role: RoleUser, Content: "content"}); err != nil {
+	if _, err := store.AppendMessage(Message{Role: RoleUser, Parts: []Part{{Type: PartText, Text: "content"}}}); err != nil {
 		t.Fatal(err)
 	}
 	store.Close()
@@ -342,11 +350,11 @@ func TestActivePathIncludesMessagesInOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	if _, err := store.AppendMessage(Message{Role: RoleUser, Content: "hello"}); err != nil {
+	if _, err := store.AppendMessage(Message{Role: RoleUser, Parts: []Part{{Type: PartText, Text: "hello"}}}); err != nil {
 		t.Fatal(err)
 	}
 	path := store.ActivePath()
-	if len(path) != 2 || path[0].Message.Role != RoleSystem || path[1].Message.Content != "hello" {
+	if len(path) != 2 || path[0].Message.Role != RoleSystem || path[1].Message.Text() != "hello" {
 		t.Fatalf("ActivePath = %#v", path)
 	}
 }
@@ -357,17 +365,17 @@ func TestCompactionProjectsRetainedMessages(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	if _, err := store.AppendMessage(Message{Role: RoleUser, Content: "old question"}); err != nil {
+	if _, err := store.AppendMessage(Message{Role: RoleUser, Parts: []Part{{Type: PartText, Text: "old question"}}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.AppendMessage(Message{Role: RoleAssistant, Content: "old answer"}); err != nil {
+	if _, err := store.AppendMessage(Message{Role: RoleAssistant, Parts: []Part{{Type: PartText, Text: "old answer"}}}); err != nil {
 		t.Fatal(err)
 	}
-	kept, err := store.AppendMessage(Message{Role: RoleUser, Content: "new question"})
+	kept, err := store.AppendMessage(Message{Role: RoleUser, Parts: []Part{{Type: PartText, Text: "new question"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.AppendMessage(Message{Role: RoleAssistant, Content: "new answer"}); err != nil {
+	if _, err := store.AppendMessage(Message{Role: RoleAssistant, Parts: []Part{{Type: PartText, Text: "new answer"}}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.AppendCompaction("old work summary", kept, 1000, false, nil); err != nil {
@@ -380,13 +388,13 @@ func TestCompactionProjectsRetainedMessages(t *testing.T) {
 	if len(context) != 4 {
 		t.Fatalf("context has %d messages, want 4", len(context))
 	}
-	if context[0].Message.Content != "system prompt" {
-		t.Fatalf("system message was rewritten: %q", context[0].Message.Content)
+	if context[0].Message.Text() != "system prompt" {
+		t.Fatalf("system message was rewritten: %q", context[0].Message.Text())
 	}
-	if !context[1].Summary || !strings.Contains(context[1].Message.Content, "old work summary") {
+	if !context[1].Summary || !strings.Contains(context[1].Message.Text(), "old work summary") {
 		t.Fatalf("compaction summary not projected as its own message: %#v", context[1])
 	}
-	if context[2].Message.Content != "new question" || context[3].Message.Content != "new answer" {
+	if context[2].Message.Text() != "new question" || context[3].Message.Text() != "new answer" {
 		t.Fatalf("wrong retained messages: %#v", context)
 	}
 }
@@ -398,16 +406,17 @@ func TestContextRepairsUnansweredToolCalls(t *testing.T) {
 	}
 	defer store.Close()
 	callID := typedid.ExternalToolCallID("interrupted-call")
-	if _, err := store.AppendMessage(Message{Role: RoleAssistant, ToolCalls: []ToolCall{{
+	if _, err := store.AppendMessage(messageWithCalls([]ToolCall{{
 		ID: callID, Type: "function", Function: ToolFunction{Name: "shell", Arguments: json.RawMessage(`{"command":"sleep"}`)},
-	}}}); err != nil {
+	}})); err != nil {
 		t.Fatal(err)
 	}
 	context, err := store.Context()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(context) != 3 || context[2].Message.Role != RoleTool || context[2].Message.ToolCallID != callID || context[2].Message.Content != InterruptedToolResult {
+	resultID, _ := context[2].Message.ToolResult()
+	if len(context) != 3 || context[2].Message.Role != RoleTool || resultID != callID || context[2].Message.Text() != InterruptedToolResult {
 		t.Fatalf("repaired context = %#v", context)
 	}
 	// Projection repairs are ephemeral and do not change the append-only log.
@@ -436,11 +445,11 @@ func TestContextRepairKeepsToolResultsInCallOrder(t *testing.T) {
 	for i, id := range calls {
 		toolCalls[i] = ToolCall{ID: id, Type: "function", Function: ToolFunction{Name: "shell", Arguments: json.RawMessage(`{}`)}}
 	}
-	if _, err := store.AppendMessage(Message{Role: RoleAssistant, ToolCalls: toolCalls}); err != nil {
+	if _, err := store.AppendMessage(messageWithCalls(toolCalls)); err != nil {
 		t.Fatal(err)
 	}
 	// Only the first call finished before the turn was cancelled.
-	if _, err := store.AppendMessage(Message{Role: RoleTool, Content: "real output", ToolCallID: calls[0], Name: "shell"}); err != nil {
+	if _, err := store.AppendMessage(ToolResultMessage(calls[0], "shell", "real output")); err != nil {
 		t.Fatal(err)
 	}
 	context, err := store.Context()
@@ -460,7 +469,8 @@ func TestContextRepairKeepsToolResultsInCallOrder(t *testing.T) {
 	}
 	for i, expected := range want {
 		got := context[i+2].Message
-		if got.Role != RoleTool || got.ToolCallID != expected.id || got.Content != expected.content {
+		id, _ := got.ToolResult()
+		if got.Role != RoleTool || id != expected.id || got.Text() != expected.content {
 			t.Fatalf("result %d = %#v, want id %s content %q", i, got, expected.id, expected.content)
 		}
 	}
@@ -477,16 +487,16 @@ func TestContextRepairIgnoresResultsFromEarlierTurns(t *testing.T) {
 	}
 	defer store.Close()
 	callID := typedid.ExternalToolCallID("call_0")
-	assistant := Message{Role: RoleAssistant, ToolCalls: []ToolCall{{
+	assistant := messageWithCalls([]ToolCall{{
 		ID: callID, Type: "function", Function: ToolFunction{Name: "shell", Arguments: json.RawMessage(`{}`)},
-	}}}
+	}})
 	if _, err := store.AppendMessage(assistant); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.AppendMessage(Message{Role: RoleTool, Content: "first turn result", ToolCallID: callID, Name: "shell"}); err != nil {
+	if _, err := store.AppendMessage(ToolResultMessage(callID, "shell", "first turn result")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.AppendMessage(Message{Role: RoleUser, Content: "again"}); err != nil {
+	if _, err := store.AppendMessage(Message{Role: RoleUser, Parts: []Part{{Type: PartText, Text: "again"}}}); err != nil {
 		t.Fatal(err)
 	}
 	// The second turn reuses the ID and was cancelled before any result.
@@ -501,7 +511,8 @@ func TestContextRepairIgnoresResultsFromEarlierTurns(t *testing.T) {
 		t.Fatalf("context has %d messages, want 6: %#v", len(context), context)
 	}
 	tail := context[5].Message
-	if tail.Role != RoleTool || tail.ToolCallID != callID || tail.Content != InterruptedToolResult {
+	id, _ := tail.ToolResult()
+	if tail.Role != RoleTool || id != callID || tail.Text() != InterruptedToolResult {
 		t.Fatalf("later batch = %#v, want a synthetic result for %s", tail, callID)
 	}
 }
@@ -520,11 +531,11 @@ func TestCompactionKeepsSystemPromptStable(t *testing.T) {
 		if strings.HasPrefix(content, "a") {
 			role = RoleAssistant
 		}
-		if _, err := store.AppendMessage(Message{Role: role, Content: content}); err != nil {
+		if _, err := store.AppendMessage(Message{Role: role, Parts: []Part{{Type: PartText, Text: content}}}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	kept, err := store.AppendMessage(Message{Role: RoleUser, Content: "q3"})
+	kept, err := store.AppendMessage(Message{Role: RoleUser, Parts: []Part{{Type: PartText, Text: "q3"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -535,8 +546,8 @@ func TestCompactionKeepsSystemPromptStable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first[0].Message.Content != "stable system prompt" {
-		t.Fatalf("system prompt changed after first compaction: %q", first[0].Message.Content)
+	if first[0].Message.Text() != "stable system prompt" {
+		t.Fatalf("system prompt changed after first compaction: %q", first[0].Message.Text())
 	}
 	if _, err := store.AppendCompaction("second summary", kept, 2000, false, nil); err != nil {
 		t.Fatal(err)
@@ -545,11 +556,11 @@ func TestCompactionKeepsSystemPromptStable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if second[0].Message.Content != first[0].Message.Content {
-		t.Fatalf("system prompt changed between compactions: %q then %q", first[0].Message.Content, second[0].Message.Content)
+	if second[0].Message.Text() != first[0].Message.Text() {
+		t.Fatalf("system prompt changed between compactions: %q then %q", first[0].Message.Text(), second[0].Message.Text())
 	}
-	if !strings.Contains(second[1].Message.Content, "second summary") {
-		t.Fatalf("newest summary not projected: %q", second[1].Message.Content)
+	if !strings.Contains(second[1].Message.Text(), "second summary") {
+		t.Fatalf("newest summary not projected: %q", second[1].Message.Text())
 	}
 }
 
@@ -562,10 +573,10 @@ func TestCompactionKeepsSummaryPrefixBeforeRetainedTail(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	if _, err := store.AppendMessage(Message{Role: RoleUser, Content: "old"}); err != nil {
+	if _, err := store.AppendMessage(Message{Role: RoleUser, Parts: []Part{{Type: PartText, Text: "old"}}}); err != nil {
 		t.Fatal(err)
 	}
-	kept, err := store.AppendMessage(Message{Role: RoleUser, Content: "kept"})
+	kept, err := store.AppendMessage(Message{Role: RoleUser, Parts: []Part{{Type: PartText, Text: "kept"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -579,11 +590,11 @@ func TestCompactionKeepsSummaryPrefixBeforeRetainedTail(t *testing.T) {
 	if len(context) != 3 {
 		t.Fatalf("context has %d messages, want 3", len(context))
 	}
-	if !context[1].Summary || !strings.Contains(context[1].Message.Content, "summary text") {
+	if !context[1].Summary || !strings.Contains(context[1].Message.Text(), "summary text") {
 		t.Fatalf("summary is not the first projected message: %#v", context[1])
 	}
-	if context[2].Message.Content != "kept" {
-		t.Fatalf("retained tail = %q, want %q", context[2].Message.Content, "kept")
+	if context[2].Message.Text() != "kept" {
+		t.Fatalf("retained tail = %q, want %q", context[2].Message.Text(), "kept")
 	}
 }
 
@@ -593,7 +604,7 @@ func TestOpenRepairsMalformedTrailingLine(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := store.Path()
-	if _, err := store.AppendMessage(Message{Role: RoleUser, Content: "content"}); err != nil {
+	if _, err := store.AppendMessage(Message{Role: RoleUser, Parts: []Part{{Type: PartText, Text: "content"}}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Close(); err != nil {
@@ -612,14 +623,14 @@ func TestOpenRepairsMalformedTrailingLine(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer reopened.Close()
-	if _, err := reopened.AppendMessage(Message{Role: RoleUser, Content: "after repair"}); err != nil {
+	if _, err := reopened.AppendMessage(Message{Role: RoleUser, Parts: []Part{{Type: PartText, Text: "after repair"}}}); err != nil {
 		t.Fatal(err)
 	}
 	context, err := reopened.Context()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := context[len(context)-1].Message.Content; got != "after repair" {
+	if got := context[len(context)-1].Message.Text(); got != "after repair" {
 		t.Fatalf("last message = %q", got)
 	}
 }
@@ -630,7 +641,7 @@ func TestSessionSerializesTypedPrefixes(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := store.Path()
-	if _, err := store.AppendMessage(Message{Role: RoleUser, Content: "content"}); err != nil {
+	if _, err := store.AppendMessage(Message{Role: RoleUser, Parts: []Part{{Type: PartText, Text: "content"}}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Close(); err != nil {
@@ -683,13 +694,10 @@ func TestAssistantMessageWithOnlyReasoningIsValid(t *testing.T) {
 
 func TestMessageValidationRejectsDuplicateExternalToolCallIDs(t *testing.T) {
 	callID := typedid.ExternalToolCallID("provider-call")
-	message := Message{
-		Role: RoleAssistant,
-		ToolCalls: []ToolCall{
-			{ID: callID, Function: ToolFunction{Name: "read"}},
-			{ID: callID, Function: ToolFunction{Name: "write"}},
-		},
-	}
+	message := messageWithCalls([]ToolCall{
+		{ID: callID, Function: ToolFunction{Name: "read"}},
+		{ID: callID, Function: ToolFunction{Name: "write"}},
+	})
 	if err := message.Validate(); err == nil {
 		t.Fatal("duplicate tool call IDs were accepted")
 	}
@@ -702,10 +710,9 @@ func TestToolOutcomeSurvivesReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := store.Path()
-	message := Message{
-		Role: RoleTool, Content: "exit code: 3", ToolCallID: typedid.ExternalToolCallID("call-1"),
-		Name: "shell", IsError: true, Details: json.RawMessage(`{"exit_code":3,"duration":"4ms"}`),
-	}
+	message := ToolResultMessage(typedid.ExternalToolCallID("call-1"), "shell", "exit code: 3")
+	message.IsError = true
+	message.Details = json.RawMessage(`{"exit_code":3,"duration":"4ms"}`)
 	if _, err := store.AppendMessage(message); err != nil {
 		t.Fatal(err)
 	}
@@ -723,6 +730,36 @@ func TestToolOutcomeSurvivesReopen(t *testing.T) {
 	}
 }
 
+func TestOrderedPartsAndProviderMetadataSurviveReopen(t *testing.T) {
+	dir := t.TempDir()
+	store, err := New(dir, dir, "test", "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := store.Path()
+	parts := []Part{
+		{Type: PartText, Text: "first"},
+		{Type: PartReasoning, Text: "thought", ProviderOptions: json.RawMessage(`{"signature":"opaque"}`)},
+		{Type: PartToolCall, ToolCallID: "call-1", ToolName: "read", ToolInput: json.RawMessage(`{}`)},
+		{Type: PartText, Text: "last"},
+	}
+	if _, err := store.AppendMessage(Message{Role: RoleAssistant, Parts: parts}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	got := reopened.ActivePath()[1].Message
+	if got == nil || got.Text() != "firstlast" || len(got.Parts) != len(parts) || got.Parts[1].Type != PartReasoning || string(got.Parts[1].ProviderOptions) != string(parts[1].ProviderOptions) || got.Parts[3].Text != "last" {
+		t.Fatalf("parts after reopen = %#v", got)
+	}
+}
+
 func TestModelChangeIsDurableButExcludedFromContext(t *testing.T) {
 	store, err := New(t.TempDir(), t.TempDir(), "test", "system")
 	if err != nil {
@@ -732,7 +769,7 @@ func TestModelChangeIsDurableButExcludedFromContext(t *testing.T) {
 	if _, err := store.AppendModelChange(ModelSelection{Name: "review", Provider: "anthropic", ExternalID: typedid.ExternalModelID("claude")}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.AppendMessage(Message{Role: RoleUser, Content: "hello"}); err != nil {
+	if _, err := store.AppendMessage(Message{Role: RoleUser, Parts: []Part{{Type: PartText, Text: "hello"}}}); err != nil {
 		t.Fatal(err)
 	}
 	context, err := store.Context()
@@ -759,13 +796,12 @@ func TestImagePartRoundTripsThroughPersistence(t *testing.T) {
 	}
 	path := store.Path()
 	uri := "data:image/png;base64,aGVsbG8="
-	if _, err := store.AppendMessage(Message{Role: RoleUser, Content: "look"}); err != nil {
+	if _, err := store.AppendMessage(Message{Role: RoleUser, Parts: []Part{{Type: PartText, Text: "look"}}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.AppendMessage(Message{
-		Role: RoleTool, Content: "loaded image", ToolCallID: "call-1", Name: "read",
-		Parts: []Part{{Type: PartImage, Text: uri}},
-	}); err != nil {
+	imageResult := ToolResultMessage("call-1", "read", "loaded image")
+	imageResult.Parts = append(imageResult.Parts, Part{Type: PartImage, Text: uri})
+	if _, err := store.AppendMessage(imageResult); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Close(); err != nil {
@@ -785,7 +821,7 @@ func TestImagePartRoundTripsThroughPersistence(t *testing.T) {
 		if item.Message.Role != RoleTool {
 			continue
 		}
-		if len(item.Message.Parts) != 1 || item.Message.Parts[0].Type != PartImage || item.Message.Parts[0].Text != uri {
+		if len(item.Message.Parts) != 2 || item.Message.Parts[1].Type != PartImage || item.Message.Parts[1].Text != uri {
 			t.Fatalf("tool parts = %#v", item.Message.Parts)
 		}
 		found = true

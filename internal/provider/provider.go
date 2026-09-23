@@ -73,7 +73,7 @@ func (c *Client) Stream(ctx context.Context, messages []session.Message, tools [
 // request continues from it. When nothing arrived there is no partial turn to
 // keep and the original error is returned unchanged.
 func (c *Client) assistantOrPartial(response Response, err error) (session.Message, error) {
-	if response.Text == "" && response.Reasoning == "" {
+	if response.Text() == "" && !hasReasoning(response.Parts) {
 		return session.Message{}, err
 	}
 	// An aborted stream has no finish reason and its usage is incomplete; both
@@ -82,7 +82,13 @@ func (c *Client) assistantOrPartial(response Response, err error) (session.Messa
 	// replay without their results would be rejected by the provider.
 	response.Finish = ""
 	response.Usage = nil
-	response.ToolCalls = nil
+	parts := response.Parts[:0]
+	for _, part := range response.Parts {
+		if part.Type != session.PartToolCall {
+			parts = append(parts, part)
+		}
+	}
+	response.Parts = parts
 	message, buildErr := c.buildAssistant(response, true)
 	if buildErr != nil {
 		return session.Message{}, err
@@ -113,26 +119,21 @@ func (c *Client) assistant(response Response) (session.Message, error) {
 // an otherwise-empty response is allowed as long as it carries reasoning: an
 // interrupted turn can hold reasoning with no answer text yet.
 func (c *Client) buildAssistant(response Response, partial bool) (session.Message, error) {
-	if response.Text == "" && len(response.ToolCalls) == 0 && !(partial && response.Reasoning != "") {
+	if response.Text() == "" && len(response.ToolCalls()) == 0 && !(partial && hasReasoning(response.Parts)) {
 		return session.Message{}, errors.New("provider returned an empty assistant message")
 	}
 	message := session.Message{
-		Role:    session.RoleAssistant,
-		Content: response.Text,
-		Model:   c.modelID,
-		Finish:  response.Finish,
-		Usage:   response.Usage,
-	}
-	if response.Reasoning != "" {
-		message.Parts = append(message.Parts, session.Part{Type: PartReasoning, Text: response.Reasoning})
-	}
-	if response.Text != "" {
-		message.Parts = append(message.Parts, session.Part{Type: PartText, Text: response.Text})
-	}
-	for _, call := range response.ToolCalls {
-		id := typedid.ExternalToolCallID(call.ID)
-		message.ToolCalls = append(message.ToolCalls, session.ToolCall{ID: id, Type: "function", Function: session.ToolFunction{Name: call.Name, Arguments: call.Arguments}})
-		message.Parts = append(message.Parts, session.Part{Type: PartToolCall, ToolCallID: id, ToolName: call.Name, ToolInput: call.Arguments})
+		Role: session.RoleAssistant, Parts: response.Parts,
+		Model: c.modelID, Finish: response.Finish, Usage: response.Usage,
 	}
 	return message, nil
+}
+
+func hasReasoning(parts []session.Part) bool {
+	for _, part := range parts {
+		if part.Type == session.PartReasoning && part.Text != "" {
+			return true
+		}
+	}
+	return false
 }

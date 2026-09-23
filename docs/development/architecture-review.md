@@ -61,27 +61,15 @@ details still use the model-facing text as a fallback.
 
 ### 4. Make ordered parts the single source of message content
 
-- [ ] Redesign `session.Message` as `{Role, Parts}`
-- [ ] Let backends return ordered parts with their own metadata
+- [x] Redesign `session.Message` as `{Role, Parts}`
+- [x] Let backends return ordered parts with their own metadata
 
-`session.Message` stores content twice: `Content` and `text` parts, `ToolCalls`
-and `tool_call` parts, `ToolCallID`/`Name` and an unused `tool_result` part
-type. The wire mapping reads one copy, transcript replay reads the other, and
-images exist only as parts.
-
-`provider.Response` compounds this. Reasoning is a single string, and
-`Client.buildAssistant` (`internal/provider/provider.go:115`) rebuilds parts in
-a fixed reasoning → text → tool-calls order. That loses:
-
-- interleaved thinking between tool calls;
-- reasoning signatures and encrypted reasoning (Anthropic thinking signatures,
-  OpenAI Responses encrypted reasoning, Gemini thought signatures), which must
-  round-trip verbatim. `Part.ProviderOptions` exists, but no backend can fill it.
-
-Recommendation: a message is a role plus ordered parts (`text`, `reasoning`,
-`tool_call`, `tool_result`, `image`). Backends return parts in stream order,
-each with opaque provider-owned metadata. Plain-text views are derived. This is
-the change most worth making before any session is written by a release.
+Messages now persist content only as ordered parts (`text`, `reasoning`,
+`tool_call`, `tool_result`, `image`). Plain text and tool-call views are derived.
+The chat backend assembles streaming parts in arrival order, and a backend
+response carries those parts unchanged into the session. Each part can retain
+opaque provider-owned JSON metadata. This breaks the v1 session format; the
+reader accepts v2 files.
 
 ### 5. Move images out of session lines
 

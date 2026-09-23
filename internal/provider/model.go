@@ -38,22 +38,27 @@ type Event struct {
 	Thinking bool
 }
 
-// ToolCall is a model-requested tool invocation. ID and Arguments are exactly
-// what the provider sent: IDs are opaque external strings and Arguments is the
-// raw JSON argument object.
-type ToolCall struct {
-	ID        string
-	Name      string
-	Arguments json.RawMessage
-}
-
 // Response is a provider-neutral generation result. Finish carries the
 // provider's own finish reason. Usage is the server's own token report, with
 // PromptTokens covering every input token, cached or not.
 type Response struct {
-	Text      string
-	Reasoning string
-	ToolCalls []ToolCall
-	Finish    session.FinishReason
-	Usage     *session.Usage
+	Parts  []session.Part
+	Finish session.FinishReason
+	Usage  *session.Usage
+}
+
+func (r Response) Text() string { return (session.Message{Parts: r.Parts}).Text() }
+
+func (r Response) ToolCalls() []session.ToolCall {
+	return (session.Message{Parts: r.Parts}).ToolCalls()
+}
+
+func (r Response) Reasoning() string {
+	var text string
+	for _, part := range r.Parts {
+		if part.Type == session.PartReasoning {
+			text += part.Text
+		}
+	}
+	return text
 }

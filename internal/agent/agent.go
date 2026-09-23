@@ -178,7 +178,7 @@ func renderContextFiles(files []contextfiles.File) string {
 
 // Run appends prompt before any network work, then drives tool calls to a final response.
 func (r *Runner) Run(ctx context.Context, prompt string, emit func(Event)) error {
-	if _, err := r.session.AppendMessage(session.Message{Role: session.RoleUser, Content: prompt}); err != nil {
+	if _, err := r.session.AppendMessage(session.TextMessage(session.RoleUser, prompt)); err != nil {
 		return err
 	}
 
@@ -236,12 +236,13 @@ func (r *Runner) Run(ctx context.Context, prompt string, emit func(Event)) error
 			}
 			emit(Event{Kind: EventUsage, Tokens: assistant.Usage.PromptTokens + assistant.Usage.CompletionTokens})
 		}
-		if len(assistant.ToolCalls) == 0 {
+		calls := assistant.ToolCalls()
+		if len(calls) == 0 {
 			_, compactErr := r.compactIfNeeded(ctx, false, emit)
 			return compactErr
 		}
 
-		for i, call := range assistant.ToolCalls {
+		for i, call := range calls {
 			arguments := string(call.Function.Arguments)
 			emit(Event{Kind: EventToolStart, Tool: call.Function.Name, Arguments: arguments})
 			// A long-running tool publishes live display snapshots; they are
@@ -251,10 +252,8 @@ func (r *Runner) Run(ctx context.Context, prompt string, emit func(Event)) error
 				emit(Event{Kind: EventToolOutput, Tool: call.Function.Name, Arguments: arguments, Display: d})
 			}
 			result, isError := r.tools.Execute(ctx, call.Function.Name, call.Function.Arguments, report)
-			message := session.Message{
-				Role: session.RoleTool, Content: result.Content, ToolCallID: call.ID, Name: call.Function.Name,
-				IsError: isError, Details: result.Details,
-			}
+			message := session.ToolResultMessage(call.ID, call.Function.Name, result.Content)
+			message.IsError, message.Details = isError, result.Details
 			// Image attachments ride along as parts. They persist for exact
 			// replay and convert to wire image content for vision models; a
 			// non-vision mapping ignores them and the text stands alone.
@@ -269,7 +268,7 @@ func (r *Runner) Run(ctx context.Context, prompt string, emit func(Event)) error
 			// live snapshots the call published.
 			emit(Event{Kind: EventToolDone, Tool: call.Function.Name, Arguments: arguments, Text: result.Content, IsError: isError, Details: result.Details})
 			if ctx.Err() != nil {
-				if err := r.appendInterruptedToolResults(assistant.ToolCalls[i+1:]); err != nil {
+				if err := r.appendInterruptedToolResults(calls[i+1:]); err != nil {
 					return err
 				}
 				return ctx.Err()
@@ -283,10 +282,8 @@ func (r *Runner) Run(ctx context.Context, prompt string, emit func(Event)) error
 // persisted conversation valid for providers that require a complete batch.
 func (r *Runner) appendInterruptedToolResults(calls []session.ToolCall) error {
 	for _, call := range calls {
-		message := session.Message{
-			Role: session.RoleTool, Content: session.InterruptedToolResult,
-			ToolCallID: call.ID, Name: call.Function.Name, IsError: true,
-		}
+		message := session.ToolResultMessage(call.ID, call.Function.Name, session.InterruptedToolResult)
+		message.IsError = true
 		if _, err := r.session.AppendMessage(message); err != nil {
 			return err
 		}
@@ -346,14 +343,14 @@ func (r *Runner) compactIfNeeded(ctx context.Context, force bool, emit func(Even
 	historyStart := 1
 	var previous string
 	if len(items) > 1 && items[1].Summary {
-		previous = projectedSummary(items[1].Message.Content)
+		previous = projectedSummary(items[1].Message.Text())
 		historyStart = 2
 	}
 	response, err := r.summarize(ctx, items, historyStart, cut, used, previous)
 	if err != nil {
 		return false, err
 	}
-	summary := strings.TrimSpace(response.Content)
+	summary := strings.TrimSpace(response.Text())
 	if summary == "" {
 		return false, errors.New("provider returned an empty compaction summary")
 	}
@@ -393,7 +390,7 @@ func (r *Runner) summarize(ctx context.Context, items []session.ContextMessage, 
 		for _, item := range items {
 			request = append(request, item.Message)
 		}
-		request = append(request, session.Message{Role: session.RoleUser, Content: CompactSummaryRequest})
+		request = append(request, session.TextMessage(session.RoleUser, CompactSummaryRequest))
 		response, err := r.provider.Complete(ctx, request, r.tools.Definitions(), maxSummary)
 		if err == nil || !provider.IsContextOverflow(err) {
 			return response, err
@@ -404,10 +401,7 @@ func (r *Runner) summarize(ctx context.Context, items []session.ContextMessage, 
 	if previous != "" {
 		transcript = "Previous summary:\n" + previous + "\n\nNewer conversation to merge:\n" + transcript
 	}
-	request := []session.Message{
-		{Role: session.RoleSystem, Content: isolatedSummaryPrompt},
-		{Role: session.RoleUser, Content: transcript},
-	}
+	request := []session.Message{session.TextMessage(session.RoleSystem, isolatedSummaryPrompt), session.TextMessage(session.RoleUser, transcript)}
 	return r.provider.Complete(ctx, request, nil, maxSummary)
 }
 
@@ -415,9 +409,11 @@ func estimateContext(items []session.ContextMessage, definitions []provider.Tool
 	bytes := 0
 	for _, item := range items {
 		message := item.Message
-		bytes += len(message.Role) + len(message.Content) + len(message.ToolCallID.String()) + len(message.Name) + 32
-		for _, call := range message.ToolCalls {
-			bytes += len(call.ID.String()) + len(call.Function.Name) + len(call.Function.Arguments) + 32
+		bytes += len(message.Role) + 32
+		for _, part := range message.Parts {
+			if part.Type != session.PartImage {
+				bytes += len(part.Text) + len(part.ToolOutput) + len(part.ToolCallID.String()) + len(part.ToolName) + len(part.ToolInput) + 32
+			}
 		}
 		// Image parts are deliberately left out. Their true cost is decided by
 		// the model's vision encoder — dimensions and tiling, not byte size —
@@ -471,15 +467,15 @@ func serializeForSummary(items []session.ContextMessage) string {
 	for _, item := range items {
 		message := item.Message
 		fmt.Fprintf(&out, "[%s]", message.Role)
-		if message.Name != "" {
-			fmt.Fprintf(&out, " %s", message.Name)
+		if _, name := message.ToolResult(); name != "" {
+			fmt.Fprintf(&out, " %s", name)
 		}
 		out.WriteByte('\n')
-		if message.Content != "" {
-			out.WriteString(message.Content)
+		if message.Text() != "" {
+			out.WriteString(message.Text())
 			out.WriteByte('\n')
 		}
-		for _, call := range message.ToolCalls {
+		for _, call := range message.ToolCalls() {
 			fmt.Fprintf(&out, "tool call %s: %s\n", call.Function.Name, call.Function.Arguments)
 		}
 		out.WriteByte('\n')

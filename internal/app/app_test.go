@@ -47,7 +47,7 @@ func TestNewSessionFailureKeepsCurrentSession(t *testing.T) {
 	if runtime.store != store || runtime.runner != runner {
 		t.Fatal("live session changed after replacement failure")
 	}
-	if _, err := store.AppendMessage(session.Message{Role: session.RoleUser, Content: "still usable"}); err != nil {
+	if _, err := store.AppendMessage(session.Message{Role: session.RoleUser, Parts: []session.Part{{Type: session.PartText, Text: "still usable"}}}); err != nil {
 		t.Fatalf("old session is unusable: %v", err)
 	}
 }
@@ -67,7 +67,7 @@ func TestNewSessionSwapsThenClosesPreviousStore(t *testing.T) {
 	if runtime.store != replacement {
 		t.Fatal("replacement store was not installed")
 	}
-	if _, err := previous.AppendMessage(session.Message{Role: session.RoleUser, Content: "closed"}); err == nil {
+	if _, err := previous.AppendMessage(session.Message{Role: session.RoleUser, Parts: []session.Part{{Type: session.PartText, Text: "closed"}}}); err == nil {
 		t.Fatal("previous store remained open")
 	}
 }
@@ -305,7 +305,7 @@ func TestNewPersistsDiscoveredContextFiles(t *testing.T) {
 	if len(entries) == 0 || entries[0].Message == nil || entries[0].Message.Role != session.RoleSystem {
 		t.Fatalf("session has no system prompt: %#v", entries)
 	}
-	prompt := entries[0].Message.Content
+	prompt := entries[0].Message.Text()
 	executable, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
@@ -345,8 +345,8 @@ func TestNewSkipsContextFilesWhenDisabled(t *testing.T) {
 	if len(entries) == 0 || entries[0].Message == nil {
 		t.Fatalf("session has no system prompt: %#v", entries)
 	}
-	if strings.Contains(entries[0].Message.Content, "workspace rules") {
-		t.Fatalf("disabled context files were still loaded:\n%s", entries[0].Message.Content)
+	if strings.Contains(entries[0].Message.Text(), "workspace rules") {
+		t.Fatalf("disabled context files were still loaded:\n%s", entries[0].Message.Text())
 	}
 }
 
@@ -411,7 +411,7 @@ func TestResumeSwitchesToPersistedSession(t *testing.T) {
 	defer runtime.Close()
 	// A fresh session is empty and therefore not yet a resume target. Add a
 	// message directly to make it persist, as a real turn would.
-	if _, err := runtime.store.AppendMessage(session.Message{Role: session.RoleUser, Content: "hello"}); err != nil {
+	if _, err := runtime.store.AppendMessage(session.Message{Role: session.RoleUser, Parts: []session.Part{{Type: session.PartText, Text: "hello"}}}); err != nil {
 		t.Fatal(err)
 	}
 	original := runtime.SessionID()
@@ -424,7 +424,7 @@ func TestResumeSwitchesToPersistedSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	target := other.ID()
-	if _, err := other.AppendMessage(session.Message{Role: session.RoleUser, Content: "resume me"}); err != nil {
+	if _, err := other.AppendMessage(session.Message{Role: session.RoleUser, Parts: []session.Part{{Type: session.PartText, Text: "resume me"}}}); err != nil {
 		t.Fatal(err)
 	}
 	other.Close()
@@ -436,7 +436,7 @@ func TestResumeSwitchesToPersistedSession(t *testing.T) {
 		t.Fatalf("session ID = %s, want %s", got, target)
 	}
 	history := runtime.SessionHistory()
-	if len(history) < 2 || history[len(history)-1].Message.Content != "resume me" {
+	if len(history) < 2 || history[len(history)-1].Message.Text() != "resume me" {
 		t.Fatalf("resumed history = %#v", history)
 	}
 }
@@ -455,7 +455,7 @@ func TestSessionPreviewReadsTailWithoutSwitching(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer runtime.Close()
-	if _, err := runtime.store.AppendMessage(session.Message{Role: session.RoleUser, Content: "live"}); err != nil {
+	if _, err := runtime.store.AppendMessage(session.Message{Role: session.RoleUser, Parts: []session.Part{{Type: session.PartText, Text: "live"}}}); err != nil {
 		t.Fatal(err)
 	}
 	live := runtime.SessionID()
@@ -464,7 +464,7 @@ func TestSessionPreviewReadsTailWithoutSwitching(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := other.AppendMessage(session.Message{Role: session.RoleUser, Content: "preview me"}); err != nil {
+	if _, err := other.AppendMessage(session.Message{Role: session.RoleUser, Parts: []session.Part{{Type: session.PartText, Text: "preview me"}}}); err != nil {
 		t.Fatal(err)
 	}
 	targetPath := other.Path()
@@ -474,7 +474,7 @@ func TestSessionPreviewReadsTailWithoutSwitching(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) == 0 || entries[len(entries)-1].Message.Content != "preview me" {
+	if len(entries) == 0 || entries[len(entries)-1].Message.Text() != "preview me" {
 		t.Fatalf("preview entries = %#v", entries)
 	}
 	if got := runtime.SessionID(); got != live {
@@ -499,11 +499,11 @@ func TestResumeReportsPersistedContextUsage(t *testing.T) {
 		t.Fatal(err)
 	}
 	target := other.ID()
-	if _, err := other.AppendMessage(session.Message{Role: session.RoleUser, Content: "resume me"}); err != nil {
+	if _, err := other.AppendMessage(session.Message{Role: session.RoleUser, Parts: []session.Part{{Type: session.PartText, Text: "resume me"}}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := other.AppendMessage(session.Message{
-		Role: session.RoleAssistant, Content: "done",
+		Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: "done"}},
 		Usage: &session.Usage{PromptTokens: 1200, CompletionTokens: 30, TotalTokens: 1230},
 	}); err != nil {
 		t.Fatal(err)
@@ -527,7 +527,7 @@ func TestResumeUnknownSessionKeepsCurrent(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer runtime.Close()
-	if _, err := runtime.store.AppendMessage(session.Message{Role: session.RoleUser, Content: "current"}); err != nil {
+	if _, err := runtime.store.AppendMessage(session.Message{Role: session.RoleUser, Parts: []session.Part{{Type: session.PartText, Text: "current"}}}); err != nil {
 		t.Fatal(err)
 	}
 	original := runtime.SessionID()
@@ -556,7 +556,7 @@ func TestNewResumedIDOpensSpecificSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	id := store.ID()
-	if _, err := store.AppendMessage(session.Message{Role: session.RoleUser, Content: "already here"}); err != nil {
+	if _, err := store.AppendMessage(session.Message{Role: session.RoleUser, Parts: []session.Part{{Type: session.PartText, Text: "already here"}}}); err != nil {
 		t.Fatal(err)
 	}
 	store.Close()

@@ -6,11 +6,11 @@ object. The first line is a header; later lines form an append-only tree.
 ## Header
 
 ```json
-{"type":"session","version":1,"id":"ses_7Yk2mP9Qa4Zx8Vc1Nd6R","app_version":"v0.1.0","timestamp":"2026-09-21T08:00:00Z","cwd":"/work/project"}
+{"type":"session","version":2,"id":"ses_7Yk2mP9Qa4Zx8Vc1Nd6R","app_version":"v0.1.0","timestamp":"2026-09-21T08:00:00Z","cwd":"/work/project"}
 ```
 
-The schema version governs the file representation. Readers must reject newer
-versions they do not understand rather than guessing.
+The schema version governs the file representation. Readers accept only version
+2; version 1 used duplicate content fields and is not migrated.
 
 ## Entry envelope
 
@@ -23,7 +23,7 @@ Every entry has these fields:
 `parent_id` is `null` for the root system message. Session IDs use the `ses_`
 prefix and entry IDs use `ent_`, followed by 20 cryptographically random base62
 characters. A child may point to any earlier entry, so future rewind can append
-a new branch without modifying old lines. The active leaf in v1 is the final
+a new branch without modifying old lines. The active leaf in v2 is the final
 valid entry.
 
 Prefix and alphabet validation happens during JSON decoding. A session ID cannot
@@ -38,15 +38,14 @@ their raw JSON envelope but do not enter model context.
 The `message` object uses provider-neutral roles while keeping provider metadata:
 
 ```json
-{"type":"message","id":"ent_1rT8zN4mQ6xK9Bc3Vp7D","parent_id":"ent_B3mN8qL2xR7vK5cT9Za1","timestamp":"...","message":{"role":"user","content":"Inspect this project"}}
-{"type":"message","id":"ent_H7kP2dR9wA5nM3xQ8Lc4","parent_id":"ent_1rT8zN4mQ6xK9Bc3Vp7D","timestamp":"...","message":{"role":"assistant","content":"I will inspect it.","model":"provider-model-id","finish_reason":"stop","usage":{"prompt_tokens":100,"completion_tokens":10,"total_tokens":110}}}
-{"type":"message","id":"ent_9qW4mK7zT2bN8Vc5Rx1A","parent_id":"ent_H7kP2dR9wA5nM3xQ8Lc4","timestamp":"...","message":{"role":"tool","content":"output","tool_call_id":"provider-call-id","name":"read"}}
+{"type":"message","id":"ent_1rT8zN4mQ6xK9Bc3Vp7D","parent_id":"ent_B3mN8qL2xR7vK5cT9Za1","timestamp":"...","message":{"role":"user","parts":[{"type":"text","text":"Inspect this project"}]}}
+{"type":"message","id":"ent_H7kP2dR9wA5nM3xQ8Lc4","parent_id":"ent_1rT8zN4mQ6xK9Bc3Vp7D","timestamp":"...","message":{"role":"assistant","parts":[{"type":"reasoning","text":"I should inspect the files.","provider_options":{"signature":"opaque"}},{"type":"text","text":"I will inspect it."}],"model":"provider-model-id","finish_reason":"stop","usage":{"prompt_tokens":100,"completion_tokens":10,"total_tokens":110}}}
+{"type":"message","id":"ent_9qW4mK7zT2bN8Vc5Rx1A","parent_id":"ent_H7kP2dR9wA5nM3xQ8Lc4","timestamp":"...","message":{"role":"tool","parts":[{"type":"tool_result","tool_call_id":"provider-call-id","tool_name":"read","tool_output":"output"}]}}
 ```
 
-Assistant tool calls are stored as structured `tool_calls`, with their arguments
-as JSON rather than an escaped provider string. The optional ordered `parts`
-array preserves reasoning blocks, tool-call metadata, and other opaque values
-needed to replay provider-native conversations. An `image` part holds one
+Assistant tool calls are `tool_call` parts with opaque IDs and JSON arguments.
+The `parts` array is the sole content source and preserves reasoning blocks,
+tool calls, text, and provider-owned metadata in order. An `image` part holds one
 base64 `data:` URI in `text` — an image attached to a tool result by the read
 tool for models configured with vision; text-only mappings skip it.
 

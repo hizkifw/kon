@@ -18,7 +18,7 @@ import (
 	"github.com/hizkifw/kon/internal/typedid"
 )
 
-const SchemaVersion = 1
+const SchemaVersion = 2
 
 // fileSuffix ends every persisted session file. Names begin with a fixed-width
 // UTC timestamp, so lexical order is creation order.
@@ -76,7 +76,7 @@ type ToolCall struct {
 	ID       typedid.ToolCallID `json:"id"`
 	Type     string             `json:"type"`
 	Function ToolFunction       `json:"function"`
-	Metadata map[string]any     `json:"metadata,omitempty"`
+	Metadata json.RawMessage    `json:"metadata,omitempty"`
 }
 
 // Part preserves ordered, provider-neutral content needed for exact replay.
@@ -88,11 +88,10 @@ type Part struct {
 	ToolName        string             `json:"tool_name,omitempty"`
 	ToolInput       json.RawMessage    `json:"tool_input,omitempty"`
 	ToolOutput      string             `json:"tool_output,omitempty"`
-	ProviderOptions map[string]any     `json:"provider_options,omitempty"`
+	ProviderOptions json.RawMessage    `json:"provider_options,omitempty"`
 }
 
-// Content part types. Parts carry provider-native blocks that the plain string
-// fields cannot express; an image part holds base64-encoded bytes in Text.
+// Content part types. An image part holds base64-encoded bytes in Text.
 const (
 	PartReasoning  = "reasoning"
 	PartText       = "text"
@@ -101,20 +100,17 @@ const (
 	PartToolResult = "tool_result"
 )
 
-// Message is provider-neutral while preserving opaque data needed for replay.
+// Message is provider-neutral. Parts are the only source of message content
+// and retain the order and opaque metadata supplied by the provider.
 type Message struct {
-	Role            Role               `json:"role"`
-	Content         string             `json:"content,omitempty"`
-	ToolCalls       []ToolCall         `json:"tool_calls,omitempty"`
-	ToolCallID      typedid.ToolCallID `json:"tool_call_id,omitempty"`
-	Name            string             `json:"name,omitempty"`
-	IsError         bool               `json:"is_error,omitempty"`
-	Details         json.RawMessage    `json:"details,omitempty"`
-	Model           typedid.ModelID    `json:"model,omitempty"`
-	Finish          FinishReason       `json:"finish_reason,omitempty"`
-	Usage           *Usage             `json:"usage,omitempty"`
-	Parts           []Part             `json:"parts,omitempty"`
-	ProviderOptions map[string]any     `json:"provider_options,omitempty"`
+	Role            Role            `json:"role"`
+	Parts           []Part          `json:"parts"`
+	IsError         bool            `json:"is_error,omitempty"`
+	Details         json.RawMessage `json:"details,omitempty"`
+	Model           typedid.ModelID `json:"model,omitempty"`
+	Finish          FinishReason    `json:"finish_reason,omitempty"`
+	Usage           *Usage          `json:"usage,omitempty"`
+	ProviderOptions json.RawMessage `json:"provider_options,omitempty"`
 	// Interrupted marks an assistant message persisted from a stream that ended
 	// early (user cancellation or a dropped connection) rather than a provider
 	// finish reason. The partial text and reasoning are kept so the turn can be
@@ -122,30 +118,64 @@ type Message struct {
 	Interrupted bool `json:"interrupted,omitempty"`
 }
 
-// hasTextPart reports whether any ordered part carries text. An assistant turn
-// that was interrupted mid-stream may hold only reasoning, with no answer text
-// and no tool calls, and must still persist so the partial turn is retained.
-func hasTextPart(m Message) bool {
+func TextMessage(role Role, text string) Message {
+	return Message{Role: role, Parts: []Part{{Type: PartText, Text: text}}}
+}
+
+func ToolResultMessage(id typedid.ToolCallID, name, output string) Message {
+	return Message{Role: RoleTool, Parts: []Part{{Type: PartToolResult, ToolCallID: id, ToolName: name, ToolOutput: output}}}
+}
+
+// Text is the plain-text view used for prompts and transcript replay.
+func (m Message) Text() string {
+	var out strings.Builder
 	for _, part := range m.Parts {
-		if part.Text != "" {
-			return true
+		if part.Type == PartText {
+			out.WriteString(part.Text)
+		} else if part.Type == PartToolResult {
+			out.WriteString(part.ToolOutput)
 		}
 	}
-	return false
+	return out.String()
+}
+
+func (m Message) ToolCalls() []ToolCall {
+	var calls []ToolCall
+	for _, part := range m.Parts {
+		if part.Type == PartToolCall {
+			calls = append(calls, ToolCall{ID: part.ToolCallID, Type: "function", Function: ToolFunction{Name: part.ToolName, Arguments: part.ToolInput}, Metadata: part.ProviderOptions})
+		}
+	}
+	return calls
+}
+
+func (m Message) ToolResult() (typedid.ToolCallID, string) {
+	for _, part := range m.Parts {
+		if part.Type == PartToolResult {
+			return part.ToolCallID, part.ToolName
+		}
+	}
+	return "", ""
 }
 
 func (m Message) Validate() error {
 	switch m.Role {
 	case RoleSystem, RoleUser:
-		if m.Content == "" {
+		if m.Text() == "" {
 			return fmt.Errorf("%s message content must not be empty", m.Role)
 		}
 	case RoleAssistant:
-		if m.Content == "" && len(m.ToolCalls) == 0 && !hasTextPart(m) {
+		hasContent := false
+		for _, part := range m.Parts {
+			if ((part.Type == PartText || part.Type == PartReasoning) && part.Text != "") || part.Type == PartToolCall {
+				hasContent = true
+			}
+		}
+		if !hasContent {
 			return errors.New("assistant message must contain text, reasoning, or tool calls")
 		}
-		seen := make(map[typedid.ToolCallID]bool, len(m.ToolCalls))
-		for _, call := range m.ToolCalls {
+		seen := make(map[typedid.ToolCallID]bool)
+		for _, call := range m.ToolCalls() {
 			if call.ID.String() == "" || call.Function.Name == "" {
 				return errors.New("assistant tool call requires an external ID and function name")
 			}
@@ -155,7 +185,14 @@ func (m Message) Validate() error {
 			seen[call.ID] = true
 		}
 	case RoleTool:
-		if m.ToolCallID.String() == "" || m.Name == "" {
+		results := 0
+		for _, part := range m.Parts {
+			if part.Type == PartToolResult {
+				results++
+			}
+		}
+		id, name := m.ToolResult()
+		if results != 1 || id.String() == "" || name == "" {
 			return errors.New("tool result requires an external tool call ID and name")
 		}
 	default:
@@ -253,7 +290,7 @@ func New(root, cwd, appVersion, systemPrompt string) (*Store, error) {
 		f.Close()
 		return nil, err
 	}
-	if _, err := s.AppendMessage(Message{Role: RoleSystem, Content: systemPrompt}); err != nil {
+	if _, err := s.AppendMessage(TextMessage(RoleSystem, systemPrompt)); err != nil {
 		f.Close()
 		return nil, err
 	}
@@ -618,7 +655,7 @@ func readSummary(path string) (Summary, error) {
 					substantive = true
 				}
 				if title == "" && entry.Message != nil && entry.Message.Role == RoleUser {
-					title = sessionTitle(entry.Message.Content)
+					title = sessionTitle(entry.Message.Text())
 				}
 			}
 		}
@@ -837,7 +874,7 @@ func (s *Store) Context() ([]ContextMessage, error) {
 	}
 	out = append(out, ContextMessage{
 		EntryID: comp.ID,
-		Message: Message{Role: RoleUser, Content: CompactionSummaryPrefix + comp.Summary + CompactionSummarySuffix},
+		Message: TextMessage(RoleUser, CompactionSummaryPrefix+comp.Summary+CompactionSummarySuffix),
 		Summary: true,
 	})
 	out = append(out, messagesFromEntries(path[kept:latestCompaction])...)
@@ -876,7 +913,7 @@ func groupToolBatches(messages []ContextMessage) []int {
 	for i, item := range messages {
 		switch item.Message.Role {
 		case RoleAssistant:
-			if len(item.Message.ToolCalls) == 0 {
+			if len(item.Message.ToolCalls()) == 0 {
 				batch = -1
 				continue
 			}
@@ -893,14 +930,15 @@ func groupToolBatches(messages []ContextMessage) []int {
 
 func repairNeeded(messages []ContextMessage, owner []int) bool {
 	for i, item := range messages {
-		if item.Message.Role != RoleAssistant || len(item.Message.ToolCalls) == 0 {
+		if item.Message.Role != RoleAssistant || len(item.Message.ToolCalls()) == 0 {
 			continue
 		}
 		answered := make(map[typedid.ToolCallID]bool)
 		for j := i + 1; j < len(messages) && owner[j] == i; j++ {
-			answered[messages[j].Message.ToolCallID] = true
+			id, _ := messages[j].Message.ToolResult()
+			answered[id] = true
 		}
-		for _, call := range item.Message.ToolCalls {
+		for _, call := range item.Message.ToolCalls() {
 			if !answered[call.ID] {
 				return true
 			}
@@ -921,7 +959,8 @@ func fillUnansweredToolCalls(messages []ContextMessage, owner []int) []ContextMe
 		if results[batch] == nil {
 			results[batch] = make(map[typedid.ToolCallID]ContextMessage)
 		}
-		results[batch][item.Message.ToolCallID] = item
+		id, _ := item.Message.ToolResult()
+		results[batch][id] = item
 	}
 	// emitted records the results already placed with their batch, so an orphan
 	// result — one whose ID matches no call in its batch — can still be emitted
@@ -931,12 +970,13 @@ func fillUnansweredToolCalls(messages []ContextMessage, owner []int) []ContextMe
 	for i, item := range messages {
 		switch item.Message.Role {
 		case RoleTool:
-			if owner[i] < 0 || !emitted[owner[i]][item.Message.ToolCallID] {
+			id, _ := item.Message.ToolResult()
+			if owner[i] < 0 || !emitted[owner[i]][id] {
 				out = append(out, item)
 			}
 		case RoleAssistant:
 			out = append(out, item)
-			for _, call := range item.Message.ToolCalls {
+			for _, call := range item.Message.ToolCalls() {
 				if emitted[i] == nil {
 					emitted[i] = make(map[typedid.ToolCallID]bool)
 				}
@@ -945,10 +985,9 @@ func fillUnansweredToolCalls(messages []ContextMessage, owner []int) []ContextMe
 					out = append(out, result)
 					continue
 				}
-				out = append(out, ContextMessage{Message: Message{
-					Role: RoleTool, Content: InterruptedToolResult, IsError: true,
-					ToolCallID: call.ID, Name: call.Function.Name,
-				}})
+				result := ToolResultMessage(call.ID, call.Function.Name, InterruptedToolResult)
+				result.IsError = true
+				out = append(out, ContextMessage{Message: result})
 			}
 		default:
 			out = append(out, item)

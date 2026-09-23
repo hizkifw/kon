@@ -51,17 +51,17 @@ func TestChatStreamAssemblesDeltas(t *testing.T) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = io.WriteString(w, events)
 	})
-	response, err := model.Stream(context.Background(), []session.Message{{Role: session.RoleUser, Content: "hi"}}, nil, func(event Event) {
+	response, err := model.Stream(context.Background(), []session.Message{session.TextMessage(session.RoleUser, "hi")}, nil, func(event Event) {
 		emitted = append(emitted, event)
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.Text != "checking" || response.Reasoning != "let me look" || response.Finish != "tool_calls" {
+	if response.Text() != "checking" || response.Reasoning() != "let me look" || response.Finish != "tool_calls" {
 		t.Fatalf("response = %#v", response)
 	}
-	if len(response.ToolCalls) != 1 || response.ToolCalls[0].ID != "call-1" || response.ToolCalls[0].Name != "read" || string(response.ToolCalls[0].Arguments) != `{"path":"x"}` {
-		t.Fatalf("tool calls = %#v", response.ToolCalls)
+	if len(response.ToolCalls()) != 1 || response.ToolCalls()[0].ID != "call-1" || response.ToolCalls()[0].Function.Name != "read" || string(response.ToolCalls()[0].Function.Arguments) != `{"path":"x"}` {
+		t.Fatalf("tool calls = %#v", response.ToolCalls())
 	}
 	if response.Usage == nil || response.Usage.PromptTokens != 312 || response.Usage.CompletionTokens != 89 || response.Usage.TotalTokens != 401 {
 		t.Fatalf("usage = %#v", response.Usage)
@@ -90,16 +90,13 @@ func TestChatStreamSendsChatCompletionsBody(t *testing.T) {
 		_, _ = io.WriteString(w, sse(`{"choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":"stop"}]}`)+"data: [DONE]\n\n")
 	})
 	messages := []session.Message{
-		{Role: session.RoleSystem, Content: "be brief"},
-		{Role: session.RoleUser, Content: "hi"},
-		{Role: session.RoleAssistant, Content: "", ToolCalls: []session.ToolCall{{
-			ID: "call-9", Type: "function",
-			Function: session.ToolFunction{Name: "edit", Arguments: json.RawMessage(`{"path":"x"}`)},
-		}}},
-		{Role: session.RoleTool, Content: "done", ToolCallID: "call-9", Name: "edit"},
+		session.TextMessage(session.RoleSystem, "be brief"),
+		session.TextMessage(session.RoleUser, "hi"),
+		{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartToolCall, ToolCallID: "call-9", ToolName: "edit", ToolInput: json.RawMessage(`{"path":"x"}`)}}},
+		session.ToolResultMessage("call-9", "edit", "done"),
 		// Reasoning parts are display-only for this format and must not leak
 		// into the request.
-		{Role: session.RoleAssistant, Content: "checking", Parts: []session.Part{{Type: PartReasoning, Text: "secret thoughts"}}},
+		{Role: session.RoleAssistant, Parts: []session.Part{{Type: PartReasoning, Text: "secret thoughts"}, {Type: PartText, Text: "checking"}}},
 	}
 	tools := []Tool{{Name: "edit", Description: "Edit a file", Parameters: json.RawMessage(`{"type":"object"}`)}}
 	model.apiKey = "sk-test"
@@ -107,7 +104,7 @@ func TestChatStreamSendsChatCompletionsBody(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.Text != "ok" || response.Finish != "stop" {
+	if response.Text() != "ok" || response.Finish != "stop" {
 		t.Fatalf("response = %#v", response)
 	}
 	if method != http.MethodPost || path != "/chat/completions" {
@@ -150,12 +147,12 @@ func TestChatStreamSynthesizesMissingToolCallBits(t *testing.T) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = io.WriteString(w, sse(`{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"type":"function","function":{"name":"shell"}}]}}],"finish_reason":null}`)+"data: [DONE]\n\n")
 	})
-	response, err := model.Stream(context.Background(), []session.Message{{Role: session.RoleUser, Content: "hi"}}, nil, func(Event) {})
+	response, err := model.Stream(context.Background(), []session.Message{session.TextMessage(session.RoleUser, "hi")}, nil, func(Event) {})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(response.ToolCalls) != 1 || response.ToolCalls[0].ID != "call_0" || response.ToolCalls[0].Name != "shell" || string(response.ToolCalls[0].Arguments) != `{}` {
-		t.Fatalf("tool calls = %#v", response.ToolCalls)
+	if len(response.ToolCalls()) != 1 || response.ToolCalls()[0].ID != "call_0" || response.ToolCalls()[0].Function.Name != "shell" || string(response.ToolCalls()[0].Function.Arguments) != `{}` {
+		t.Fatalf("tool calls = %#v", response.ToolCalls())
 	}
 }
 
@@ -164,7 +161,7 @@ func TestChatStreamRejectsMalformedArguments(t *testing.T) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = io.WriteString(w, sse(`{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call-1","type":"function","function":{"name":"read","arguments":"{oops"}}]}}]}`)+"data: [DONE]\n\n")
 	})
-	if _, err := model.Stream(context.Background(), []session.Message{{Role: session.RoleUser, Content: "hi"}}, nil, func(Event) {}); err == nil {
+	if _, err := model.Stream(context.Background(), []session.Message{session.TextMessage(session.RoleUser, "hi")}, nil, func(Event) {}); err == nil {
 		t.Fatal("malformed streamed tool arguments were accepted")
 	}
 }
@@ -184,11 +181,11 @@ func TestChatStreamRetriesWithoutStreamOptions(t *testing.T) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = io.WriteString(w, sse(`{"choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":"stop"}]}`)+"data: [DONE]\n\n")
 	})
-	response, err := model.Stream(context.Background(), []session.Message{{Role: session.RoleUser, Content: "hi"}}, nil, func(Event) {})
+	response, err := model.Stream(context.Background(), []session.Message{session.TextMessage(session.RoleUser, "hi")}, nil, func(Event) {})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.Text != "ok" || streamOptionsRequests != 1 {
+	if response.Text() != "ok" || streamOptionsRequests != 1 {
 		t.Fatalf("response = %#v, stream_options requests = %d", response, streamOptionsRequests)
 	}
 }
@@ -198,7 +195,7 @@ func TestChatStreamSurfacesInStreamError(t *testing.T) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = io.WriteString(w, sse(`{"error":{"message":"quota exceeded","type":"insufficient_quota","code":429}}`))
 	})
-	_, err := model.Stream(context.Background(), []session.Message{{Role: session.RoleUser, Content: "hi"}}, nil, func(Event) {})
+	_, err := model.Stream(context.Background(), []session.Message{session.TextMessage(session.RoleUser, "hi")}, nil, func(Event) {})
 	var apiErr *APIError
 	if !errors.As(err, &apiErr) {
 		t.Fatalf("err = %v, want *APIError", err)
@@ -216,7 +213,7 @@ func TestChatStreamSurfacesHTTPError(t *testing.T) {
 		w.WriteHeader(http.StatusUnauthorized)
 		_, _ = io.WriteString(w, `{"error":{"message":"invalid api key","type":"invalid_request_error","code":"invalid_api_key"}}`)
 	})
-	_, err := model.Stream(context.Background(), []session.Message{{Role: session.RoleUser, Content: "hi"}}, nil, func(Event) {})
+	_, err := model.Stream(context.Background(), []session.Message{session.TextMessage(session.RoleUser, "hi")}, nil, func(Event) {})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -246,18 +243,18 @@ func TestChatCompleteMapsMessageAndUsage(t *testing.T) {
 			"usage": {"prompt_tokens": 50, "completion_tokens": 25, "total_tokens": 75}
 		}`)
 	})
-	response, err := model.Complete(context.Background(), []session.Message{{Role: session.RoleUser, Content: "hi"}}, nil, 4096)
+	response, err := model.Complete(context.Background(), []session.Message{session.TextMessage(session.RoleUser, "hi")}, nil, 4096)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if body.MaxTokens != 4096 || body.Stream || body.Tools != nil {
 		t.Fatalf("request = %#v", body)
 	}
-	if response.Text != "summary" || response.Reasoning != "pondering" || response.Finish != "tool_calls" {
+	if response.Text() != "summary" || response.Reasoning() != "pondering" || response.Finish != "tool_calls" {
 		t.Fatalf("response = %#v", response)
 	}
-	if len(response.ToolCalls) != 1 || response.ToolCalls[0].ID != "call-1" || string(response.ToolCalls[0].Arguments) != `{"path":"x"}` {
-		t.Fatalf("tool calls = %#v", response.ToolCalls)
+	if len(response.ToolCalls()) != 1 || response.ToolCalls()[0].ID != "call-1" || string(response.ToolCalls()[0].Function.Arguments) != `{"path":"x"}` {
+		t.Fatalf("tool calls = %#v", response.ToolCalls())
 	}
 	if response.Usage == nil || response.Usage.PromptTokens != 50 || response.Usage.CompletionTokens != 25 || response.Usage.TotalTokens != 75 {
 		t.Fatalf("usage = %#v", response.Usage)
@@ -273,7 +270,7 @@ func TestChatCompleteSendsToolsWithToolChoiceNone(t *testing.T) {
 		_, _ = io.WriteString(w, `{"choices":[{"index":0,"message":{"role":"assistant","content":"summary"},"finish_reason":"stop"}]}`)
 	})
 	toolList := []Tool{{Name: "read", Description: "read a file", Parameters: json.RawMessage(`{"type":"object"}`)}}
-	if _, err := model.Complete(context.Background(), []session.Message{{Role: session.RoleUser, Content: "hi"}}, toolList, 0); err != nil {
+	if _, err := model.Complete(context.Background(), []session.Message{session.TextMessage(session.RoleUser, "hi")}, toolList, 0); err != nil {
 		t.Fatal(err)
 	}
 	if len(body.Tools) != 1 || body.Tools[0].Function.Name != "read" {
@@ -292,7 +289,7 @@ func TestChatCompleteOmitsToolsWhenEmpty(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"choices":[{"index":0,"message":{"role":"assistant","content":"summary"},"finish_reason":"stop"}]}`)
 	})
-	if _, err := model.Complete(context.Background(), []session.Message{{Role: session.RoleUser, Content: "hi"}}, nil, 0); err != nil {
+	if _, err := model.Complete(context.Background(), []session.Message{session.TextMessage(session.RoleUser, "hi")}, nil, 0); err != nil {
 		t.Fatal(err)
 	}
 	if body.Tools != nil || body.ToolChoice != "" {
@@ -323,8 +320,8 @@ func TestChatCompleteSynthesizesMissingToolCallBits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(response.ToolCalls) != 1 || response.ToolCalls[0].ID != "call_0" || string(response.ToolCalls[0].Arguments) != `{}` {
-		t.Fatalf("tool calls = %#v", response.ToolCalls)
+	if len(response.ToolCalls()) != 1 || response.ToolCalls()[0].ID != "call_0" || string(response.ToolCalls()[0].Function.Arguments) != `{}` {
+		t.Fatalf("tool calls = %#v", response.ToolCalls())
 	}
 }
 
@@ -355,7 +352,7 @@ func TestChatCompleteRetriesWithMaxCompletionTokens(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"choices":[{"index":0,"message":{"role":"assistant","content":"summary"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}`)
 	})
-	response, err := model.Complete(context.Background(), []session.Message{{Role: session.RoleUser, Content: "hi"}}, nil, 4096)
+	response, err := model.Complete(context.Background(), []session.Message{session.TextMessage(session.RoleUser, "hi")}, nil, 4096)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -365,7 +362,7 @@ func TestChatCompleteRetriesWithMaxCompletionTokens(t *testing.T) {
 	if finalBody.MaxTokens != 0 || finalBody.MaxCompletionTokens != 4096 {
 		t.Fatalf("retry request = %#v", finalBody)
 	}
-	if response.Text != "summary" {
+	if response.Text() != "summary" {
 		t.Fatalf("response = %#v", response)
 	}
 }
@@ -380,7 +377,7 @@ func TestChatStreamToleratesKeepAlivesAndCRLF(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.Text != "hi" {
+	if response.Text() != "hi" {
 		t.Fatalf("response = %#v", response)
 	}
 }
@@ -402,7 +399,7 @@ func TestChatStreamIgnoresForeignChoicesAndNegativeIndexes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.Text != "hi" || len(response.ToolCalls) != 0 {
+	if response.Text() != "hi" || len(response.ToolCalls()) != 0 {
 		t.Fatalf("response = %#v", response)
 	}
 }
@@ -423,22 +420,22 @@ func TestChatStreamAssemblesParallelToolCalls(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(response.ToolCalls) != 2 {
-		t.Fatalf("tool calls = %#v", response.ToolCalls)
+	if len(response.ToolCalls()) != 2 {
+		t.Fatalf("tool calls = %#v", response.ToolCalls())
 	}
-	if response.ToolCalls[0].ID != "call-a" || response.ToolCalls[0].Name != "read" || string(response.ToolCalls[0].Arguments) != `{"path":"a"}` {
-		t.Fatalf("first call = %#v", response.ToolCalls[0])
+	if response.ToolCalls()[0].ID != "call-a" || response.ToolCalls()[0].Function.Name != "read" || string(response.ToolCalls()[0].Function.Arguments) != `{"path":"a"}` {
+		t.Fatalf("first call = %#v", response.ToolCalls()[0])
 	}
-	if response.ToolCalls[1].ID != "call-b" || response.ToolCalls[1].Name != "shell" || string(response.ToolCalls[1].Arguments) != `{"command":"ls"}` {
-		t.Fatalf("second call = %#v", response.ToolCalls[1])
+	if response.ToolCalls()[1].ID != "call-b" || response.ToolCalls()[1].Function.Name != "shell" || string(response.ToolCalls()[1].Function.Arguments) != `{"command":"ls"}` {
+		t.Fatalf("second call = %#v", response.ToolCalls()[1])
 	}
 }
 
 func TestToChatMessagesSkipsEmptyContent(t *testing.T) {
 	messages, err := toChatMessages([]session.Message{
-		{Role: session.RoleUser, Content: "hi"},
-		{Role: session.RoleAssistant, Content: "", ToolCalls: []session.ToolCall{{ID: "1", Function: session.ToolFunction{Name: "read", Arguments: json.RawMessage(`{}`)}}}},
-		{Role: session.RoleTool, Content: "", ToolCallID: "1", Name: "read"},
+		session.TextMessage(session.RoleUser, "hi"),
+		{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartToolCall, ToolCallID: "1", ToolName: "read", ToolInput: json.RawMessage(`{}`)}}},
+		session.ToolResultMessage("1", "read", ""),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -458,8 +455,33 @@ func TestToChatMessagesSkipsEmptyContent(t *testing.T) {
 func TestToChatMessagesRejectsUnknownRole(t *testing.T) {
 	// A role this wire format cannot send must fail the request instead of
 	// silently truncating the conversation.
-	if _, err := toChatMessages([]session.Message{{Role: "hyper", Content: "hi"}}); err == nil {
+	if _, err := toChatMessages([]session.Message{session.TextMessage("hyper", "hi")}); err == nil {
 		t.Fatal("unknown role was accepted")
+	}
+}
+
+func TestChatStreamPreservesPartOrder(t *testing.T) {
+	stream := sse(`{"choices":[{"index":0,"delta":{"content":"first"}}]}`) +
+		sse(`{"choices":[{"index":0,"delta":{"reasoning_content":"thought"}}]}`) +
+		sse(`{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call-1","function":{"name":"read","arguments":"{\"path\":"}}]}}]}`) +
+		sse(`{"choices":[{"index":0,"delta":{"content":"last"}}]}`) +
+		sse(`{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"a\"}"}}]},"finish_reason":"tool_calls"}]}`) +
+		"data: [DONE]\n\n"
+	response, err := decodeChatStream(strings.NewReader(stream), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{PartText, PartReasoning, PartToolCall, PartText}
+	if len(response.Parts) != len(want) {
+		t.Fatalf("parts = %#v", response.Parts)
+	}
+	for i, kind := range want {
+		if response.Parts[i].Type != kind {
+			t.Fatalf("part order = %#v", response.Parts)
+		}
+	}
+	if response.Parts[2].ToolCallID != "call-1" || string(response.Parts[2].ToolInput) != `{"path":"a"}` || response.Text() != "firstlast" {
+		t.Fatalf("assembled parts = %#v", response.Parts)
 	}
 }
 
@@ -477,7 +499,7 @@ func TestChatStreamKeepsPartialOutputOnTruncatedStream(t *testing.T) {
 	if err == nil {
 		t.Fatal("truncated stream was reported as complete")
 	}
-	if response.Text != "half an ans" || response.Reasoning != "thinking..." {
+	if response.Text() != "half an ans" || response.Reasoning() != "thinking..." {
 		t.Fatalf("partial output lost: %#v", response)
 	}
 }
@@ -493,7 +515,7 @@ func TestChatStreamReportsErrorMidStreamButKeepsDeltas(t *testing.T) {
 	if err == nil {
 		t.Fatal("mid-stream error was swallowed")
 	}
-	if response.Text != "started" {
+	if response.Text() != "started" {
 		t.Fatalf("deltas before the error were lost: %#v", response)
 	}
 }

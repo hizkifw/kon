@@ -390,8 +390,8 @@ func TestReplayedToolOutcomeUsesPersistedErrorAndDetails(t *testing.T) {
 	model := newTestModel(t)
 	callID := typedid.ExternalToolCallID("failed-call")
 	entries := []session.Entry{
-		{Message: &session.Message{Role: session.RoleAssistant, ToolCalls: []session.ToolCall{{ID: callID, Function: session.ToolFunction{Name: "shell", Arguments: json.RawMessage(`{"command":"./build"}`)}}}}},
-		{Message: &session.Message{Role: session.RoleTool, Name: "shell", ToolCallID: callID, Content: "unstructured output", IsError: true, Details: json.RawMessage(`{"exit_code":3,"duration":"4ms","output_bytes":0}`)}},
+		{Message: &session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartToolCall, ToolCallID: callID, ToolName: "shell", ToolInput: json.RawMessage(`{"command":"./build"}`)}}}},
+		{Message: &session.Message{Role: session.RoleTool, Parts: []session.Part{{Type: session.PartToolResult, ToolCallID: callID, ToolName: "shell", ToolOutput: "unstructured output"}}, IsError: true, Details: json.RawMessage(`{"exit_code":3,"duration":"4ms","output_bytes":0}`)}},
 	}
 	model.applyHistory(entries)
 	result := model.transcript.blocks[len(model.transcript.blocks)-1]
@@ -1065,9 +1065,9 @@ func TestResumeCommandReplaysSession(t *testing.T) {
 		models:   models,
 		sessions: []session.Summary{{ID: id}},
 		entries: []session.Entry{
-			{Message: &session.Message{Role: session.RoleSystem, Content: "system"}},
-			{Message: &session.Message{Role: session.RoleUser, Content: "earlier question"}},
-			{Message: &session.Message{Role: session.RoleAssistant, Content: "earlier answer"}},
+			{Message: &session.Message{Role: session.RoleSystem, Parts: []session.Part{{Type: session.PartText, Text: "system"}}}},
+			{Message: &session.Message{Role: session.RoleUser, Parts: []session.Part{{Type: session.PartText, Text: "earlier question"}}}},
+			{Message: &session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: "earlier answer"}}}},
 		},
 	}
 	m := New("/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
@@ -1099,12 +1099,11 @@ func TestResumeCommandReplaysThinking(t *testing.T) {
 		models:   models,
 		sessions: []session.Summary{{ID: id}},
 		entries: []session.Entry{
-			{Message: &session.Message{Role: session.RoleSystem, Content: "system"}},
-			{Message: &session.Message{Role: session.RoleUser, Content: "earlier question"}},
+			{Message: &session.Message{Role: session.RoleSystem, Parts: []session.Part{{Type: session.PartText, Text: "system"}}}},
+			{Message: &session.Message{Role: session.RoleUser, Parts: []session.Part{{Type: session.PartText, Text: "earlier question"}}}},
 			{Message: &session.Message{
-				Role:    session.RoleAssistant,
-				Content: "earlier answer",
-				Parts:   []session.Part{{Type: "reasoning", Text: "let me think"}},
+				Role:  session.RoleAssistant,
+				Parts: []session.Part{{Type: "reasoning", Text: "let me think"}, {Type: session.PartText, Text: "earlier answer"}},
 			}},
 		},
 	}
@@ -1130,7 +1129,7 @@ func TestResumeAdoptsPersistedContextUsage(t *testing.T) {
 		state:         app.State{Active: models[0], Phase: app.PhaseReady},
 		models:        models,
 		sessions:      []session.Summary{{ID: id}},
-		entries:       []session.Entry{{Message: &session.Message{Role: session.RoleUser, Content: "hi"}}},
+		entries:       []session.Entry{{Message: &session.Message{Role: session.RoleUser, Parts: []session.Part{{Type: session.PartText, Text: "hi"}}}}},
 		contextTokens: 4321,
 		contextKnown:  true,
 	}
@@ -1191,8 +1190,8 @@ func TestResumePreviewRendersHighlightedSession(t *testing.T) {
 			{ID: oldID, Path: "older.jsonl", Title: "older work", CreatedAt: time.Unix(0, 0)},
 		},
 		previewEntries: []session.Entry{
-			{Message: &session.Message{Role: session.RoleUser, Content: "previewed question"}},
-			{Message: &session.Message{Role: session.RoleAssistant, Content: "previewed answer"}},
+			{Message: &session.Message{Role: session.RoleUser, Parts: []session.Part{{Type: session.PartText, Text: "previewed question"}}}},
+			{Message: &session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: "previewed answer"}}}},
 		},
 	}
 	m := New("/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
@@ -1262,9 +1261,9 @@ func TestResumePreviewIsLazy(t *testing.T) {
 }
 
 func TestResumedSessionStartsAtBottom(t *testing.T) {
-	entries := []session.Entry{{Message: &session.Message{Role: session.RoleSystem, Content: "system"}}}
+	entries := []session.Entry{{Message: &session.Message{Role: session.RoleSystem, Parts: []session.Part{{Type: session.PartText, Text: "system"}}}}}
 	for i := 0; i < 40; i++ {
-		entries = append(entries, session.Entry{Message: &session.Message{Role: session.RoleUser, Content: strings.Repeat("line\n", 3) + "tail"}})
+		entries = append(entries, session.Entry{Message: &session.Message{Role: session.RoleUser, Parts: []session.Part{{Type: session.PartText, Text: strings.Repeat("line\n", 3) + "tail"}}}})
 	}
 	runtime := &fakeRuntime{state: app.State{Phase: app.PhaseReady}, entries: entries}
 	m := New("/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)

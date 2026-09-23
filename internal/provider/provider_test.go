@@ -14,24 +14,26 @@ import (
 func TestAssistantAssemblesDurableMessage(t *testing.T) {
 	client := &Client{modelID: typedid.ExternalModelID("gpt-4o")}
 	response := Response{
-		Text:      "checking",
-		Reasoning: "let me look",
-		ToolCalls: []ToolCall{{ID: "call-1", Name: "read", Arguments: json.RawMessage(`{"path":"x"}`)}},
-		Finish:    "tool_calls",
-		Usage:     &session.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15, CachedTokens: 4},
+		Parts: []session.Part{
+			{Type: PartReasoning, Text: "let me look"},
+			{Type: PartText, Text: "checking"},
+			{Type: PartToolCall, ToolCallID: "call-1", ToolName: "read", ToolInput: json.RawMessage(`{"path":"x"}`)},
+		},
+		Finish: "tool_calls",
+		Usage:  &session.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15, CachedTokens: 4},
 	}
 	message, err := client.assistant(response)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if message.Role != session.RoleAssistant || message.Content != "checking" || message.Model.String() != "gpt-4o" || message.Finish != "tool_calls" {
+	if message.Role != session.RoleAssistant || message.Text() != "checking" || message.Model.String() != "gpt-4o" || message.Finish != "tool_calls" {
 		t.Fatalf("message = %#v", message)
 	}
 	if message.Usage == nil || message.Usage.PromptTokens != 10 || message.Usage.CachedTokens != 4 {
 		t.Fatalf("usage = %#v", message.Usage)
 	}
-	if len(message.ToolCalls) != 1 || message.ToolCalls[0].ID.String() != "call-1" || message.ToolCalls[0].Type != "function" {
-		t.Fatalf("tool calls = %#v", message.ToolCalls)
+	if calls := message.ToolCalls(); len(calls) != 1 || calls[0].ID.String() != "call-1" || calls[0].Type != "function" {
+		t.Fatalf("tool calls = %#v", calls)
 	}
 	// Reasoning is persisted first so a turn replays in generation order.
 	want := []string{PartReasoning, PartText, PartToolCall}
@@ -51,6 +53,24 @@ func TestAssistantAssemblesDurableMessage(t *testing.T) {
 	}
 }
 
+func TestAssistantKeepsInterleavedPartsAndProviderMetadata(t *testing.T) {
+	client := &Client{modelID: typedid.ExternalModelID("model")}
+	metadata := json.RawMessage(`{"signature":"opaque-value"}`)
+	parts := []session.Part{
+		{Type: PartText, Text: "first"},
+		{Type: PartReasoning, Text: "thought", ProviderOptions: metadata},
+		{Type: PartToolCall, ToolCallID: "call-1", ToolName: "read", ToolInput: json.RawMessage(`{}`)},
+		{Type: PartText, Text: "last"},
+	}
+	message, err := client.assistant(Response{Parts: parts})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if message.Text() != "firstlast" || len(message.Parts) != 4 || message.Parts[1].Type != PartReasoning || string(message.Parts[1].ProviderOptions) != string(metadata) || message.Parts[3].Text != "last" {
+		t.Fatalf("ordered parts changed: %#v", message.Parts)
+	}
+}
+
 func TestAssistantRejectsEmptyResponse(t *testing.T) {
 	client := &Client{}
 	if _, err := client.assistant(Response{}); err == nil {
@@ -59,7 +79,7 @@ func TestAssistantRejectsEmptyResponse(t *testing.T) {
 	// A completed turn with reasoning but no answer text is still empty from
 	// the wire's point of view and must be rejected; only an interrupted turn
 	// may persist reasoning alone.
-	if _, err := client.assistant(Response{Reasoning: "thinking"}); err == nil {
+	if _, err := client.assistant(Response{Parts: []session.Part{{Type: PartReasoning, Text: "thinking"}}}); err == nil {
 		t.Fatal("reasoning-only completed response was accepted")
 	}
 }
@@ -67,11 +87,11 @@ func TestAssistantRejectsEmptyResponse(t *testing.T) {
 func TestAssistantOrPartialPersistsInterruptedTurn(t *testing.T) {
 	client := &Client{modelID: typedid.ExternalModelID("gpt")}
 	cause := errors.New("stream interrupted")
-	message, err := client.assistantOrPartial(Response{Text: "half", Reasoning: "hm", Finish: "stop", Usage: &session.Usage{PromptTokens: 5}}, cause)
+	message, err := client.assistantOrPartial(Response{Parts: []session.Part{{Type: PartReasoning, Text: "hm"}, {Type: PartText, Text: "half"}}, Finish: "stop", Usage: &session.Usage{PromptTokens: 5}}, cause)
 	if !errors.Is(err, cause) {
 		t.Fatalf("interruption not surfaced: %v", err)
 	}
-	if !message.Interrupted || message.Role != session.RoleAssistant || message.Content != "half" {
+	if !message.Interrupted || message.Role != session.RoleAssistant || message.Text() != "half" {
 		t.Fatalf("partial message = %#v", message)
 	}
 	// Usage and finish are dropped so the partial is never mistaken for a
@@ -90,7 +110,7 @@ func TestAssistantOrPartialPersistsInterruptedTurn(t *testing.T) {
 func TestAssistantOrPartialKeepsReasoningOnlyTurn(t *testing.T) {
 	client := &Client{modelID: typedid.ExternalModelID("gpt")}
 	cause := errors.New("interrupted")
-	message, err := client.assistantOrPartial(Response{Reasoning: "still thinking"}, cause)
+	message, err := client.assistantOrPartial(Response{Parts: []session.Part{{Type: PartReasoning, Text: "still thinking"}}}, cause)
 	if !errors.Is(err, cause) {
 		t.Fatalf("interruption not surfaced: %v", err)
 	}

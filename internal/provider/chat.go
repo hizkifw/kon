@@ -15,6 +15,7 @@ import (
 
 	"github.com/hizkifw/kon/internal/config"
 	"github.com/hizkifw/kon/internal/session"
+	"github.com/hizkifw/kon/internal/typedid"
 )
 
 // chatModel implements Model for the OpenAI chat completions wire format.
@@ -133,12 +134,14 @@ func contentParts(message session.Message) *[]chatContentPart {
 	if !hasImage {
 		return nil
 	}
-	parts := make([]chatContentPart, 0, len(message.Parts)+1)
-	if message.Content != "" {
-		parts = append(parts, chatContentPart{Type: "text", Text: message.Content})
-	}
+	parts := make([]chatContentPart, 0, len(message.Parts))
 	for _, part := range message.Parts {
-		if part.Type == session.PartImage && part.Text != "" {
+		switch {
+		case part.Type == session.PartText && part.Text != "":
+			parts = append(parts, chatContentPart{Type: "text", Text: part.Text})
+		case part.Type == session.PartToolResult && part.ToolOutput != "":
+			parts = append(parts, chatContentPart{Type: "text", Text: part.ToolOutput})
+		case part.Type == session.PartImage && part.Text != "":
 			parts = append(parts, chatContentPart{Type: "image_url", ImageURL: &chatImageURL{URL: part.Text}})
 		}
 	}
@@ -182,7 +185,8 @@ func toChatMessages(messages []session.Message) ([]chatMessage, error) {
 	for i, message := range messages {
 		switch message.Role {
 		case session.RoleSystem, session.RoleUser:
-			wire := chatMessage{Role: string(message.Role), Content: &message.Content}
+			text := message.Text()
+			wire := chatMessage{Role: string(message.Role), Content: &text}
 			// Image parts are honored on user messages (and tool messages
 			// below); the system prompt is plain text by construction.
 			if parts := contentParts(message); parts != nil && message.Role == session.RoleUser {
@@ -195,14 +199,16 @@ func toChatMessages(messages []session.Message) ([]chatMessage, error) {
 			// nothing to send; skipping it avoids an empty assistant message
 			// that several servers reject. The reasoning stays in the durable
 			// log and the transcript.
-			if message.Content == "" && len(message.ToolCalls) == 0 {
+			text := message.Text()
+			calls := message.ToolCalls()
+			if text == "" && len(calls) == 0 {
 				continue
 			}
 			wire := chatMessage{Role: string(message.Role)}
-			if message.Content != "" {
-				wire.Content = &message.Content
+			if text != "" {
+				wire.Content = &text
 			}
-			for _, call := range message.ToolCalls {
+			for _, call := range calls {
 				wire.ToolCalls = append(wire.ToolCalls, chatToolCall{
 					ID:       call.ID.String(),
 					Type:     "function",
@@ -214,11 +220,13 @@ func toChatMessages(messages []session.Message) ([]chatMessage, error) {
 			// Tool messages always carry content, even when a tool returned
 			// nothing: the field is required for the role. Image parts from
 			// tools like read upgrade the content to multimodal form.
-			wire := chatMessage{Role: string(message.Role), ToolCallID: message.ToolCallID.String()}
+			id, _ := message.ToolResult()
+			text := message.Text()
+			wire := chatMessage{Role: string(message.Role), ToolCallID: id.String()}
 			if parts := contentParts(message); parts != nil {
 				wire.Content = parts
 			} else {
-				wire.Content = &message.Content
+				wire.Content = &text
 			}
 			out = append(out, wire)
 		default:
@@ -351,11 +359,15 @@ func (m *chatModel) complete(ctx context.Context, payload chatRequest) (Response
 		if choice.Index != 0 {
 			continue
 		}
-		result.Text = choice.Message.Content
-		result.Reasoning = choice.Message.reasoning()
+		if reasoning := choice.Message.reasoning(); reasoning != "" {
+			result.Parts = append(result.Parts, session.Part{Type: session.PartReasoning, Text: reasoning})
+		}
+		if choice.Message.Content != "" {
+			result.Parts = append(result.Parts, session.Part{Type: session.PartText, Text: choice.Message.Content})
+		}
 		result.Finish = chatFinishReason(choice.Finish)
 		for _, call := range choice.Message.ToolCalls {
-			result.ToolCalls = append(result.ToolCalls, ToolCall{ID: call.ID, Name: call.Function.Name, Arguments: json.RawMessage(call.Function.Arguments)})
+			result.Parts = append(result.Parts, session.Part{Type: session.PartToolCall, ToolCallID: typedid.ExternalToolCallID(call.ID), ToolName: call.Function.Name, ToolInput: json.RawMessage(call.Function.Arguments)})
 		}
 		break
 	}
@@ -548,7 +560,7 @@ func (m chatReplyBody) reasoning() string {
 // reasoning, and tool calls from deltas. Events are buffered per the SSE spec:
 // consecutive data lines join with newlines until a blank line.
 func decodeChatStream(r io.Reader, emit func(Event)) (Response, error) {
-	var response Response
+	state := chatStreamState{callParts: make(map[int]int)}
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 64*1024), maxEventSize)
 	var data []string
@@ -557,7 +569,7 @@ func decodeChatStream(r io.Reader, emit func(Event)) (Response, error) {
 		if event == "[DONE]" {
 			return errStreamDone
 		}
-		return applyChatChunk(&response, event, emit)
+		return applyChatChunk(&state, event, emit)
 	}
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -575,11 +587,11 @@ func decodeChatStream(r io.Reader, emit func(Event)) (Response, error) {
 			if err := apply(payload); err != nil {
 				if errors.Is(err, errStreamDone) {
 					done = true
-					return response, nil
+					return state.Response, nil
 				}
 				// Keep deltas assembled before a mid-stream provider error so
 				// the partial turn is not discarded.
-				return response, err
+				return state.Response, err
 			}
 		default:
 			// Comments (": keep-alive") and event:/id:/retry: fields carry
@@ -590,9 +602,9 @@ func decodeChatStream(r io.Reader, emit func(Event)) (Response, error) {
 		// A dropped connection surfaces here; keep whatever was assembled so
 		// the partial turn is preserved rather than lost.
 		if errors.Is(err, bufio.ErrTooLong) {
-			return response, fmt.Errorf("read chat stream: event exceeded %d bytes: %w", maxEventSize, err)
+			return state.Response, fmt.Errorf("read chat stream: event exceeded %d bytes: %w", maxEventSize, err)
 		}
-		return response, fmt.Errorf("read chat stream: %w", err)
+		return state.Response, fmt.Errorf("read chat stream: %w", err)
 	}
 	// Flush a trailing event whose blank-line separator never arrived.
 	if len(data) > 0 {
@@ -600,24 +612,29 @@ func decodeChatStream(r io.Reader, emit func(Event)) (Response, error) {
 			if errors.Is(err, errStreamDone) {
 				done = true
 			} else {
-				return response, err
+				return state.Response, err
 			}
 		}
 	}
 	// A stream that ends without the [DONE] sentinel or a finish reason was cut
 	// short even though the transport closed cleanly. Report it as an error so
 	// the caller keeps the partial turn instead of mistaking it for complete.
-	if !done && response.Finish == "" {
-		return response, errors.New("read chat stream: connection closed before the stream finished")
+	if !done && state.Finish == "" {
+		return state.Response, errors.New("read chat stream: connection closed before the stream finished")
 	}
-	return response, nil
+	return state.Response, nil
+}
+
+type chatStreamState struct {
+	Response
+	callParts map[int]int
 }
 
 // errStreamDone marks the [DONE] sentinel and unwinds decodeChatStream.
 var errStreamDone = errors.New("stream done")
 
 // applyChatChunk folds one SSE data payload into the response.
-func applyChatChunk(response *Response, payload string, emit func(Event)) error {
+func applyChatChunk(state *chatStreamState, payload string, emit func(Event)) error {
 	var chunk chatChunk
 	if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
 		return fmt.Errorf("decode chat stream chunk: %w", err)
@@ -630,67 +647,83 @@ func applyChatChunk(response *Response, payload string, emit func(Event)) error 
 			continue
 		}
 		if text := choice.Delta.Content; text != "" {
-			response.Text += text
+			appendStreamText(&state.Parts, session.PartText, text)
 			if emit != nil {
 				emit(Event{Text: text})
 			}
 		}
 		if reasoning := choice.Delta.reasoning(); reasoning != "" {
-			response.Reasoning += reasoning
+			appendStreamText(&state.Parts, session.PartReasoning, reasoning)
 			if emit != nil {
 				emit(Event{Text: reasoning, Thinking: true})
 			}
 		}
 		for _, call := range choice.Delta.ToolCalls {
-			applyChatToolCallDelta(response, call)
+			applyChatToolCallDelta(state, call)
 		}
 		if choice.FinishReason != nil && *choice.FinishReason != "" {
-			response.Finish = chatFinishReason(*choice.FinishReason)
+			state.Finish = chatFinishReason(*choice.FinishReason)
 		}
 	}
 	if usage := chunk.Usage.usage(); usage != nil {
-		response.Usage = usage
+		state.Usage = usage
 	}
 	return nil
+}
+
+func appendStreamText(parts *[]session.Part, kind, text string) {
+	if n := len(*parts); n > 0 && (*parts)[n-1].Type == kind {
+		(*parts)[n-1].Text += text
+		return
+	}
+	*parts = append(*parts, session.Part{Type: kind, Text: text})
 }
 
 // applyChatToolCallDelta folds one streamed tool-call delta into the response.
 // Deltas arrive in index order: the first for an index carries the ID and
 // function name, later ones append argument fragments.
-func applyChatToolCallDelta(response *Response, delta chatToolCall) {
+func applyChatToolCallDelta(state *chatStreamState, delta chatToolCall) {
 	if delta.Index < 0 {
 		return
 	}
-	for len(response.ToolCalls) <= delta.Index {
-		response.ToolCalls = append(response.ToolCalls, ToolCall{})
+	partIndex, ok := state.callParts[delta.Index]
+	if !ok {
+		partIndex = len(state.Parts)
+		state.callParts[delta.Index] = partIndex
+		state.Parts = append(state.Parts, session.Part{Type: session.PartToolCall})
 	}
-	call := &response.ToolCalls[delta.Index]
+	call := &state.Parts[partIndex]
 	if delta.ID != "" {
-		call.ID = delta.ID
+		call.ToolCallID = typedid.ExternalToolCallID(delta.ID)
 	}
 	if delta.Function.Name != "" {
-		call.Name += delta.Function.Name
+		call.ToolName += delta.Function.Name
 	}
-	call.Arguments = append(call.Arguments, delta.Function.Arguments...)
+	call.ToolInput = append(call.ToolInput, delta.Function.Arguments...)
 }
 
 // finalizeToolCalls normalizes assembled tool calls: empty argument objects
 // become {}, malformed arguments fail loudly, and missing IDs — which some
 // compatible servers omit — get stable synthetic ones.
 func finalizeToolCalls(response *Response) error {
-	for i := range response.ToolCalls {
-		call := &response.ToolCalls[i]
-		if call.ID == "" {
-			call.ID = fmt.Sprintf("call_%d", i)
+	callIndex := 0
+	for i := range response.Parts {
+		call := &response.Parts[i]
+		if call.Type != session.PartToolCall {
+			continue
 		}
-		args := strings.TrimSpace(string(call.Arguments))
+		if call.ToolCallID.String() == "" {
+			call.ToolCallID = typedid.ExternalToolCallID(fmt.Sprintf("call_%d", callIndex))
+		}
+		callIndex++
+		args := strings.TrimSpace(string(call.ToolInput))
 		switch {
 		case args == "":
-			call.Arguments = json.RawMessage(`{}`)
+			call.ToolInput = json.RawMessage(`{}`)
 		case json.Valid([]byte(args)):
-			call.Arguments = json.RawMessage(args)
+			call.ToolInput = json.RawMessage(args)
 		default:
-			return fmt.Errorf("provider returned malformed arguments for tool %q", call.Name)
+			return fmt.Errorf("provider returned malformed arguments for tool %q", call.ToolName)
 		}
 	}
 	return nil
