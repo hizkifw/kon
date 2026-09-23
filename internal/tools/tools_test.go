@@ -62,6 +62,16 @@ func TestShellCapturesExitCode(t *testing.T) {
 	}
 }
 
+func TestShellDescriptionNamesResolvedInterpreter(t *testing.T) {
+	description := (&shellTool{}).Definition().Description
+	if !strings.Contains(description, shellName()) {
+		t.Fatalf("shell description does not name the interpreter %q: %q", shellName(), description)
+	}
+	if shellName() == "" {
+		t.Fatal("resolved shell has no display name")
+	}
+}
+
 func TestShellRequiresTimeout(t *testing.T) {
 	executor := New(t.TempDir(), false)
 	cases := map[string]json.RawMessage{
@@ -83,7 +93,7 @@ func TestShellRequiresTimeout(t *testing.T) {
 
 func TestShellTimesOutWithPartialOutput(t *testing.T) {
 	command := "printf before; sleep 5"
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == "windows" && shellName() == "cmd.exe" {
 		command = "echo | set /p=before& timeout /t 5 >nul"
 	}
 	result, failed := New(t.TempDir(), false).Execute(context.Background(), "shell", raw(map[string]any{"command": command, "timeout": 1}), nil)
@@ -93,8 +103,8 @@ func TestShellTimesOutWithPartialOutput(t *testing.T) {
 	if !strings.Contains(result.Content, "timed out after 1s") {
 		t.Fatalf("timeout error does not name the budget: %q", result.Content)
 	}
-	if runtime.GOOS == "windows" {
-		// The Windows one-liner above is too brittle to promise output from.
+	if runtime.GOOS == "windows" && shellName() == "cmd.exe" {
+		// The cmd.exe one-liner above is too brittle to promise output from.
 		return
 	}
 	if !strings.Contains(result.Content, "before") {

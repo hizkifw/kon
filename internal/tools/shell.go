@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -38,6 +37,37 @@ var shellDrainWindow = 250 * time.Millisecond
 // reporting rate, not the freshness floor.
 const liveDisplayInterval = 100 * time.Millisecond
 
+// shellBackend is the interpreter a shell command runs through. name is the
+// human-readable label the model sees in the tool description; path and args
+// are the argv prefix the command text is appended to.
+type shellBackend struct {
+	path string
+	args []string
+	name string
+}
+
+// shellBackendOnce resolves the interpreter shell commands run through exactly
+// once: probing is cheap but the choice never changes mid-session, and the tool
+// description must agree with what Run actually executes. Resolution is lazy
+// because package initialization order would otherwise run it before the tool
+// registry is assembled.
+var (
+	shellBackendOnce  sync.Once
+	shellBackendValue shellBackend
+)
+
+// shellCommand returns the interpreter shell commands run through.
+func shellCommand() shellBackend {
+	shellBackendOnce.Do(func() { shellBackendValue = resolveShell() })
+	return shellBackendValue
+}
+
+// shellName is the human-readable label for the resolved interpreter, used in
+// the model-facing tool description.
+func shellName() string {
+	return shellCommand().name
+}
+
 // shellTool runs one shell command in the workspace with a mandatory timeout.
 type shellTool struct {
 	mu      sync.Mutex
@@ -53,7 +83,7 @@ type shellDetails struct {
 func (t *shellTool) Definition() provider.Tool {
 	return provider.Tool{
 		Name:        "shell",
-		Description: "Run a shell command in the current working directory. Every command must specify a timeout in whole seconds (1-600); the command is killed when the timeout expires.",
+		Description: "Run a shell command in the current working directory, interpreted by " + shellName() + ". Every command must specify a timeout in whole seconds (1-600); the command is killed when the timeout expires.",
 		Parameters:  json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"},"timeout":{"type":"integer","minimum":1,"maximum":600,"description":"maximum wall-clock seconds the command may run"}},"required":["command","timeout"],"additionalProperties":false}`),
 	}
 }
@@ -184,16 +214,8 @@ func (t *shellTool) Run(ctx context.Context, env Env, raw json.RawMessage) (Resu
 	timeout := time.Duration(args.Timeout) * time.Second
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	var cmd *exec.Cmd
-	if runtime.GOOS == "windows" {
-		shell := os.Getenv("COMSPEC")
-		if shell == "" {
-			shell = "cmd.exe"
-		}
-		cmd = exec.CommandContext(ctx, shell, "/d", "/s", "/c", args.Command)
-	} else {
-		cmd = exec.CommandContext(ctx, "/bin/sh", "-c", args.Command)
-	}
+	backend := shellCommand()
+	cmd := exec.CommandContext(ctx, backend.path, append(backend.args, args.Command)...)
 	cmd.Dir = env.cwd
 	// The command runs in its own process group. Cancelling the context first
 	// interrupts the group so the command can stop cleanly; if it ignores the

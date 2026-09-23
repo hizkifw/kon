@@ -73,8 +73,11 @@ Tool calls run serially in the directory where kon was started:
 - `read` returns numbered file contents, at most 2,000 lines and 1 MiB.
 - `write` atomically creates or replaces a file.
 - `edit` replaces exactly one occurrence and fails on zero or multiple matches.
-- `shell` runs a command through `/bin/sh` (or the Windows shell) with a
-  model-specified timeout, capped at 600 seconds.
+- `shell` runs a command through your configured `$SHELL`, falling back to
+  `/bin/sh` when it is unset or missing. On Windows it uses Git Bash when
+  available, then PowerShell, then `cmd.exe`. Every command carries a
+  model-specified timeout, capped at 600 seconds, and the tool description tells
+  the model which interpreter it is.
 
 There is no sandbox or confirmation prompt, and shell commands inherit your
 environment. Run kon with the same care you would give any coding agent.
