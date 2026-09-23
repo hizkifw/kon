@@ -141,7 +141,8 @@ Type `/` at the start of the prompt to see the available commands:
 | Key | Action |
 | --- | --- |
 | Enter | Submit the prompt, or accept the selected suggestion |
-| Alt+Enter | Insert a newline |
+| Shift+Enter / Ctrl+Enter | Insert a newline |
+| Enter after a trailing `\` | Continue on a new line instead of submitting |
 | Tab / Shift+Tab | Fill in the selected suggestion |
 | Up/Down | Recall prompts, or move the suggestion selection |
 | Esc | Dismiss the popup, or cancel generation without killing a running command |

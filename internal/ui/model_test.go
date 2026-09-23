@@ -672,6 +672,52 @@ func TestInterruptedRunFinalizesStreamedTurn(t *testing.T) {
 	}
 }
 
+func TestShiftOrCtrlEnterInsertsNewline(t *testing.T) {
+	for _, mod := range []tea.KeyMod{tea.ModShift, tea.ModCtrl} {
+		model := newTestModel(t)
+		model.input.SetValue("first")
+		updated, _ := model.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Mod: mod})
+		got := updated.(Model)
+		if got.input.Value() != "first\n" {
+			t.Fatalf("enter with mod %v = %q, want a newline", mod, got.input.Value())
+		}
+		if got.busy {
+			t.Fatalf("enter with mod %v submitted the prompt", mod)
+		}
+	}
+}
+
+func TestAltEnterNoLongerInsertsNewline(t *testing.T) {
+	model := newTestModel(t)
+	model.input.SetValue("first")
+	updated, _ := model.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModAlt})
+	if got := updated.(Model).input.Value(); got != "first" {
+		t.Fatalf("alt+enter changed the prompt: %q", got)
+	}
+}
+
+func TestEnterAfterBackslashInsertsNewline(t *testing.T) {
+	model := newTestModel(t)
+	model.input.SetValue(`keep this\`)
+	updated, _ := model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	got := updated.(Model)
+	if got.input.Value() != "keep this\n" {
+		t.Fatalf("trailing backslash enter = %q, want %q", got.input.Value(), "keep this\n")
+	}
+	if got.busy {
+		t.Fatalf("trailing backslash enter submitted the prompt")
+	}
+}
+
+func TestEnterWithoutBackslashSubmits(t *testing.T) {
+	model := newTestModel(t)
+	model.input.SetValue("plain prompt")
+	updated, _ := model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if got := updated.(Model); got.input.Value() != "" {
+		t.Fatalf("enter left the prompt unsubmitted: %q", got.input.Value())
+	}
+}
+
 func TestCtrlDQuitsOnEmptyInput(t *testing.T) {
 	model := newTestModel(t)
 	_, cmd, handled := model.handleKey("ctrl+d")

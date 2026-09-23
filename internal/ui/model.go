@@ -259,13 +259,21 @@ func (m Model) handleKey(key string) (tea.Model, tea.Cmd, bool) {
 	case "pgdown":
 		m.viewport.PageDown()
 		return m, nil, true
-	case "alt+enter":
+	case "shift+enter", "ctrl+enter":
 		m.input.InsertString("\n")
 		m.refreshInput()
 		return m, nil, true
 	case "enter":
 		if m.menu.open() {
 			return m.completeMenu()
+		}
+		if strings.HasSuffix(m.input.Value(), `\`) {
+			// A trailing backslash escapes the Enter, like a shell line
+			// continuation: drop the backslash and open a new line instead of
+			// submitting.
+			m.input.SetValue(strings.TrimSuffix(m.input.Value(), `\`) + "\n")
+			m.refreshInput()
+			return m, nil, true
 		}
 		updated, cmd := m.submit()
 		return updated, cmd, true
