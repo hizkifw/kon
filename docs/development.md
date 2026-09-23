@@ -89,6 +89,9 @@ kon_<version>_<os>_<arch>.zip      windows, same contents with kon.exe
 checksums.txt                      sha256 of every archive
 ```
 
+Each complete release archive must be at most 10 MiB. The installer extracts
+it once, leaving the executable uncompressed for subsequent launches.
+
 `scripts/install.sh` (POSIX) and `scripts/install.ps1` (PowerShell) consume
 exactly that layout: they resolve the tag from the `/releases/latest` redirect
 or the `releases/latest` API, download the matching archive plus `checksums.txt`

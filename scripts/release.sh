@@ -30,16 +30,18 @@ for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 wi
   echo "building $target"
   CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath -buildvcs=false \
     -ldflags="-s -w -X main.version=$version" -o "$dir/$binary" ./cmd/kon
-  size=$(wc -c < "$dir/$binary" | tr -d ' ')
-  if [ "$size" -gt 10485760 ]; then
-    echo "$target binary is larger than 10 MiB ($size bytes)" >&2
-    exit 1
-  fi
   cp "$root/README.md" "$root/LICENSE" "$root/THIRD_PARTY_NOTICES" "$dir/"
   if [ "$os" = windows ]; then
-    (cd "$stage" && zip -qr "$dist/$name.zip" "$name")
+    archive="$dist/$name.zip"
+    (cd "$stage" && zip -qr "$archive" "$name")
   else
-    (cd "$stage" && tar -czf "$dist/$name.tar.gz" "$name")
+    archive="$dist/$name.tar.gz"
+    (cd "$stage" && tar -czf "$archive" "$name")
+  fi
+  size=$(wc -c < "$archive" | tr -d ' ')
+  if [ "$size" -gt 10485760 ]; then
+    echo "$target archive is larger than 10 MiB ($size bytes)" >&2
+    exit 1
   fi
 done
 
