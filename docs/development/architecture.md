@@ -35,6 +35,21 @@ keeps every assistant tool request and every tool result durable before the
 next network request. The provider layer owns wire formats and stream parsing;
 kon owns orchestration, persistence, and compaction.
 
+## CLI surface
+
+`cmd/kon` owns startup wiring and CLI metadata. Each subcommand lives in its own
+file (`docs.go`, `models.go`) as a thin adapter: it parses its flags, resolves
+paths, and delegates the work to an `internal/` package that owns the logic
+(`docs/product`, `internal/catalog`). Subcommands register in one table in
+`cli.go`; the root `--help` index is rendered from that table, so a new command
+cannot be accepted without also being documented in help.
+
+The default command — the full-screen TUI in `session.go` — parses its flags by
+hand because `--resume` takes an optional value that the standard `flag` package
+cannot express. A leading flag always selects it, so `kon --resume docs` resumes
+a session rather than invoking the `docs` command. Every subcommand supports
+`kon <command> --help`.
+
 ## Storage upgrades
 
 `internal/migrate` owns locking, version tracking, and the `Step` interface.

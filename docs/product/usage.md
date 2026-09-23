@@ -28,6 +28,9 @@ Type `/` at the start of the prompt to see the available commands.
 | `/resume [id]` | List sessions for this directory, or switch to one |
 | `/compact` | Summarize older context now |
 
+These are in-app commands. For the command-line surface, run `kon --help` to see
+the available subcommands; `kon <command> --help` prints the flags for one.
+
 ## Keys
 
 | Key | Action |

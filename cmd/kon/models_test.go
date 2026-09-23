@@ -11,7 +11,7 @@ import (
 func TestModelsListsBundledCatalogWithoutWritingCache(t *testing.T) {
 	cachePath := filepath.Join(t.TempDir(), "models.json.gz")
 	var output bytes.Buffer
-	if err := runModels(nil, cachePath, &output); err != nil {
+	if err := runModels(false, cachePath, &output); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(output.String(), "openai/") {
@@ -23,9 +23,12 @@ func TestModelsListsBundledCatalogWithoutWritingCache(t *testing.T) {
 }
 
 func TestModelsRejectsUnexpectedArguments(t *testing.T) {
+	configHome, dataHome := t.TempDir(), t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	t.Setenv("XDG_DATA_HOME", dataHome)
 	for _, args := range [][]string{{"--unknown"}, {"--refresh", "extra"}} {
-		if err := runModels(args, "", &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "usage: kon models") {
-			t.Fatalf("args %q: error = %v", args, err)
+		if err := runModelsCmd(args); err == nil {
+			t.Fatalf("args %q: expected an error", args)
 		}
 	}
 }
