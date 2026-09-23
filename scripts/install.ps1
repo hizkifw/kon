@@ -17,17 +17,19 @@ $installDir = if ($env:KON_INSTALL_DIR) { $env:KON_INSTALL_DIR } else { Join-Pat
 $version = $env:KON_VERSION
 
 function Get-Arch {
+  $osArch = $null
   if ('System.Runtime.InteropServices.RuntimeInformation' -as [type]) {
     $osArch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
-    if ("$osArch" -eq 'X64') { return 'amd64' }
-    if ("$osArch" -eq 'Arm64') { return 'arm64' }
-    throw "unsupported architecture: $osArch"
   }
-  switch ($env:PROCESSOR_ARCHITECTURE) {
-    'AMD64' { 'amd64' }
-    'ARM64' { 'arm64' }
-    default { throw "unsupported architecture: $($env:PROCESSOR_ARCHITECTURE)" }
+  # A 32-bit PowerShell process may report x86, so check the host architecture first.
+  foreach ($arch in @($osArch, $env:PROCESSOR_ARCHITEW6432, $env:PROCESSOR_ARCHITECTURE)) {
+    switch ("$arch") {
+      'X64' { return 'amd64' }
+      'AMD64' { return 'amd64' }
+      'Arm64' { return 'arm64' }
+    }
   }
+  throw "unsupported architecture: OSArchitecture=$osArch, PROCESSOR_ARCHITEW6432=$env:PROCESSOR_ARCHITEW6432, PROCESSOR_ARCHITECTURE=$env:PROCESSOR_ARCHITECTURE"
 }
 
 if (-not $version) {

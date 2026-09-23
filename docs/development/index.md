@@ -118,6 +118,9 @@ or the `releases/latest` API, download the matching archive plus `checksums.txt`
 from `/releases/download/<tag>/`, verify the hash, extract, and place the binary
 on `PATH`. Both are self-contained, so they can be piped from `raw.githubusercontent.com`
 straight into `sh` or `iex`.
+The PowerShell installer selects the Windows archive from `RuntimeInformation`
+when available, then falls back to the host and process architecture environment
+variables for older Windows PowerShell runtimes.
 
 ## Testing seams
 
