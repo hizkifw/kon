@@ -44,25 +44,54 @@ if ($useColor) {
   $reset  = ''
 }
 
+# This file must stay ASCII. `iwr | iex` under Windows PowerShell 5.1 does not
+# decode the download as UTF-8, so every non-ASCII literal would print as a
+# run of question marks. Glyphs are built from code points instead.
+$bullet = [char]0x2022
+$check = [char]0x2713
+
+# ConvertFrom-BoxSketch turns an ASCII sketch into box-drawing characters so
+# the mark stays legible here: r 7 L J are the corners, } { the side tees,
+# T ^ the top and bottom tees, and | - the lines.
+function ConvertFrom-BoxSketch {
+  param([string]$Line)
+  -join ($Line.ToCharArray() | ForEach-Object {
+    switch -CaseSensitive ("$_") {
+      'r' { [char]0x250C }
+      '7' { [char]0x2510 }
+      'L' { [char]0x2514 }
+      'J' { [char]0x2518 }
+      '}' { [char]0x251C }
+      '{' { [char]0x2524 }
+      'T' { [char]0x252C }
+      '^' { [char]0x2534 }
+      '|' { [char]0x2502 }
+      '-' { [char]0x2500 }
+      default { $_ }
+    }
+  })
+}
+
 # The kon wordmark from internal/ui/banner.go. The figure carries the brand
 # accent and the caption is faint, mirroring the TUI welcome header. The mark
 # cannot wrap, so it is printed as-is.
 function Write-Banner {
   Write-Host ''
   @(
-    '┌──┐              ┌──┐',
-    '│  ├──┬─────┬─────┤  │',
-    '│  ┌─<│  _  │     ├──┤',
-    '└──┴──┴─────┴──┴──┴──┘'
-  ) | ForEach-Object { Write-Host "  $accent$_$reset" }
-  Write-Host "  ${faint}harness for foxes =˄▾˄=$reset"
+    'r--7              r--7',
+    '|  }--T-----T-----{  |',
+    '|  r-<|  _  |     }--{',
+    'L--^--^-----^--^--^--J'
+  ) | ForEach-Object { Write-Host "  $accent$(ConvertFrom-BoxSketch $_)$reset" }
+  $face = "=$([char]0x02C4)$([char]0x25BE)$([char]0x02C4)="
+  Write-Host "  ${faint}harness for foxes $face$reset"
   Write-Host ''
 }
 
 # Write-Step reports work in progress; Write-Done the one successful outcome.
 # Every line is indented two cells to align with the mark above.
-function Write-Step { param([string]$Message) Write-Host "  $accent•$reset $Message" }
-function Write-Done { param([string]$Message) Write-Host "  $good✓$reset $Message" }
+function Write-Step { param([string]$Message) Write-Host "  $accent$bullet$reset $Message" }
+function Write-Done { param([string]$Message) Write-Host "  $good$check$reset $Message" }
 function Write-Bad  { param([string]$Message) Write-Host "  $bad!$reset $Message" }
 
 function Get-Arch {
