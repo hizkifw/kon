@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/hizkifw/kon/internal/buildinfo"
+	"github.com/hizkifw/kon/internal/provider/wire"
 	"github.com/hizkifw/kon/internal/session"
 	"github.com/hizkifw/kon/internal/typedid"
 )
@@ -24,8 +25,14 @@ func newTestModel(t *testing.T, handler http.HandlerFunc) *chatModel {
 		client:  server.Client(),
 		baseURL: server.URL,
 		model:   "test-model",
+		spec:    compatibleSpec(),
 		headers: map[string]string{"X-Custom": "custom-value"},
 	}
+}
+
+func compatibleSpec() wire.Spec {
+	spec, _ := wire.Lookup(wire.OpenAICompatible)
+	return spec
 }
 
 // TestChatHeadersOverrideUserAgent keeps the configured headers authoritative:
@@ -103,8 +110,12 @@ func TestChatRequestSendsSelectedEffort(t *testing.T) {
 		_, _ = io.WriteString(w, `{"choices":[{"index":0,"message":{"content":"ok"},"finish_reason":"stop"}]}`)
 	})
 	messages := []session.Message{session.TextMessage(session.RoleUser, "hi")}
-	for _, effort := range []struct{ wireType, effort string }{{"openai-compatible", ""}, {"openai", "low"}, {"openrouter", "max"}} {
-		model.wireType, model.effort = effort.wireType, effort.effort
+	for _, effort := range []struct {
+		format wire.Format
+		effort string
+	}{{wire.OpenAICompatible, ""}, {wire.OpenAI, "low"}, {wire.OpenRouter, "max"}} {
+		model.spec, _ = wire.Lookup(effort.format)
+		model.effort = effort.effort
 		if _, err := model.Complete(context.Background(), messages, nil, 0); err != nil {
 			t.Fatal(err)
 		}
@@ -194,7 +205,7 @@ func TestChatReplayReturnsReasoningInRecordedField(t *testing.T) {
 		t.Fatalf("unrecorded default = %s", got)
 	}
 	model, bodies := captureRequests(t)
-	model.wireType = "openrouter"
+	model.spec, _ = wire.Lookup(wire.OpenRouter)
 	if _, err := model.Complete(context.Background(), []session.Message{session.TextMessage(session.RoleUser, "hi"), thinkingReply("test-model", ""), session.TextMessage(session.RoleUser, "again")}, nil, 0); err != nil {
 		t.Fatal(err)
 	}

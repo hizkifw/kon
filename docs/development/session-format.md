@@ -58,8 +58,8 @@ base64 image data. Equal bytes in one session share a blob. The provider
 verifies and loads blobs when it builds a vision request; text-only results
 carry no image part.
 
-An assistant message's `provider_options` holds metadata the wire format needs
-to send the reply back as it arrived. For chat completions that is
+An assistant message's `provider_options` holds metadata the backend that
+wrote it needs to send the reply back as it arrived. For chat completions that is
 `reasoning_field`, the field its reasoning streamed in (`reasoning_content`,
 `reasoning`, or `reasoning_text`), and `reasoning_details`, OpenRouter's
 structured reasoning, kept verbatim because it can hold encrypted entries.
@@ -92,8 +92,10 @@ durable log — the repair is rebuilt on each projection.
 {"type":"model_change","id":"ent_2xM8vQ5kR9cT3Np7Za4L","parent_id":"ent_9qW4mK7zT2bN8Vc5Rx1A","timestamp":"...","model":{"name":"fireworks-2/gpt-4o","wire_format":"openai-compatible","connection_id":"fireworks-2","external_id":"gpt-4o"}}
 ```
 
-The name is kon's selected profile. `wire_format` names the request protocol;
-`connection_id` names the configured connection used for a derived model and
+The name is kon's selected profile. `wire_format` is the profile's `type`, the
+wire format its requests used, such as `openrouter`; it says how kon talked to
+the server, not which service it was. `connection_id` names the configured
+connection used for a derived model, which is what identifies the service, and
 is omitted for a standalone profile. The external ID remains opaque. Model
 change entries record which profile applies to subsequent turns and do not
 enter model context.

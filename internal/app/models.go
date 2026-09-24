@@ -41,8 +41,8 @@ func (r *Runtime) Models() []Model {
 		for _, id := range r.providerModels[connection.ID] {
 			ids[id] = "provider list"
 		}
-		if service != nil && catalogKey(connection) != "" && catalogKey(connection) != "azure" {
-			for _, model := range service.Models(catalogKey(connection)) {
+		if key := catalogKey(connection); service != nil && key != "" {
+			for _, model := range service.Models(key) {
 				displayNames[model.ID] = model.Name
 				if ids[model.ID] == "" {
 					ids[model.ID] = "catalog"
@@ -177,8 +177,8 @@ func (r *Runtime) describeActive() Model {
 	connection, _ := r.config.Provider(providerID)
 	entry.ConnectionID = connection.ID
 	entry.DisplayName = r.active.ModelID
-	if service := r.catalog.Load(); r.activeResolved && service != nil && catalogKey(connection) != "azure" {
-		if metadata, ok := service.Model(catalogKey(connection), r.active.ModelID); ok && metadata.Name != "" {
+	if service, key := r.catalog.Load(), catalogKey(connection); r.activeResolved && service != nil && key != "" {
+		if metadata, ok := service.Model(key, r.active.ModelID); ok && metadata.Name != "" {
 			entry.DisplayName = metadata.Name
 		}
 	}
@@ -190,13 +190,13 @@ func (r *Runtime) describeActive() Model {
 func (r *Runtime) LoginProviders() []string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	ids := []string{"ollama", "openai-compatible"}
+	ids := provider.LocalLoginIDs()
 	service := r.catalogService()
 	if service == nil {
 		return ids
 	}
 	for _, entry := range service.Providers() {
-		if _, ok := provider.LoginConnection(entry); ok {
+		if _, ok := provider.CatalogLoginEntry(entry); ok {
 			ids = append(ids, entry.ID)
 		}
 	}
@@ -204,21 +204,25 @@ func (r *Runtime) LoginProviders() []string {
 	return ids
 }
 
-func (r *Runtime) LoginConnection(id string) (config.Provider, bool) {
+// LoginEntry describes one /login choice. It is the provider package's type:
+// the UI reads what to ask for without learning any wire format's rules.
+type LoginEntry = provider.LoginEntry
+
+func (r *Runtime) LoginEntry(id string) (LoginEntry, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if connection, ok := provider.LocalLoginConnection(id); ok {
-		return connection, true
+	if entry, ok := provider.LocalLoginEntry(id); ok {
+		return entry, true
 	}
 	service := r.catalogService()
 	if service == nil {
-		return config.Provider{}, false
+		return LoginEntry{}, false
 	}
 	entry, ok := service.Provider(id)
 	if !ok {
-		return config.Provider{}, false
+		return LoginEntry{}, false
 	}
-	return provider.LoginConnection(entry)
+	return provider.CatalogLoginEntry(entry)
 }
 
 func (r *Runtime) resolveModel(name string) (config.Model, bool) {
@@ -231,8 +235,8 @@ func (r *Runtime) resolveModel(name string) (config.Model, bool) {
 	}
 	providerID, _, _ := strings.Cut(name, "/")
 	connection, _ := r.config.Provider(providerID)
-	if service := r.catalogService(); service != nil && catalogKey(connection) != "azure" {
-		if metadata, found := service.Model(catalogKey(connection), profile.ModelID); found {
+	if service, key := r.catalogService(), catalogKey(connection); service != nil && key != "" {
+		if metadata, found := service.Model(key, profile.ModelID); found {
 			if window := tokens.Count(metadata.Limit.Context); window > r.config.Compaction.ReserveTokens+r.config.Compaction.KeepRecentTokens {
 				profile.ContextWindowTokens = window
 			}
@@ -249,14 +253,23 @@ func (r *Runtime) resolveModel(name string) (config.Model, bool) {
 	return profile, true
 }
 
+// catalogKey is the models.dev provider whose model metadata describes a
+// connection's models, or "" when none does. It depends only on which service
+// the connection reaches, never on the wire format it speaks. A local login
+// has no catalog entry. Azure's entry lists base models, while its requests
+// name the user's own deployments, so its metadata would be misattributed.
 func catalogKey(connection config.Provider) string {
-	if connection.CatalogProvider != "" {
-		return connection.CatalogProvider
+	key := connection.CatalogProvider
+	if key == "" {
+		if _, local := provider.LocalLoginEntry(connection.ID); local {
+			return ""
+		}
+		key = connection.ID
 	}
-	if connection.Type != "ollama" && connection.ID != "openai-compatible" {
-		return connection.ID
+	if key == "azure" {
+		return ""
 	}
-	return ""
+	return key
 }
 
 // Login verifies a provider only in response to the user's /login command,

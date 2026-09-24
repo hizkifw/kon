@@ -14,36 +14,22 @@ import (
 
 	"github.com/hizkifw/kon/internal/buildinfo"
 	"github.com/hizkifw/kon/internal/config"
+	"github.com/hizkifw/kon/internal/provider/wire"
 )
 
 const maxModelListSize = 8 << 20
 
 // Discover checks a connection on explicit login and returns its model IDs.
-// A compatible server without /models can still be saved, but is unverified.
+// A server whose wire format makes the listing optional can still be saved
+// without GET /models, but is reported as unverified.
 func Discover(ctx context.Context, connection config.Provider) ([]string, bool, error) {
-	baseURL := connection.BaseURL
-	switch connection.Type {
-	case "openai":
-		if baseURL == "" {
-			baseURL = defaultOpenAIBaseURL
-		}
-	case "openrouter":
-		if baseURL == "" {
-			baseURL = defaultOpenRouterBaseURL
-		}
-	case "ollama":
-		if baseURL == "" {
-			baseURL = defaultOllamaBaseURL
-		}
-		if !strings.HasSuffix(strings.TrimRight(baseURL, "/"), "/v1") {
-			baseURL = strings.TrimRight(baseURL, "/") + "/v1"
-		}
-	case "openai-compatible":
-		if baseURL == "" {
-			return nil, false, errors.New("base URL is required")
-		}
-	default:
-		return nil, false, fmt.Errorf("unsupported provider %q", connection.Type)
+	spec, ok := wire.Lookup(connection.Type)
+	if !ok {
+		return nil, false, fmt.Errorf("unsupported wire format %q", connection.Type)
+	}
+	baseURL, err := spec.BaseURL(connection.BaseURL)
+	if err != nil {
+		return nil, false, err
 	}
 	parsed, err := url.Parse(baseURL)
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
@@ -54,7 +40,9 @@ func Discover(ctx context.Context, connection config.Provider) ([]string, bool, 
 		// Credentials must not follow a server-directed redirect to another host.
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
-	if connection.Type == "openrouter" && (connection.ID == "openrouter" || connection.CatalogProvider == "openrouter") {
+	// OpenRouter the service, not every server speaking its format, exposes
+	// /key, which rejects a bad key that the public model list would accept.
+	if connection.Type == wire.OpenRouter && (connection.ID == "openrouter" || connection.CatalogProvider == "openrouter") {
 		keyURL := strings.TrimRight(baseURL, "/") + "/key"
 		if _, err := get(ctx, client, keyURL, connection); err != nil {
 			return nil, false, fmt.Errorf("verify OpenRouter key: %w", err)
@@ -64,7 +52,7 @@ func Discover(ctx context.Context, connection config.Provider) ([]string, bool, 
 	body, err := get(ctx, client, modelsURL, connection)
 	if err != nil {
 		var status *httpStatusError
-		if connection.Type == "openai-compatible" && errors.As(err, &status) && (status.code == http.StatusNotFound || status.code == http.StatusMethodNotAllowed) {
+		if spec.ListingOptional && errors.As(err, &status) && (status.code == http.StatusNotFound || status.code == http.StatusMethodNotAllowed) {
 			return nil, false, nil
 		}
 		return nil, false, fmt.Errorf("list provider models: %w", err)

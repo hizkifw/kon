@@ -35,7 +35,7 @@ type Model struct {
 	Name          string
 	ConnectionID  string
 	DisplayName   string
-	Type          string
+	WireFormat    string
 	ExternalID    string
 	ContextWindow tokens.Count
 	// ReasoningEfforts lists the levels Shift+Tab cycles through; empty means
@@ -119,7 +119,7 @@ func start(cfg config.Config, paths config.Paths, cwd, version string, resume bo
 		if err != nil {
 			return nil, err
 		}
-		selection := session.ModelSelection{Name: profile.Name, WireFormat: profile.WireType(), ExternalID: client.ModelID()}
+		selection := session.ModelSelection{Name: profile.Name, WireFormat: string(profile.WireFormat()), ExternalID: client.ModelID()}
 		if _, explicit := r.config.Model(profile.Name); !explicit {
 			if id, _, ok := strings.Cut(profile.Name, "/"); ok {
 				if connection, found := r.config.Provider(id); found {
@@ -536,7 +536,7 @@ func (r *Runtime) mutable() error {
 
 func describe(profile config.Model) Model {
 	return Model{
-		Name: profile.Name, Type: profile.WireType(), ExternalID: profile.ModelID,
+		Name: profile.Name, WireFormat: string(profile.WireFormat()), ExternalID: profile.ModelID,
 		ContextWindow:    profile.ContextWindowTokens,
 		ReasoningEfforts: slices.Clone(profile.ReasoningEfforts), ReasoningEffort: profile.ReasoningEffort,
 	}

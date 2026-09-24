@@ -101,26 +101,21 @@ problem.
 
 ### 7. Replace scattered wire-type strings with one provider-owned table
 
-- [ ] Single wire-format table in `internal/provider`
+- [x] Single wire-format table in `internal/provider`
 
-`"openai" | "openai-compatible" | "openrouter" | "ollama"` and the rules around
-them are re-spelled in:
+`internal/provider/wire` now holds the only list of wire formats and what
+each implies: default base URL (and so whether one is required), API path,
+nested versus top-level reasoning effort, default reasoning field, and
+whether model listing is optional. It is a leaf package, so `config`
+validates against it without importing the backends. `newModel`, the chat
+backend, and `Discover` read it instead of switching on type strings.
 
-- `config.supportedProviders` (`internal/config/config.go:86`),
-  `config.DefaultModelType`, and the "needs a base URL" checks in `Validate`;
-- the `provider.newModel` switch (`internal/provider/provider.go:55`);
-- the `provider.Discover` switch (`internal/provider/discovery.go:24`);
-- the `newChatModel` switch (`internal/provider/chat.go:60`), which duplicates
-  `Discover`'s base-URL defaults and detects DeepSeek by base URL substring;
-- `app.catalogKey` and the hard-coded list in `app.LoginProviders`
-  (`internal/app/models.go`);
-- `ui/login.go`, which hard-codes the Ollama URL and knows which types need a
-  URL or key;
-- `provider/registry.go`.
-
-One table keyed by wire type — default base URL, needs URL, needs key,
-discovery, constructor, reasoning quirks — would let config validate against it
-and let login ask it instead of re-deriving rules.
+Service quirks stay keyed on service identity, not format. Login entries
+(`provider.LoginEntry`) say whether to ask for a URL or key, so `ui/login.go`
+no longer knows about Ollama. `app.catalogKey` decides which models.dev
+entry describes a connection, folding in the Azure and local-login
+exceptions. OpenRouter's key check still lives in `Discover`, and DeepSeek is
+still detected by base URL, since explicit profiles carry no service identity.
 
 ### 8. Separate user-written profiles from resolved runtime specs
 

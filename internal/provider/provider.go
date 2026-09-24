@@ -1,9 +1,13 @@
 // Package provider owns model access. kon's durable conversation format
 // (internal/session) is the single source of truth: a backend implements
-// Model to map it onto one provider wire format, and Client turns the neutral
-// result back into durable messages. The OpenAI chat completions format is
-// implemented in chat.go; add a backend beside it and register it in newModel
-// to support another wire format.
+// Model to map it onto one wire protocol, and Client turns the neutral result
+// back into durable messages. The wire formats kon accepts, and what each
+// implies, are listed in the wire subpackage; all of them are dialects of
+// OpenAI chat completions, implemented in chat.go.
+//
+// The package also maps services onto connections for /login (registry.go)
+// and checks a connection on login (discovery.go). Those are about which
+// service kon talks to, not how, and are kept apart from the wire table.
 package provider
 
 import (
@@ -12,6 +16,7 @@ import (
 	"fmt"
 
 	"github.com/hizkifw/kon/internal/config"
+	"github.com/hizkifw/kon/internal/provider/wire"
 	"github.com/hizkifw/kon/internal/session"
 	"github.com/hizkifw/kon/internal/tokens"
 	"github.com/hizkifw/kon/internal/typedid"
@@ -48,15 +53,15 @@ func New(profile config.Model, readImage func(string) ([]byte, error)) (*Client,
 	return &Client{model: model, modelID: typedid.ExternalModelID(profile.ModelID)}, nil
 }
 
-// newModel builds the backend for a profile. Add a case when a new wire
-// format lands.
+// newModel builds the backend for a profile's wire format. Every format in the
+// wire table is a chat completions dialect, so one backend serves them all; a
+// format with another protocol would choose its backend here.
 func newModel(profile config.Model, readImage func(string) ([]byte, error)) (Model, error) {
-	switch profile.WireType() {
-	case "openai", "openai-compatible", "openrouter", "ollama":
-		return newChatModel(profile, readImage), nil
-	default:
-		return nil, fmt.Errorf("unsupported type %q", profile.WireType())
+	spec, ok := wire.Lookup(profile.WireFormat())
+	if !ok {
+		return nil, fmt.Errorf("unsupported wire format %q", profile.WireFormat())
 	}
+	return newChatModel(profile, spec, readImage)
 }
 
 func (c *Client) Stream(ctx context.Context, messages []session.Message, tools []Tool, emit func(Event)) (session.Message, error) {

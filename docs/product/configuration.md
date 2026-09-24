@@ -24,7 +24,10 @@ model ID in `model`, and its own connection fields. `default_model` names the
 profile used for new sessions. `type` is the wire format kon speaks: `openai`,
 `openrouter`, `ollama`, or `openai-compatible`, which is the default when
 `type` is omitted. `openai-compatible` accepts any endpoint speaking OpenAI
-Chat Completions and requires `base_url`. For example:
+Chat Completions and requires `base_url`. A wire format says how kon talks to
+a server, not which service it is: many services share `openai-compatible`,
+and all four formats are dialects of Chat Completions that differ in their
+default endpoint and how they encode reasoning. For example:
 
 ```json
 {

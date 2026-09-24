@@ -7,10 +7,12 @@ import (
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+	"github.com/hizkifw/kon/internal/app"
 	"github.com/hizkifw/kon/internal/config"
 )
 
 type loginFlow struct {
+	entry      app.LoginEntry
 	connection config.Provider
 	input      textinput.Model
 	step       int
@@ -34,13 +36,14 @@ func (m Model) startLogin(providerID string) (tea.Model, tea.Cmd) {
 	input.CharLimit = 0
 	input.SetWidth(max(1, m.width-2))
 	input.Focus()
-	connection, ok := m.runtime.LoginConnection(providerID)
+	entry, ok := m.runtime.LoginEntry(providerID)
 	if !ok {
 		m.status = "unsupported provider: " + providerID
 		return m, nil
 	}
 	m.login = &loginFlow{
-		connection: connection,
+		entry:      entry,
+		connection: entry.Connection,
 		input:      input,
 	}
 	m.input.Reset()
@@ -51,16 +54,15 @@ func (m Model) startLogin(providerID string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (f *loginFlow) wantsURL() bool {
-	return f.connection.Type == "ollama" || f.connection.BaseURL == "" && f.connection.Type == "openai-compatible"
-}
+// asksURL reports whether the flow is on its base URL step, which comes first.
+func (f *loginFlow) asksURL() bool { return f.entry.AskURL && f.step == 0 }
 
 func (f *loginFlow) setStep() {
 	f.input.SetValue("")
 	f.input.EchoMode = textinput.EchoNormal
-	if f.wantsURL() && f.step == 0 {
-		if f.connection.Type == "ollama" {
-			f.input.Placeholder = "http://localhost:11434 (Enter for default)"
+	if f.asksURL() {
+		if f.entry.DefaultURL != "" {
+			f.input.Placeholder = f.entry.DefaultURL + " (Enter for default)"
 		} else {
 			f.input.Placeholder = "https://example.com/v1"
 		}
@@ -74,7 +76,7 @@ func (f *loginFlow) question() string {
 	if f.pending {
 		return "checking " + f.connection.ID + "… Esc cancels"
 	}
-	if f.wantsURL() && f.step == 0 {
+	if f.asksURL() {
 		return "provider URL for " + f.connection.ID + " · Esc cancels"
 	}
 	return "API key for " + f.connection.ID + " · Esc cancels"
@@ -100,16 +102,16 @@ func (m Model) updateLogin(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			value := strings.TrimSpace(f.input.Value())
-			if f.wantsURL() && f.step == 0 {
-				if value == "" && f.connection.Type == "ollama" {
-					value = "http://localhost:11434"
+			if f.asksURL() {
+				if value == "" {
+					value = f.entry.DefaultURL
 				}
 				if value == "" {
 					m.status = "provider URL is required"
 					return m, nil
 				}
 				f.connection.BaseURL = value
-				if f.connection.Type == "ollama" {
+				if !f.entry.AskKey {
 					return m.beginLogin()
 				}
 				f.step++
@@ -117,7 +119,7 @@ func (m Model) updateLogin(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.status = f.question()
 				return m, nil
 			}
-			if value == "" && f.connection.ID != "openai-compatible" {
+			if value == "" && !f.entry.KeyOptional {
 				m.status = "API key is required"
 				return m, nil
 			}

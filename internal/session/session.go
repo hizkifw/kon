@@ -90,7 +90,8 @@ type ToolCall struct {
 }
 
 // Part preserves ordered, provider-neutral content needed for exact replay.
-// ProviderOptions is opaque data owned by the upstream provider.
+// ProviderOptions is opaque data owned by the backend in internal/provider
+// that wrote it; kon stores it without interpreting it.
 type Part struct {
 	Type            string             `json:"type"`
 	Text            string             `json:"text,omitempty"`

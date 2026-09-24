@@ -8,12 +8,13 @@ import (
 	"github.com/hizkifw/kon/internal/tokens"
 )
 
-// Model is the seam between kon and a provider wire format. kon owns the
-// durable conversation (internal/session.Message) and hands it to a Model
-// verbatim; the Model maps it onto its API, streams deltas back through emit,
-// and reports the response. Implement one Model per wire format and register
-// it in newModel. Implementations must be safe for concurrent use and must
-// return *APIError for provider-side failures so kon can classify them.
+// Model is the seam between kon and a wire protocol. kon owns the durable
+// conversation (internal/session.Message) and hands it to a Model verbatim;
+// the Model maps it onto its API, streams deltas back through emit, and
+// reports the response. Implement one Model per protocol and choose it for
+// its wire formats in newModel. Implementations must be safe for concurrent
+// use and must return *APIError for server-side failures so kon can classify
+// them.
 type Model interface {
 	// Stream runs one streamed generation, forwarding text and reasoning
 	// deltas through emit as they arrive, and returns the assembled response.

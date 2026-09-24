@@ -54,9 +54,9 @@ func (f *fakeRuntime) Login(_ context.Context, provider config.Provider) (int, b
 func (f *fakeRuntime) LoginProviders() []string {
 	return []string{"azure", "fireworks-ai", "ollama", "openai", "openai-compatible", "openrouter"}
 }
-func (f *fakeRuntime) LoginConnection(id string) (config.Provider, bool) {
-	if connection, ok := provider.LocalLoginConnection(id); ok {
-		return connection, true
+func (f *fakeRuntime) LoginEntry(id string) (app.LoginEntry, bool) {
+	if entry, ok := provider.LocalLoginEntry(id); ok {
+		return entry, true
 	}
 	entries := map[string]catalog.Provider{
 		"openai":       {ID: "openai", NPM: "@ai-sdk/openai"},
@@ -66,9 +66,9 @@ func (f *fakeRuntime) LoginConnection(id string) (config.Provider, bool) {
 	}
 	entry, ok := entries[id]
 	if !ok {
-		return config.Provider{}, false
+		return app.LoginEntry{}, false
 	}
-	return provider.LoginConnection(entry)
+	return provider.CatalogLoginEntry(entry)
 }
 func (f *fakeRuntime) LoadCatalog()                         { f.catalogLoads++ }
 func (f *fakeRuntime) Interrupt(attempt int) bool           { f.kills++; return !f.killFails }
@@ -180,8 +180,8 @@ func TestFitLineHonorsCellWidth(t *testing.T) {
 
 func TestSwitchModelUpdatesRuntimeState(t *testing.T) {
 	models := []app.Model{
-		{Name: "fast", Type: "openai", ExternalID: "gpt", ContextWindow: 100},
-		{Name: "review", Type: "anthropic", ExternalID: "claude", ContextWindow: 200},
+		{Name: "fast", WireFormat: "openai", ExternalID: "gpt", ContextWindow: 100},
+		{Name: "review", WireFormat: "anthropic", ExternalID: "claude", ContextWindow: 200},
 	}
 	runtime := &fakeRuntime{state: app.State{Active: models[0], Phase: app.PhaseReady}, models: models}
 	m := New(context.Background(), "/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
@@ -242,7 +242,7 @@ func TestCatalogProviderLoginUsesKnownEndpoint(t *testing.T) {
 	m := New(context.Background(), "/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
 	started, _ := m.startLogin("fireworks-ai")
 	m = started.(Model)
-	if m.login.wantsURL() || m.login.input.EchoMode != textinput.EchoPassword {
+	if m.login.asksURL() || m.login.input.EchoMode != textinput.EchoPassword {
 		t.Fatal("fixed-endpoint provider prompted for a URL")
 	}
 	m.login.input.SetValue("secret")
@@ -261,7 +261,7 @@ func TestAzureLoginRequiresEndpointAndKey(t *testing.T) {
 	m := newTestModel(t)
 	started, _ := m.startLogin("azure")
 	m = started.(Model)
-	if !m.login.wantsURL() {
+	if !m.login.asksURL() {
 		t.Fatal("Azure endpoint was not requested")
 	}
 	m.login.input.SetValue("https://example.openai.azure.com/openai/v1")
@@ -513,7 +513,7 @@ func newMultiModel(t testing.TB, names ...string) Model {
 	t.Helper()
 	models := make([]app.Model, 0, len(names))
 	for _, name := range names {
-		models = append(models, app.Model{Name: name, Type: "anthropic", ExternalID: "claude"})
+		models = append(models, app.Model{Name: name, WireFormat: "anthropic", ExternalID: "claude"})
 	}
 	runtime := &fakeRuntime{state: app.State{Active: models[0], Phase: app.PhaseReady}, models: models}
 	m := New(context.Background(), "/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
@@ -550,7 +550,7 @@ func TestModelPickerShowsDisplayNameAndKeepsQualifiedValue(t *testing.T) {
 	const qualified = "fireworks-2/accounts/fireworks/models/deepseek-v4-pro"
 	models := []app.Model{{
 		Name: qualified, ConnectionID: "fireworks-2", DisplayName: "DeepSeek V4 Pro",
-		Type: "openai-compatible", ExternalID: "accounts/fireworks/models/deepseek-v4-pro", Source: "catalog",
+		WireFormat: "openai-compatible", ExternalID: "accounts/fireworks/models/deepseek-v4-pro", Source: "catalog",
 	}}
 	runtime := &fakeRuntime{state: app.State{Active: models[0], Phase: app.PhaseReady}, models: models}
 	m := New(context.Background(), "/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
@@ -1387,7 +1387,7 @@ func TestResumeCommandReplaysSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	models := []app.Model{{Name: "fast", Type: "openai", ExternalID: "gpt"}}
+	models := []app.Model{{Name: "fast", WireFormat: "openai", ExternalID: "gpt"}}
 	runtime := &fakeRuntime{
 		state:    app.State{Active: models[0], Phase: app.PhaseReady},
 		models:   models,
@@ -1421,7 +1421,7 @@ func TestResumeCommandReplaysThinking(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	models := []app.Model{{Name: "fast", Type: "openai", ExternalID: "gpt"}}
+	models := []app.Model{{Name: "fast", WireFormat: "openai", ExternalID: "gpt"}}
 	runtime := &fakeRuntime{
 		state:    app.State{Active: models[0], Phase: app.PhaseReady},
 		models:   models,
@@ -1452,7 +1452,7 @@ func TestResumeAdoptsPersistedContextUsage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	models := []app.Model{{Name: "fast", Type: "openai", ExternalID: "gpt"}}
+	models := []app.Model{{Name: "fast", WireFormat: "openai", ExternalID: "gpt"}}
 	runtime := &fakeRuntime{
 		state:         app.State{Active: models[0], Phase: app.PhaseReady},
 		models:        models,
@@ -1690,7 +1690,7 @@ func TestUnconfiguredLaunchGreetsInTranscript(t *testing.T) {
 
 func newTestModel(t testing.TB) Model {
 	t.Helper()
-	model := app.Model{Name: "fast", Type: "openai", ExternalID: "gpt", ContextWindow: 100}
+	model := app.Model{Name: "fast", WireFormat: "openai", ExternalID: "gpt", ContextWindow: 100}
 	runtime := &fakeRuntime{state: app.State{Active: model, Phase: app.PhaseReady}, models: []app.Model{model}}
 	result := New(context.Background(), "/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
 	result.width, result.height = 80, 24

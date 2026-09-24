@@ -33,7 +33,7 @@ type Runtime interface {
 	CycleEffort() (string, error)
 	Login(context.Context, config.Provider) (int, bool, error)
 	LoginProviders() []string
-	LoginConnection(string) (config.Provider, bool)
+	LoginEntry(string) (app.LoginEntry, bool)
 	LoadCatalog()
 	NewSession() error
 	Resume(typedid.SessionID) error

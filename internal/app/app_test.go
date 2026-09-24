@@ -185,11 +185,11 @@ func TestLoginProvidersComeFromCatalog(t *testing.T) {
 			t.Fatalf("%q missing from login options", id)
 		}
 	}
-	connection, ok := runtime.LoginConnection("fireworks-ai")
-	if !ok || connection.BaseURL != "https://api.fireworks.ai/inference/v1" {
-		t.Fatalf("catalog connection = %#v, %v", connection, ok)
+	entry, ok := runtime.LoginEntry("fireworks-ai")
+	if !ok || entry.Connection.BaseURL != "https://api.fireworks.ai/inference/v1" {
+		t.Fatalf("catalog login entry = %#v, %v", entry, ok)
 	}
-	if _, ok := runtime.LoginConnection("does-not-exist"); ok {
+	if _, ok := runtime.LoginEntry("does-not-exist"); ok {
 		t.Fatal("unknown catalog provider was accepted")
 	}
 }

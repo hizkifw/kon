@@ -16,33 +16,28 @@ import (
 
 	"github.com/hizkifw/kon/internal/buildinfo"
 	"github.com/hizkifw/kon/internal/config"
+	"github.com/hizkifw/kon/internal/provider/wire"
 	"github.com/hizkifw/kon/internal/session"
 	"github.com/hizkifw/kon/internal/tokens"
 	"github.com/hizkifw/kon/internal/typedid"
 )
 
-// chatModel implements Model for the OpenAI chat completions wire format.
-// openai, openai-compatible, and openrouter speak it natively, and ollama
-// serves it under /v1. kon builds and parses every message itself: request
-// bodies, SSE events, tool-call deltas, and usage reports are all owned here.
+// chatModel implements Model for OpenAI chat completions, the protocol behind
+// every format in the wire table. The format's spec supplies the dialect
+// details. kon builds and parses every message itself: request bodies, SSE
+// events, tool-call deltas, and usage reports are all owned here.
 type chatModel struct {
-	client   *http.Client
-	baseURL  string
-	apiKey   string
-	headers  map[string]string
-	model    string
-	wireType string
-	effort   string
+	client  *http.Client
+	baseURL string
+	apiKey  string
+	headers map[string]string
+	model   string
+	spec    wire.Spec
+	effort  string
 	// reasoning marks a model that produces reasoning; see chatReplay.
 	reasoning bool
 	readImage func(string) ([]byte, error)
 }
-
-const (
-	defaultOpenAIBaseURL     = "https://api.openai.com/v1"
-	defaultOpenRouterBaseURL = "https://openrouter.ai/api/v1"
-	defaultOllamaBaseURL     = "http://localhost:11434/v1"
-)
 
 // maxEventSize bounds one SSE line. Providers occasionally emit very long
 // lines for large tool arguments; 1 MiB is far above any real chunk.
@@ -68,26 +63,10 @@ func imageReader(profile config.Model, readImage func(string) ([]byte, error)) f
 	return readImage
 }
 
-func newChatModel(profile config.Model, readImage func(string) ([]byte, error)) *chatModel {
-	baseURL := profile.BaseURL
-	switch profile.WireType() {
-	case "openai":
-		if baseURL == "" {
-			baseURL = defaultOpenAIBaseURL
-		}
-	case "openrouter":
-		if baseURL == "" {
-			baseURL = defaultOpenRouterBaseURL
-		}
-	case "ollama":
-		// Ollama serves the chat completions format under /v1; its native API
-		// is a different wire format entirely.
-		if baseURL == "" {
-			baseURL = defaultOllamaBaseURL
-		}
-		if !strings.HasSuffix(strings.TrimRight(baseURL, "/"), "/v1") {
-			baseURL = strings.TrimRight(baseURL, "/") + "/v1"
-		}
+func newChatModel(profile config.Model, spec wire.Spec, readImage func(string) ([]byte, error)) (*chatModel, error) {
+	baseURL, err := spec.BaseURL(profile.BaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("model %q: %w", profile.Name, err)
 	}
 	return &chatModel{
 		client:    &http.Client{},
@@ -95,15 +74,15 @@ func newChatModel(profile config.Model, readImage func(string) ([]byte, error)) 
 		apiKey:    profile.APIKey,
 		headers:   profile.Headers,
 		model:     profile.ModelID,
-		wireType:  profile.WireType(),
+		spec:      spec,
 		effort:    profile.ReasoningEffort,
 		reasoning: profile.Reasoning,
 		readImage: imageReader(profile, readImage),
-	}
+	}, nil
 }
 
-// Wire types. Field sets follow the chat completions schema; omitempty keeps
-// requests minimal so strict compatible servers accept them.
+// Request bodies. Field sets follow the chat completions schema; omitempty
+// keeps requests minimal so strict compatible servers accept them.
 
 type chatRequest struct {
 	Model         string             `json:"model"`
@@ -117,7 +96,8 @@ type chatRequest struct {
 	// reasoning models, which reject the legacy field.
 	MaxCompletionTokens tokens.Count `json:"max_completion_tokens,omitempty"`
 	ReasoningEffort     string       `json:"reasoning_effort,omitempty"`
-	// Reasoning is OpenRouter's normalized form of the same control.
+	// Reasoning is the nested form of the same control, for formats whose
+	// spec sets NestedEffort (OpenRouter's normalized API).
 	Reasoning *chatReasoning `json:"reasoning,omitempty"`
 }
 
@@ -131,7 +111,7 @@ func (m *chatModel) request(messages []chatMessage) chatRequest {
 	payload := chatRequest{Model: m.model, Messages: messages}
 	switch {
 	case m.effort == "":
-	case m.wireType == "openrouter":
+	case m.spec.NestedEffort:
 		payload.Reasoning = &chatReasoning{Effort: m.effort}
 	default:
 		payload.ReasoningEffort = m.effort
@@ -274,14 +254,16 @@ type chatReplay struct {
 	emptyReasoning bool
 }
 
-// replay is this model's reasoning replay policy.
+// replay is this model's reasoning replay policy. The default field comes
+// from the wire format. The empty-reasoning rule is a quirk of one service,
+// DeepSeek's own API, rather than of a format; an explicit profile carries no
+// service identity, so the base URL is the only signal for it.
 func (m *chatModel) replay() chatReplay {
-	replay := chatReplay{model: m.model, defaultField: "reasoning_content"}
-	if m.wireType == "openrouter" {
-		replay.defaultField = "reasoning"
+	return chatReplay{
+		model:          m.model,
+		defaultField:   m.spec.ReasoningField,
+		emptyReasoning: m.reasoning && strings.Contains(strings.ToLower(m.baseURL), "deepseek.com"),
 	}
-	replay.emptyReasoning = m.reasoning && strings.Contains(strings.ToLower(m.baseURL), "deepseek.com")
-	return replay
 }
 
 // toChatMessages maps the durable conversation onto chat completions messages.
@@ -366,15 +348,15 @@ func (replay chatReplay) attachReasoning(wire *chatMessage, message session.Mess
 	}
 }
 
-// chatOptions is the provider-owned metadata this wire format keeps on an
-// assistant message, so its reasoning can be returned the way it arrived.
+// chatOptions is the metadata this backend keeps in an assistant message's
+// provider_options, so its reasoning can be returned the way it arrived.
 type chatOptions struct {
 	ReasoningField   string            `json:"reasoning_field,omitempty"`
 	ReasoningDetails []json.RawMessage `json:"reasoning_details,omitempty"`
 }
 
-// decodeChatOptions reads a message's metadata. Metadata another format wrote,
-// or none at all, decodes to the zero value.
+// decodeChatOptions reads a message's metadata. Metadata another backend
+// wrote, or none at all, decodes to the zero value.
 func decodeChatOptions(raw json.RawMessage) chatOptions {
 	var options chatOptions
 	if len(raw) > 0 {
@@ -601,7 +583,7 @@ func rejectedField(err error, field string) bool {
 	return false
 }
 
-// Stream wire types.
+// Streamed response bodies.
 
 type chatChunk struct {
 	Choices []chatChoice `json:"choices"`

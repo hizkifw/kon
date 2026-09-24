@@ -175,12 +175,23 @@ available. The cache is metadata only; configured models and session records
 are never rewritten by a catalog refresh. Normal startup does not load the
 catalog or contact models.dev.
 
+Two concepts are kept apart. A wire format (the config `type`) is how kon
+talks to a server; `internal/provider/wire` lists every format with its
+default base URL, API path, reasoning-effort encoding, default reasoning
+field, and whether model listing is optional. Config validation, the chat
+backend, and login discovery all read that one table. A provider is the
+service on the other end, identified by a connection's `id` and models.dev
+`catalog_provider`. Service quirks key on that identity instead of the format:
+OpenRouter's key check, Azure's deployment names, and what `/login` asks for
+live with the login registry and `app.catalogKey`. DeepSeek's empty-reasoning
+rule is the one exception, keyed on the base URL because explicit profiles
+carry no service identity.
+
 Catalog provider IDs and AI SDK package names describe upstream metadata.
-`internal/provider` remains responsible for deciding which wire formats kon
-can call. Login maps recognized `npm` values to those formats and uses the
-catalog `api` URL when it is a concrete base endpoint. A small override table
-covers providers with missing URLs or special flows. A catalog model may
-therefore be visible even when its provider is not yet supported by kon.
+Login maps recognized `npm` values to wire formats and uses the catalog `api`
+URL when it is a concrete base endpoint. A small override table covers
+services with missing URLs or special flows. A catalog model may therefore be
+visible even when its service speaks no format kon implements.
 
 The `providers` config array stores named connections, while `models` holds
 standalone explicit profiles whose `type` names a wire format and never refers

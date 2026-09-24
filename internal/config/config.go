@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/hizkifw/kon/internal/provider/wire"
 	"github.com/hizkifw/kon/internal/tokens"
 )
 
@@ -33,10 +34,12 @@ type Config struct {
 	ContextFiles *bool `json:"context_files,omitempty"`
 }
 
-// Provider is a named connection shared by explicit and discovered models.
+// Provider is a named connection to one service, shared by the models derived
+// from it. ID and CatalogProvider identify the service; Type is only the wire
+// format kon speaks to it, and several services share each format.
 type Provider struct {
-	ID   string `json:"id"`
-	Type string `json:"type"`
+	ID   string      `json:"id"`
+	Type wire.Format `json:"type"`
 	// CatalogProvider is the models.dev key when ID names another connection.
 	CatalogProvider string            `json:"catalog_provider,omitempty"`
 	BaseURL         string            `json:"base_url,omitempty"`
@@ -51,10 +54,11 @@ func (c Config) ContextFilesEnabled() bool {
 }
 
 // Model is a standalone named profile. Name belongs to kon; ModelID belongs to
-// the provider. Type is the wire format and never refers to providers[].
+// the service that serves the model. Type is the wire format and never refers
+// to providers[].
 type Model struct {
 	Name                string            `json:"name"`
-	Type                string            `json:"type,omitempty"`
+	Type                wire.Format       `json:"type,omitempty"`
 	ModelID             string            `json:"model"`
 	BaseURL             string            `json:"base_url,omitempty"`
 	APIKey              string            `json:"api_key"`
@@ -80,22 +84,29 @@ type Compaction struct {
 	KeepRecentTokens tokens.Count `json:"keep_recent_tokens"`
 }
 
-// supportedProviders lists the config values kon can serve. Every one of them
-// speaks the OpenAI chat completions wire format; other formats (Anthropic,
-// Google) return once a backend implements provider.Model.
-var supportedProviders = []string{"openai", "openai-compatible", "openrouter", "ollama"}
-
-func SupportedProviders() []string { return slices.Clone(supportedProviders) }
-
-// DefaultModelType is the wire format of a model profile with no type.
-const DefaultModelType = "openai-compatible"
-
-// WireType reports the profile's wire format, applying the default.
-func (m Model) WireType() string {
+// WireFormat reports the profile's wire format, applying the default.
+func (m Model) WireFormat() wire.Format {
 	if m.Type == "" {
-		return DefaultModelType
+		return wire.Default
 	}
 	return m.Type
+}
+
+// checkWire validates a wire format and whether its connection names a server
+// the format cannot default to. The subject prefixes the error.
+func checkWire(subject string, format wire.Format, baseURL string) error {
+	spec, ok := wire.Lookup(format)
+	if !ok {
+		supported := make([]string, 0, len(wire.Formats()))
+		for _, format := range wire.Formats() {
+			supported = append(supported, string(format))
+		}
+		return fmt.Errorf("%s has unsupported type %q (supported: %s)", subject, format, strings.Join(supported, ", "))
+	}
+	if spec.RequiresBaseURL() && strings.TrimSpace(baseURL) == "" {
+		return fmt.Errorf("%s requires base_url for type %s", subject, format)
+	}
+	return nil
 }
 
 // Default configures no model: a first launch waits for /login or /model
@@ -226,14 +237,11 @@ func (c Config) Validate() error {
 		if connections[provider.ID] {
 			return fmt.Errorf("duplicate provider id %q", provider.ID)
 		}
-		if !slices.Contains(supportedProviders, provider.Type) {
-			return fmt.Errorf("provider %q has unsupported type %q", provider.ID, provider.Type)
+		if err := checkWire(fmt.Sprintf("provider %q", provider.ID), provider.Type, provider.BaseURL); err != nil {
+			return err
 		}
 		if provider.CatalogProvider != "" && !validName(provider.CatalogProvider) {
 			return fmt.Errorf("provider %q has invalid catalog_provider", provider.ID)
-		}
-		if provider.Type == "openai-compatible" && strings.TrimSpace(provider.BaseURL) == "" {
-			return fmt.Errorf("provider %q requires base_url", provider.ID)
 		}
 		connections[provider.ID] = true
 	}
@@ -245,11 +253,8 @@ func (c Config) Validate() error {
 			return fmt.Errorf("duplicate model name %q", model.Name)
 		}
 		seen[model.Name] = true
-		if !slices.Contains(supportedProviders, model.WireType()) {
-			return fmt.Errorf("model %q has unsupported type %q (supported: %s)", model.Name, model.Type, strings.Join(supportedProviders, ", "))
-		}
-		if model.WireType() == "openai-compatible" && strings.TrimSpace(model.BaseURL) == "" {
-			return fmt.Errorf("model %q requires base_url for openai-compatible", model.Name)
+		if err := checkWire(fmt.Sprintf("model %q", model.Name), model.WireFormat(), model.BaseURL); err != nil {
+			return err
 		}
 		for j, effort := range model.ReasoningEfforts {
 			if !validName(effort) {
@@ -352,12 +357,12 @@ func (c Config) Model(name string) (Model, bool) {
 	return Model{}, false
 }
 
-// ResolveModel returns an explicit profile as written, with its wire type
+// ResolveModel returns an explicit profile as written, with its wire format
 // defaulted, or builds a profile from a qualified provider/model ID using
 // that provider's connection. Explicit profiles never inherit from providers.
 func (c Config) ResolveModel(name string) (Model, bool) {
 	if model, ok := c.Model(name); ok {
-		model.Type = model.WireType()
+		model.Type = model.WireFormat()
 		return model, true
 	}
 	providerID, modelID, ok := strings.Cut(name, "/")

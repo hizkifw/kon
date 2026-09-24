@@ -310,14 +310,17 @@ func modelLabel(option app.Model) string {
 	if name == "" {
 		name = option.Name
 	}
-	connectionID := option.ConnectionID
-	if connectionID == "" {
-		connectionID = option.Type
+	// An explicit profile belongs to no connection. Its wire format takes the
+	// connection's place so the row still says how the model is reached; it
+	// does not name the service.
+	prefix := option.ConnectionID
+	if prefix == "" {
+		prefix = option.WireFormat
 	}
-	if connectionID == "" {
+	if prefix == "" {
 		return name
 	}
-	return connectionID + " · " + name
+	return prefix + " · " + name
 }
 
 func (m Model) newSession() (tea.Model, tea.Cmd) {
@@ -369,7 +372,9 @@ func (m Model) switchModel(name string) (tea.Model, tea.Cmd) {
 	m.contextTokens = -1
 	m.input.Reset()
 	m.status = "model: " + name + " (saved to config)"
-	m.transcript.add(block{kind: blockModel, text: m.active.Name + "  " + m.active.Type + "/" + m.active.ExternalID})
+	// The wire format is parenthesized rather than joined with a slash, which
+	// would read as a provider-qualified model name.
+	m.transcript.add(block{kind: blockModel, text: m.active.Name + "  " + m.active.ExternalID + " (" + m.active.WireFormat + ")"})
 	m.refreshTranscript(true)
 	return m, nil
 }

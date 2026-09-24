@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/hizkifw/kon/internal/config"
+	"github.com/hizkifw/kon/internal/provider/wire"
 	"github.com/hizkifw/kon/internal/session"
 )
 
@@ -116,12 +117,15 @@ func TestModelWithoutVisionSendsNoImages(t *testing.T) {
 			_, _ = io.WriteString(w, `{"choices":[{"index":0,"message":{"content":"ok"},"finish_reason":"stop"}]}`)
 		}))
 		profile := config.Model{Name: "m", Type: "openai-compatible", ModelID: "m", BaseURL: server.URL, Vision: vision}
-		model := newChatModel(profile, func(string) ([]byte, error) { return []byte("hello"), nil })
+		model, err := newChatModel(profile, wire.Spec{ReasoningField: "reasoning_content"}, func(string) ([]byte, error) { return []byte("hello"), nil })
+		if err != nil {
+			t.Fatal(err)
+		}
 		messages := []session.Message{{Role: session.RoleUser, Parts: []session.Part{
 			{Type: session.PartText, Text: "look"},
 			{Type: session.PartImage, ImageHash: strings.Repeat("0", 64), ImageMIME: "image/png"},
 		}}}
-		_, err := model.Complete(context.Background(), messages, nil, 0)
+		_, err = model.Complete(context.Background(), messages, nil, 0)
 		server.Close()
 		if err != nil {
 			t.Fatal(err)

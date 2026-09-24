@@ -34,6 +34,7 @@ XDG_CONFIG_HOME="$(mktemp -d)" XDG_DATA_HOME="$(mktemp -d)" go run ./cmd/kon
 | `internal/app` | live runner/store lifecycle and model switching | terminal presentation |
 | `internal/agent` | model/tool loop and compaction policy | terminal rendering |
 | `internal/provider` | provider `Model` backends and durable-message conversion | session policy |
+| `internal/provider/wire` | the wire-format table: names, default endpoints, and dialect facts | HTTP, backends, or service quirks |
 | `internal/catalog` | bundled model metadata and local refresh cache | provider requests or configuration writes |
 | `internal/session` | domain messages and append-only context tree | provider requests |
 | `internal/migrate` | storage version tracking and process locks | session format conversion |
