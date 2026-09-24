@@ -17,6 +17,7 @@ import (
 	"github.com/hizkifw/kon/internal/buildinfo"
 	"github.com/hizkifw/kon/internal/config"
 	"github.com/hizkifw/kon/internal/session"
+	"github.com/hizkifw/kon/internal/tokens"
 	"github.com/hizkifw/kon/internal/typedid"
 )
 
@@ -93,10 +94,10 @@ type chatRequest struct {
 	ToolChoice    string             `json:"tool_choice,omitempty"`
 	Stream        bool               `json:"stream,omitempty"`
 	StreamOptions *chatStreamOptions `json:"stream_options,omitempty"`
-	MaxTokens     int                `json:"max_tokens,omitempty"`
+	MaxTokens     tokens.Count       `json:"max_tokens,omitempty"`
 	// MaxCompletionTokens is the replacement for MaxTokens on newer OpenAI
 	// reasoning models, which reject the legacy field.
-	MaxCompletionTokens int `json:"max_completion_tokens,omitempty"`
+	MaxCompletionTokens tokens.Count `json:"max_completion_tokens,omitempty"`
 }
 
 type chatStreamOptions struct {
@@ -324,7 +325,7 @@ func (m *chatModel) stream(ctx context.Context, payload chatRequest, emit func(E
 // with tool_choice "none": the request matches the streaming turn's tool roster
 // so it can reuse the provider's cached prefix, while the summary itself can
 // never become a tool call.
-func (m *chatModel) Complete(ctx context.Context, messages []session.Message, tools []Tool, maxTokens int) (Response, error) {
+func (m *chatModel) Complete(ctx context.Context, messages []session.Message, tools []Tool, maxTokens tokens.Count) (Response, error) {
 	wireMessages, err := toChatMessages(messages, m.readImage)
 	if err != nil {
 		return Response{}, err
@@ -516,11 +517,11 @@ func (e *chatError) apiError(body []byte) *APIError {
 }
 
 type chatUsage struct {
-	PromptTokens        int `json:"prompt_tokens"`
-	CompletionTokens    int `json:"completion_tokens"`
-	TotalTokens         int `json:"total_tokens"`
+	PromptTokens        tokens.Count `json:"prompt_tokens"`
+	CompletionTokens    tokens.Count `json:"completion_tokens"`
+	TotalTokens         tokens.Count `json:"total_tokens"`
 	PromptTokensDetails *struct {
-		CachedTokens int `json:"cached_tokens"`
+		CachedTokens tokens.Count `json:"cached_tokens"`
 	} `json:"prompt_tokens_details"`
 }
 

@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hizkifw/kon/internal/tokens"
 	"github.com/hizkifw/kon/internal/typedid"
 )
 
@@ -40,12 +41,12 @@ const (
 const InterruptedToolResult = "not executed: interrupted"
 
 type Usage struct {
-	PromptTokens     int `json:"prompt_tokens"`
-	CompletionTokens int `json:"completion_tokens"`
-	TotalTokens      int `json:"total_tokens"`
+	PromptTokens     tokens.Count `json:"prompt_tokens"`
+	CompletionTokens tokens.Count `json:"completion_tokens"`
+	TotalTokens      tokens.Count `json:"total_tokens"`
 	// CachedTokens is the provider-reported share of PromptTokens that hit a
 	// prompt cache. PromptTokens always covers every input token.
-	CachedTokens int `json:"cached_tokens,omitempty"`
+	CachedTokens tokens.Count `json:"cached_tokens,omitempty"`
 }
 
 type Role string
@@ -225,7 +226,7 @@ type Entry struct {
 	Message               *Message         `json:"message,omitempty"`
 	Summary               string           `json:"summary,omitempty"`
 	FirstKeptEntryID      *typedid.EntryID `json:"first_kept_entry_id,omitempty"`
-	TokensBefore          int              `json:"tokens_before,omitempty"`
+	TokensBefore          tokens.Count     `json:"tokens_before,omitempty"`
 	TokensBeforeEstimated bool             `json:"tokens_before_estimated,omitempty"`
 	Usage                 *Usage           `json:"usage,omitempty"`
 	Model                 *ModelSelection  `json:"model,omitempty"`
@@ -779,7 +780,7 @@ func (s *Store) AppendMessage(message Message) (typedid.EntryID, error) {
 	return s.append(Entry{Type: EntryTypeMessage, Message: &message})
 }
 
-func (s *Store) AppendCompaction(summary string, firstKeptID typedid.EntryID, tokensBefore int, estimated bool, usage *Usage) (typedid.EntryID, error) {
+func (s *Store) AppendCompaction(summary string, firstKeptID typedid.EntryID, tokensBefore tokens.Count, estimated bool, usage *Usage) (typedid.EntryID, error) {
 	if firstKeptID.IsZero() {
 		return typedid.EntryID{}, errors.New("compaction requires a retained entry")
 	}

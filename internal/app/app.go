@@ -18,6 +18,7 @@ import (
 	"github.com/hizkifw/kon/internal/contextfiles"
 	"github.com/hizkifw/kon/internal/provider"
 	"github.com/hizkifw/kon/internal/session"
+	"github.com/hizkifw/kon/internal/tokens"
 	"github.com/hizkifw/kon/internal/tools"
 	"github.com/hizkifw/kon/internal/typedid"
 )
@@ -34,7 +35,7 @@ type Model struct {
 	DisplayName   string
 	Type          string
 	ExternalID    string
-	ContextWindow int
+	ContextWindow tokens.Count
 	Source        string
 }
 
@@ -363,7 +364,7 @@ func (r *Runtime) DescribeTool(name string, args json.RawMessage, result string,
 // ContextUsage reports the current context size in tokens and whether that value
 // is known. A resumed session carries the last provider-reported count so the
 // status line shows it instead of an unknown placeholder.
-func (r *Runtime) ContextUsage() (int, bool) {
+func (r *Runtime) ContextUsage() (tokens.Count, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.runner == nil {

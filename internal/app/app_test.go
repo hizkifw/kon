@@ -17,6 +17,7 @@ import (
 	"github.com/hizkifw/kon/internal/config"
 	"github.com/hizkifw/kon/internal/provider"
 	"github.com/hizkifw/kon/internal/session"
+	"github.com/hizkifw/kon/internal/tokens"
 	"github.com/hizkifw/kon/internal/tools"
 	"github.com/hizkifw/kon/internal/typedid"
 )
@@ -29,7 +30,7 @@ func (p *blockingProvider) Stream(ctx context.Context, _ []session.Message, _ []
 	return session.Message{}, ctx.Err()
 }
 
-func (*blockingProvider) Complete(context.Context, []session.Message, []provider.Tool, int) (session.Message, error) {
+func (*blockingProvider) Complete(context.Context, []session.Message, []provider.Tool, tokens.Count) (session.Message, error) {
 	return session.Message{}, errors.New("unexpected completion")
 }
 

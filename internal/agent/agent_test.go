@@ -10,6 +10,7 @@ import (
 	"github.com/hizkifw/kon/internal/contextfiles"
 	"github.com/hizkifw/kon/internal/provider"
 	"github.com/hizkifw/kon/internal/session"
+	"github.com/hizkifw/kon/internal/tokens"
 	"github.com/hizkifw/kon/internal/tools"
 	"github.com/hizkifw/kon/internal/typedid"
 )
@@ -25,7 +26,7 @@ func (f *fakeProvider) Stream(_ context.Context, _ []session.Message, _ []provid
 	return session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: "done"}}, Finish: "stop", Usage: &session.Usage{PromptTokens: 100, CompletionTokens: 1, TotalTokens: 101}}, nil
 }
 
-func (f *fakeProvider) Complete(_ context.Context, _ []session.Message, _ []provider.Tool, _ int) (session.Message, error) {
+func (f *fakeProvider) Complete(_ context.Context, _ []session.Message, _ []provider.Tool, _ tokens.Count) (session.Message, error) {
 	f.completeCalls++
 	return session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: "summary"}}, Usage: &session.Usage{PromptTokens: 50, CompletionTokens: 5, TotalTokens: 55}}, nil
 }
@@ -136,7 +137,7 @@ func (p *interruptingProvider) Stream(_ context.Context, _ []session.Message, _ 
 	}, context.Canceled
 }
 
-func (p *interruptingProvider) Complete(_ context.Context, _ []session.Message, _ []provider.Tool, _ int) (session.Message, error) {
+func (p *interruptingProvider) Complete(_ context.Context, _ []session.Message, _ []provider.Tool, _ tokens.Count) (session.Message, error) {
 	return session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: "summary"}}}, nil
 }
 
@@ -179,7 +180,7 @@ func (toolCallProvider) Stream(context.Context, []session.Message, []provider.To
 	}}, nil
 }
 
-func (toolCallProvider) Complete(context.Context, []session.Message, []provider.Tool, int) (session.Message, error) {
+func (toolCallProvider) Complete(context.Context, []session.Message, []provider.Tool, tokens.Count) (session.Message, error) {
 	return session.Message{}, nil
 }
 
@@ -228,7 +229,7 @@ func (reasoningProvider) Stream(_ context.Context, _ []session.Message, _ []prov
 	return session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: "answer"}}, Finish: "stop"}, nil
 }
 
-func (reasoningProvider) Complete(_ context.Context, _ []session.Message, _ []provider.Tool, _ int) (session.Message, error) {
+func (reasoningProvider) Complete(_ context.Context, _ []session.Message, _ []provider.Tool, _ tokens.Count) (session.Message, error) {
 	return session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: "summary"}}}, nil
 }
 
@@ -356,7 +357,9 @@ func TestCompactFallsBackToIsolatedSummaryWhenLiveContextWouldOverflow(t *testin
 			t.Fatal(err)
 		}
 	}
-	provider := &recordingProvider{}
+	// The isolated request measures a serialized transcript, not the live
+	// context, so its usage must not replace the estimated count.
+	provider := &recordingProvider{usage: &session.Usage{PromptTokens: 99_999}}
 	cfg := config.Default()
 	model := cfg.Models[0]
 	// A tiny window with a large reserve forces the isolated fallback once usage
@@ -365,8 +368,12 @@ func TestCompactFallsBackToIsolatedSummaryWhenLiveContextWouldOverflow(t *testin
 	cfg.Compaction.ReserveTokens = 150
 	cfg.Compaction.KeepRecentTokens = 1
 	runner := New(model, cfg.Compaction, provider, store, tools.New(t.TempDir(), false))
-	if err := runner.Compact(context.Background(), func(Event) {}); err != nil {
+	var events []Event
+	if err := runner.Compact(context.Background(), func(event Event) { events = append(events, event) }); err != nil {
 		t.Fatal(err)
+	}
+	if len(events) == 0 || events[0].Kind != EventCompacted || !events[0].Estimated || events[0].Tokens == 99_999 {
+		t.Fatalf("isolated compaction should report the estimate: %#v", events)
 	}
 	if len(provider.requests) != 1 {
 		t.Fatalf("complete requests = %d, want 1", len(provider.requests))
@@ -380,6 +387,37 @@ func TestCompactFallsBackToIsolatedSummaryWhenLiveContextWouldOverflow(t *testin
 	}
 	if !strings.Contains(request[1].Text(), "[user]") {
 		t.Fatalf("fallback request should carry the serialized history: %q", request[1].Text())
+	}
+}
+
+func TestCompactReportsMeasuredContextFromLiveSummaryRequest(t *testing.T) {
+	store, err := session.New(t.TempDir(), t.TempDir(), "test", "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	for i := 0; i < 3; i++ {
+		if _, err := store.AppendMessage(session.Message{Role: session.RoleUser, Parts: []session.Part{{Type: session.PartText, Text: strings.Repeat("question ", 80)}}}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.AppendMessage(session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: strings.Repeat("answer ", 80)}}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	provider := &recordingProvider{usage: &session.Usage{PromptTokens: 12_345, CompletionTokens: 7}}
+	cfg := config.Default()
+	model := cfg.Models[0]
+	model.ContextWindowTokens = 1_000_000
+	cfg.Compaction.KeepRecentTokens = 100
+	runner := New(model, cfg.Compaction, provider, store, tools.New(t.TempDir(), false))
+	var events []Event
+	if err := runner.Compact(context.Background(), func(event Event) { events = append(events, event) }); err != nil {
+		t.Fatal(err)
+	}
+	request := []session.ContextMessage{{Message: session.TextMessage(session.RoleUser, CompactSummaryRequest)}}
+	want := 12_345 - estimateContext(request, nil)
+	if len(events) == 0 || events[0].Kind != EventCompacted || events[0].Estimated || events[0].Tokens != want {
+		t.Fatalf("compacted event = %#v, want measured %d tokens", events, want)
 	}
 }
 
@@ -445,16 +483,18 @@ func TestCompactUsesPreviousSummaryWithoutReSummarizingIt(t *testing.T) {
 type recordingProvider struct {
 	requests [][]session.Message
 	tools    [][]provider.Tool
+	// usage is what each summary response reports, or nil for none.
+	usage *session.Usage
 }
 
 func (p *recordingProvider) Stream(context.Context, []session.Message, []provider.Tool, func(provider.Event)) (session.Message, error) {
 	return session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: "done"}}}, nil
 }
 
-func (p *recordingProvider) Complete(_ context.Context, messages []session.Message, toolList []provider.Tool, _ int) (session.Message, error) {
+func (p *recordingProvider) Complete(_ context.Context, messages []session.Message, toolList []provider.Tool, _ tokens.Count) (session.Message, error) {
 	p.requests = append(p.requests, messages)
 	p.tools = append(p.tools, toolList)
-	return session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: "summary"}}}, nil
+	return session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: "summary"}}, Usage: p.usage}, nil
 }
 
 func newTestEntryID(t *testing.T) typedid.EntryID {

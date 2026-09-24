@@ -11,6 +11,8 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+
+	"github.com/hizkifw/kon/internal/tokens"
 )
 
 const filename = "config.json"
@@ -53,15 +55,15 @@ type Model struct {
 	BaseURL             string            `json:"base_url,omitempty"`
 	APIKey              string            `json:"api_key"`
 	Headers             map[string]string `json:"headers,omitempty"`
-	ContextWindowTokens int               `json:"context_window_tokens"`
+	ContextWindowTokens tokens.Count      `json:"context_window_tokens"`
 	// Vision marks models that accept image content. It gates whether the read
 	// tool attaches image parts to its results instead of a text notice.
 	Vision bool `json:"vision,omitempty"`
 }
 
 type Compaction struct {
-	ReserveTokens    int `json:"reserve_tokens"`
-	KeepRecentTokens int `json:"keep_recent_tokens"`
+	ReserveTokens    tokens.Count `json:"reserve_tokens"`
+	KeepRecentTokens tokens.Count `json:"keep_recent_tokens"`
 }
 
 // supportedProviders lists the config values kon can serve. Every one of them

@@ -14,6 +14,7 @@ import (
 	"github.com/hizkifw/kon/internal/catalog"
 	"github.com/hizkifw/kon/internal/config"
 	"github.com/hizkifw/kon/internal/provider"
+	"github.com/hizkifw/kon/internal/tokens"
 	"github.com/hizkifw/kon/internal/tools"
 )
 
@@ -179,8 +180,8 @@ func (r *Runtime) resolveModel(name string) (config.Model, bool) {
 	connection, _ := r.config.Provider(providerID)
 	if service := r.catalogService(); service != nil && catalogKey(connection) != "azure" {
 		if metadata, found := service.Model(catalogKey(connection), profile.ModelID); found {
-			if metadata.Limit.Context > r.config.Compaction.ReserveTokens+r.config.Compaction.KeepRecentTokens {
-				profile.ContextWindowTokens = metadata.Limit.Context
+			if window := tokens.Count(metadata.Limit.Context); window > r.config.Compaction.ReserveTokens+r.config.Compaction.KeepRecentTokens {
+				profile.ContextWindowTokens = window
 			}
 			profile.Vision = slices.Contains(metadata.Modalities.Input, "image")
 		}

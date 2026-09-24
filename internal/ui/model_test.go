@@ -16,6 +16,7 @@ import (
 	"github.com/hizkifw/kon/internal/history"
 	"github.com/hizkifw/kon/internal/provider"
 	"github.com/hizkifw/kon/internal/session"
+	"github.com/hizkifw/kon/internal/tokens"
 	"github.com/hizkifw/kon/internal/tools"
 	"github.com/hizkifw/kon/internal/typedid"
 )
@@ -28,7 +29,7 @@ type fakeRuntime struct {
 	sessions      []session.Summary
 	entries       []session.Entry
 	id            typedid.SessionID
-	contextTokens int
+	contextTokens tokens.Count
 	contextKnown  bool
 
 	previewEntries []session.Entry
@@ -76,7 +77,7 @@ func (f *fakeRuntime) SessionPreview(path string, maxTurns int) ([]session.Entry
 	f.previewed = path
 	return f.previewEntries, f.previewErr
 }
-func (f *fakeRuntime) ContextUsage() (int, bool) { return f.contextTokens, f.contextKnown }
+func (f *fakeRuntime) ContextUsage() (tokens.Count, bool) { return f.contextTokens, f.contextKnown }
 func (f *fakeRuntime) DescribeTool(name string, args json.RawMessage, result string, failed bool, details json.RawMessage) tools.Display {
 	return tools.Describe(name, args, result, failed, details, "/tmp")
 }
@@ -94,12 +95,6 @@ func TestSanitizeRemovesTerminalEscapes(t *testing.T) {
 	got := sanitize("plain\x1b[31mred\x1b[0m\x07")
 	if got != "plainred" {
 		t.Fatalf("sanitize = %q", got)
-	}
-}
-
-func TestCompactNumber(t *testing.T) {
-	if got := compactNumber(12_400); !strings.HasPrefix(got, "12.4k") {
-		t.Fatalf("compactNumber = %q", got)
 	}
 }
 

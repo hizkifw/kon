@@ -13,6 +13,7 @@ import (
 
 	"github.com/hizkifw/kon/internal/config"
 	"github.com/hizkifw/kon/internal/session"
+	"github.com/hizkifw/kon/internal/tokens"
 	"github.com/hizkifw/kon/internal/typedid"
 )
 
@@ -99,7 +100,7 @@ func (c *Client) assistantOrPartial(response Response, err error) (session.Messa
 	return message, err
 }
 
-func (c *Client) Complete(ctx context.Context, messages []session.Message, tools []Tool, maxTokens int) (session.Message, error) {
+func (c *Client) Complete(ctx context.Context, messages []session.Message, tools []Tool, maxTokens tokens.Count) (session.Message, error) {
 	response, err := c.model.Complete(ctx, messages, tools, maxTokens)
 	if err != nil {
 		return session.Message{}, err

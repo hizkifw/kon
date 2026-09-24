@@ -244,7 +244,15 @@ overflow recovery still works.
 Provider prompt usage is preferred when it covers the current context. Otherwise
 kon estimates serialized text and tool-schema bytes at four bytes per token and
 marks the result approximate. Exact tokenization is model-specific and is not a
-sensible dependency for a provider-neutral harness.
+sensible dependency for a provider-neutral harness. A cache-preserving summary
+request carries the whole live context, so its reported prompt usage, less an
+estimate of the trailing summary request, replaces an approximate count as the
+compaction's recorded size. The isolated fallback measures only a serialized
+transcript and keeps the estimate.
+
+Token counts are `tokens.Count` values from configuration through sessions,
+providers, and the terminal. The type serializes as a plain integer and owns
+the compact `12.4k`/`1.0m` rendering, so every displayed figure matches.
 
 ## Failure rules
 

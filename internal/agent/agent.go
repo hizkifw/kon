@@ -13,12 +13,13 @@ import (
 	"github.com/hizkifw/kon/internal/contextfiles"
 	"github.com/hizkifw/kon/internal/provider"
 	"github.com/hizkifw/kon/internal/session"
+	"github.com/hizkifw/kon/internal/tokens"
 	"github.com/hizkifw/kon/internal/tools"
 )
 
 type Provider interface {
 	Stream(context.Context, []session.Message, []provider.Tool, func(provider.Event)) (session.Message, error)
-	Complete(context.Context, []session.Message, []provider.Tool, int) (session.Message, error)
+	Complete(context.Context, []session.Message, []provider.Tool, tokens.Count) (session.Message, error)
 }
 
 // ErrNothingToCompact reports that the conversation has no safe cut point yet,
@@ -46,7 +47,7 @@ type Event struct {
 	Arguments string
 	IsError   bool
 	Details   json.RawMessage
-	Tokens    int
+	Tokens    tokens.Count
 	Estimated bool
 	// Display carries an EventToolOutput snapshot: the running tool's own
 	// presentation of the call so far. It replaces any earlier snapshot for
@@ -55,7 +56,7 @@ type Event struct {
 }
 
 type Runner struct {
-	contextWindow    int
+	contextWindow    tokens.Count
 	vision           bool
 	compaction       config.Compaction
 	provider         Provider
@@ -95,7 +96,7 @@ func (r *Runner) seedUsage() {
 // resumed session can reuse it instead of falling back to an unknown value. The
 // second result is false when no reported usage still covers the current
 // context, which is the case for a fresh session before its first turn.
-func (r *Runner) ContextUsage() (int, bool) {
+func (r *Runner) ContextUsage() (tokens.Count, bool) {
 	items, err := r.session.Context()
 	if err != nil {
 		return 0, false
@@ -109,7 +110,7 @@ func (r *Runner) ContextUsage() (int, bool) {
 // usageFor prefers provider-reported usage when it still covers the current
 // context, measured by the projected message count, and otherwise estimates
 // serialized bytes.
-func (r *Runner) usageFor(items []session.ContextMessage) (int, bool) {
+func (r *Runner) usageFor(items []session.ContextMessage) (tokens.Count, bool) {
 	used := estimateContext(items, r.tools.Definitions())
 	estimated := true
 	if r.lastUsage != nil && r.lastUsageEntries == len(items) {
@@ -349,9 +350,19 @@ func (r *Runner) compactIfNeeded(ctx context.Context, force bool, emit func(Even
 		previous = projectedSummary(items[1].Message.Text())
 		historyStart = 2
 	}
-	response, err := r.summarize(ctx, items, historyStart, cut, used, previous)
+	response, live, err := r.summarize(ctx, items, historyStart, cut, used, previous)
 	if err != nil {
 		return false, err
+	}
+	// The cache-preserving request carried the whole live context plus the
+	// trailing summary request, so its reported prompt size measures the
+	// context being compacted far better than the byte estimate. Only the
+	// small request message itself is estimated and taken back out.
+	if live && estimated && response.Usage != nil {
+		request := []session.ContextMessage{{Message: session.TextMessage(session.RoleUser, CompactSummaryRequest)}}
+		if reported := response.Usage.PromptTokens - estimateContext(request, nil); reported > 0 {
+			used, estimated = reported, false
+		}
 	}
 	summary := strings.TrimSpace(response.Text())
 	if summary == "" {
@@ -377,7 +388,9 @@ const CompactSummaryRequest = `Context is running low. Summarize the work done s
 // the live context no longer fits the window.
 const isolatedSummaryPrompt = `You are a context summarization assistant. Summarize the supplied coding-agent conversation for continuation. Preserve the goal, constraints, decisions, completed work, current state, important command results, file paths, and exact next steps. Omit chatter. Use concise Markdown with: Goal, Constraints, Progress, Decisions, Next Steps, Critical Context.`
 
-// summarize asks the provider for a compaction summary.
+// summarize asks the provider for a compaction summary. The live result
+// reports whether the request carried the live context, making its prompt
+// usage a measurement of that context.
 //
 // The preferred, cache-preserving form sends the live turn's exact prefix — the
 // system prompt, projected prior summary, every message, and the tool roster —
@@ -386,7 +399,7 @@ const isolatedSummaryPrompt = `You are a context summarization assistant. Summar
 // turn populated. The live prefix is only known to be unusable once the context
 // has already reached the window; the isolated form is used then, and as a
 // fallback if the provider still rejects the larger request as too long.
-func (r *Runner) summarize(ctx context.Context, items []session.ContextMessage, historyStart, cut, used int, previous string) (session.Message, error) {
+func (r *Runner) summarize(ctx context.Context, items []session.ContextMessage, historyStart, cut int, used tokens.Count, previous string) (session.Message, bool, error) {
 	maxSummary := min(4096, r.compaction.ReserveTokens/2)
 	if r.contextWindow <= 0 || used < r.contextWindow {
 		request := make([]session.Message, 0, len(items)+1)
@@ -396,7 +409,7 @@ func (r *Runner) summarize(ctx context.Context, items []session.ContextMessage, 
 		request = append(request, session.TextMessage(session.RoleUser, CompactSummaryRequest))
 		response, err := r.provider.Complete(ctx, request, r.tools.Definitions(), maxSummary)
 		if err == nil || !provider.IsContextOverflow(err) {
-			return response, err
+			return response, true, err
 		}
 		// The prefix did not fit after all; fall through to the isolated form.
 	}
@@ -405,10 +418,11 @@ func (r *Runner) summarize(ctx context.Context, items []session.ContextMessage, 
 		transcript = "Previous summary:\n" + previous + "\n\nNewer conversation to merge:\n" + transcript
 	}
 	request := []session.Message{session.TextMessage(session.RoleSystem, isolatedSummaryPrompt), session.TextMessage(session.RoleUser, transcript)}
-	return r.provider.Complete(ctx, request, nil, maxSummary)
+	response, err := r.provider.Complete(ctx, request, nil, maxSummary)
+	return response, false, err
 }
 
-func estimateContext(items []session.ContextMessage, definitions []provider.Tool) int {
+func estimateContext(items []session.ContextMessage, definitions []provider.Tool) tokens.Count {
 	bytes := 0
 	for _, item := range items {
 		message := item.Message
@@ -429,17 +443,17 @@ func estimateContext(items []session.ContextMessage, definitions []provider.Tool
 	for _, definition := range definitions {
 		bytes += len(definition.Name) + len(definition.Description) + len(definition.Parameters) + 32
 	}
-	return (bytes + 3) / 4
+	return tokens.Count((bytes + 3) / 4)
 }
 
 // selectCut keeps complete turns where possible. A turn starts at a user
 // message. Synthetic compaction-summary messages are never boundaries: they
 // carry the previous summary and must stay on the summarized side.
-func selectCut(items []session.ContextMessage, keepTokens int) int {
+func selectCut(items []session.ContextMessage, keepTokens tokens.Count) int {
 	if len(items) <= 2 {
 		return -1
 	}
-	accumulated := 0
+	var accumulated tokens.Count
 	candidate := len(items) - 1
 	for i := len(items) - 1; i >= 1; i-- {
 		accumulated += estimateContext(items[i:i+1], nil)

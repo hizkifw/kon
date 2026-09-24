@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 
 	"github.com/hizkifw/kon/internal/session"
+	"github.com/hizkifw/kon/internal/tokens"
 )
 
 // Model is the seam between kon and a provider wire format. kon owns the
@@ -22,7 +23,7 @@ type Model interface {
 	// tool roster so a one-shot request (such as a compaction summary) keeps the
 	// same cached prefix as the streaming turn; a Model that receives tools must
 	// forbid tool calls in its response.
-	Complete(ctx context.Context, messages []session.Message, tools []Tool, maxTokens int) (Response, error)
+	Complete(ctx context.Context, messages []session.Message, tools []Tool, maxTokens tokens.Count) (Response, error)
 }
 
 // Tool is a tool definition advertised to the model.

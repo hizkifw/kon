@@ -71,7 +71,7 @@ directory's permissions rather than running kon as root.
 | Ctrl+R | Reverse-search prompt history; type to match, Ctrl+R or Up for older matches, Down for newer, Enter accepts, Esc cancels |
 
 The status bar shows the working directory, context usage, and a status
-message; the header shows the active model. `ctx ~12.4k/128k` means usage is
+message; the header shows the active model. `ctx ~12.4k/128.0k` means usage is
 estimated; `?` means the provider has not supplied enough information yet.
 
 ## Tools and long conversations

@@ -15,6 +15,7 @@ import (
 	"github.com/hizkifw/kon/internal/config"
 	"github.com/hizkifw/kon/internal/history"
 	"github.com/hizkifw/kon/internal/session"
+	"github.com/hizkifw/kon/internal/tokens"
 	"github.com/hizkifw/kon/internal/tools"
 	"github.com/hizkifw/kon/internal/typedid"
 )
@@ -44,7 +45,7 @@ type Runtime interface {
 	DescribeTool(name string, args json.RawMessage, result string, failed bool, details json.RawMessage) tools.Display
 	// ContextUsage reports the last provider-reported context size and whether it
 	// is known, so a resumed session can show it instead of an unknown value.
-	ContextUsage() (int, bool)
+	ContextUsage() (tokens.Count, bool)
 	// Interrupt escalates cancellation of the running tool call. attempt is
 	// the number of consecutive Esc presses; see agent.Runner.Interrupt.
 	Interrupt(attempt int) bool
@@ -64,7 +65,7 @@ type Model struct {
 	commands                *registry
 	active                  app.Model
 	cwd, configPath, status string
-	contextTokens           int
+	contextTokens           tokens.Count
 	contextApprox           bool
 	terminalFocused         bool
 	busy                    bool
@@ -646,8 +647,8 @@ func (m *Model) syncRuntimeState() { m.active = m.runtime.State().Active }
 // so a resumed conversation shows it instead of the unknown placeholder. It
 // leaves contextTokens at -1 when no reported usage applies.
 func (m *Model) seedContextUsage() {
-	if tokens, ok := m.runtime.ContextUsage(); ok {
-		m.contextTokens = tokens
+	if used, ok := m.runtime.ContextUsage(); ok {
+		m.contextTokens = used
 		m.contextApprox = false
 		return
 	}

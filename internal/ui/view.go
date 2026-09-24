@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"fmt"
 	"os"
 	"strings"
 
@@ -73,10 +72,10 @@ func (m Model) View() tea.View {
 		if m.contextApprox {
 			prefix = "~"
 		}
-		ctx = fmt.Sprintf("ctx %s%s", prefix, compactNumber(m.contextTokens))
+		ctx = "ctx " + prefix + m.contextTokens.String()
 	}
 	if m.active.ContextWindow > 0 {
-		ctx += "/" + compactNumber(m.active.ContextWindow)
+		ctx += "/" + m.active.ContextWindow.String()
 	}
 	status := " " + abbreviateHome(m.cwd) + " · " + ctx + " · " + m.status
 	sections := []string{headerStyle.Render(fitLine(header, m.width)), m.viewport.View(), statusStyle.Render(fitLine(status, m.width))}
@@ -156,16 +155,6 @@ func fitLine(value string, width int) string {
 	}
 	out.WriteRune('…')
 	return out.String()
-}
-
-func compactNumber(n int) string {
-	if n >= 1_000_000 {
-		return fmt.Sprintf("%.1fm", float64(n)/1_000_000)
-	}
-	if n >= 1_000 {
-		return fmt.Sprintf("%.1fk", float64(n)/1_000)
-	}
-	return fmt.Sprintf("%d", n)
 }
 
 func abbreviateHome(path string) string {

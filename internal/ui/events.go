@@ -2,7 +2,6 @@ package ui
 
 import (
 	"encoding/json"
-	"fmt"
 
 	"github.com/hizkifw/kon/internal/agent"
 	"github.com/hizkifw/kon/internal/provider"
@@ -46,7 +45,7 @@ func (m *Model) applyAgentEvent(event agent.Event) bool {
 		if event.Estimated {
 			prefix = "~"
 		}
-		m.transcript.add(block{kind: blockContext, text: fmt.Sprintf("compacted %s%d tokens", prefix, event.Tokens)})
+		m.transcript.add(block{kind: blockContext, text: "compacted " + prefix + event.Tokens.String() + " tokens"})
 		m.status = "context compacted"
 	case agent.EventUsage:
 		m.contextTokens = event.Tokens

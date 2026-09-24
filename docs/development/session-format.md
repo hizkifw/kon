@@ -95,6 +95,9 @@ enter model context.
 The entry is a child of the context it summarizes. `first_kept_entry_id` points
 to an ancestor whose message and following ancestors remain verbatim. The
 summary call's usage is separate from normal assistant usage.
+`tokens_before` is the size of the compacted context: measured from the
+summary call's prompt usage when that call carried the live context, and
+otherwise an estimate marked by `tokens_before_estimated`.
 
 At request time the newest summary is projected as a standalone user message
 immediately after the byte-identical system prompt, followed by the retained
