@@ -385,15 +385,17 @@ group can make kon unusable until the user intervenes by hand.
 
 Blocks the user:
 
-- [ ] Releases publish with empty notes: `gh release create` needs
+- [x] Releases publish with empty notes: `gh release create` needs
   `--notes-from-tag` (`.github/workflows/release.yml:22`), and the checkout
-  should fetch the annotated tag object.
+  should fetch the annotated tag object. Both are in the workflow now.
 - [ ] A history line over 2 MiB (one large paste) makes `history.Load` fail,
   and kon refuses to start (`internal/history/history.go`).
-- [ ] A missing or corrupt image blob fails every later request, including
+- [x] A missing or corrupt image blob fails every later request, including
   compaction (`internal/provider/chat.go:186`). Send a text placeholder.
-- [ ] Image parts are sent after `/model` switches to a model without vision;
-  `Runner.vision` is set but never read (`internal/agent/agent.go:61`).
+  `messageContent` now substitutes one.
+- [x] Image parts are sent after `/model` switches to a model without vision;
+  `Runner.vision` is set but never read (`internal/agent/agent.go:61`). The
+  chat backend now sends a placeholder instead, and the unused field is gone.
 - [ ] A write that fails partway (disk full) leaves a torn line that the next
   append joins, putting a corrupt line mid-file that `Open` refuses
   (`internal/session/session.go:886`). Truncate to the last good offset on

@@ -122,7 +122,9 @@ summarize after a provider overflow error. The numbers above are examples.
 Set `"vision": true` for a model that accepts image input. The `read` tool
 then attaches PNG, JPEG, GIF, and WebP files up to 5 MB as image content.
 Without this flag, reading an image returns a text notice. Derived models use
-catalog image-input metadata when available.
+catalog image-input metadata when available. After `/model` switches to a
+model without vision, images already in the session are sent as a short text
+placeholder, so the conversation continues instead of failing.
 
 Set `reasoning_efforts` to the effort levels a reasoning model accepts, in the
 order Shift+Tab should cycle through them:

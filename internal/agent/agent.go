@@ -58,7 +58,6 @@ type Event struct {
 
 type Runner struct {
 	contextWindow    tokens.Count
-	vision           bool
 	compaction       config.Compaction
 	provider         Provider
 	session          *session.Store
@@ -68,7 +67,7 @@ type Runner struct {
 }
 
 func New(model config.Model, compaction config.Compaction, provider Provider, store *session.Store, executor *tools.Executor) *Runner {
-	r := &Runner{contextWindow: model.ContextWindowTokens, vision: model.Vision, compaction: compaction, provider: provider, session: store, tools: executor}
+	r := &Runner{contextWindow: model.ContextWindowTokens, compaction: compaction, provider: provider, session: store, tools: executor}
 	r.seedUsage()
 	return r
 }

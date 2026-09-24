@@ -12,6 +12,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      # checkout fetches only the tagged commit, so re-fetch the annotated tag
+      # object; --notes-from-tag reads the release notes from its message.
+      - run: git fetch --force origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
       - uses: actions/setup-go@v7
         with:
           go-version: '1.25.x'
@@ -19,4 +22,4 @@ jobs:
       - run: ./scripts/release.sh "$GITHUB_REF_NAME"
       - env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/* --verify-tag
+        run: gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --notes-from-tag

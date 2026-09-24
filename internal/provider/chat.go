@@ -57,6 +57,17 @@ const maxBodySize = 64 << 20
 // cancels.
 const completeTimeout = 10 * time.Minute
 
+// imageReader returns nil for a model without vision, so its requests carry
+// placeholders instead of image parts. A session keeps images read by an
+// earlier model, and a /model switch must not send them to one that rejects
+// them.
+func imageReader(profile config.Model, readImage func(string) ([]byte, error)) func(string) ([]byte, error) {
+	if !profile.Vision {
+		return nil
+	}
+	return readImage
+}
+
 func newChatModel(profile config.Model, readImage func(string) ([]byte, error)) *chatModel {
 	baseURL := profile.BaseURL
 	switch profile.WireType() {
@@ -87,7 +98,7 @@ func newChatModel(profile config.Model, readImage func(string) ([]byte, error)) 
 		wireType:  profile.WireType(),
 		effort:    profile.ReasoningEffort,
 		reasoning: profile.Reasoning,
-		readImage: readImage,
+		readImage: imageReader(profile, readImage),
 	}
 }
 
@@ -162,10 +173,22 @@ type chatContentPart struct {
 	ImageURL *chatImageURL `json:"image_url,omitempty"`
 }
 
-// contentParts renders content for models that accept multimodal input: an
-// ordered list of text and image parts. It returns nil when the message holds
-// no image parts, so plain-text messages keep the compact string form.
-func contentParts(message session.Message, readImage func(string) ([]byte, error)) (*[]chatContentPart, error) {
+// Placeholders stand in for an image the request cannot carry. They are fixed
+// strings so a session renders the same bytes on every request, which keeps
+// the cached prompt prefix intact.
+const (
+	imageOmittedText     = "[image omitted: the active model does not accept image input]"
+	imageUnavailableText = "[image unavailable: its stored copy could not be read]"
+)
+
+// messageContent renders a user or tool message. A message without image parts
+// keeps the compact string form. Image parts become multimodal content, except
+// that an image is replaced by a text placeholder when readImage is nil (the
+// model has no vision) or its blob cannot be read: failing the request instead
+// would break every later turn, compaction included. If no image survives, the
+// content collapses back to a string, since a server without vision may reject
+// the multimodal form outright.
+func messageContent(message session.Message, readImage func(string) ([]byte, error)) any {
 	hasImage := false
 	for _, part := range message.Parts {
 		if part.Type == session.PartImage {
@@ -174,31 +197,40 @@ func contentParts(message session.Message, readImage func(string) ([]byte, error
 		}
 	}
 	if !hasImage {
-		return nil, nil
+		text := message.Text()
+		return &text
 	}
 	parts := make([]chatContentPart, 0, len(message.Parts))
+	texts := make([]string, 0, len(message.Parts))
+	images := 0
+	addText := func(text string) {
+		parts = append(parts, chatContentPart{Type: "text", Text: text})
+		texts = append(texts, text)
+	}
 	for _, part := range message.Parts {
 		switch {
 		case part.Type == session.PartText && part.Text != "":
-			parts = append(parts, chatContentPart{Type: "text", Text: part.Text})
+			addText(part.Text)
 		case part.Type == session.PartToolResult && part.ToolOutput != "":
-			parts = append(parts, chatContentPart{Type: "text", Text: part.ToolOutput})
+			addText(part.ToolOutput)
+		case part.Type == session.PartImage && readImage == nil:
+			addText(imageOmittedText)
 		case part.Type == session.PartImage:
-			if readImage == nil {
-				return nil, errors.New("image blob reader is unavailable")
-			}
 			data, err := readImage(part.ImageHash)
 			if err != nil {
-				return nil, fmt.Errorf("load image blob %s: %w", part.ImageHash, err)
+				addText(imageUnavailableText)
+				continue
 			}
 			uri := "data:" + part.ImageMIME + ";base64," + base64.StdEncoding.EncodeToString(data)
 			parts = append(parts, chatContentPart{Type: "image_url", ImageURL: &chatImageURL{URL: uri}})
+			images++
 		}
 	}
-	if len(parts) == 0 {
-		return nil, nil
+	if images == 0 {
+		text := strings.Join(texts, "\n")
+		return &text
 	}
-	return &parts, nil
+	return &parts
 }
 
 type chatToolCall struct {
@@ -266,12 +298,8 @@ func toChatMessages(messages []session.Message, replay chatReplay, readImage fun
 			wire := chatMessage{Role: string(message.Role), Content: &text}
 			// Image parts are honored on user messages (and tool messages
 			// below); the system prompt is plain text by construction.
-			parts, err := contentParts(message, readImage)
-			if err != nil {
-				return nil, err
-			}
-			if parts != nil && message.Role == session.RoleUser {
-				wire.Content = parts
+			if message.Role == session.RoleUser {
+				wire.Content = messageContent(message, readImage)
 			}
 			out = append(out, wire)
 		case session.RoleAssistant:
@@ -302,17 +330,7 @@ func toChatMessages(messages []session.Message, replay chatReplay, readImage fun
 			// nothing: the field is required for the role. Image parts from
 			// tools like read upgrade the content to multimodal form.
 			id, _ := message.ToolResult()
-			text := message.Text()
-			wire := chatMessage{Role: string(message.Role), ToolCallID: id.String()}
-			parts, err := contentParts(message, readImage)
-			if err != nil {
-				return nil, err
-			}
-			if parts != nil {
-				wire.Content = parts
-			} else {
-				wire.Content = &text
-			}
+			wire := chatMessage{Role: string(message.Role), ToolCallID: id.String(), Content: messageContent(message, readImage)}
 			out = append(out, wire)
 		default:
 			return nil, fmt.Errorf("message %d has role %q which this wire format cannot send", i, message.Role)
