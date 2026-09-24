@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/hizkifw/kon/internal/app"
 	"github.com/hizkifw/kon/internal/buildinfo"
 	"github.com/hizkifw/kon/internal/config"
@@ -96,7 +97,9 @@ func runSession(args []string) (runErr error) {
 		return err
 	}
 	model := ui.New(cwd, paths.ConfigFile, runtime, historyStore, historyEntries)
-	program := tea.NewProgram(model)
+	// Reuse the color profile lipgloss detected at init. Detecting again costs a
+	// `tmux info` subprocess inside tmux, which delays the first frame.
+	program := tea.NewProgram(model, tea.WithColorProfile(lipgloss.Writer.Profile))
 	_, uiErr := program.Run()
 	// Capture the session ID before closing the runtime; Close releases the
 	// store that owns the header.
