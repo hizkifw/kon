@@ -485,7 +485,7 @@ func (r *Runtime) systemPrompt() (string, error) {
 		}
 		files = discovered
 	}
-	return agent.SystemPrompt(r.cwd, executable, files, r.config.Instructions), nil
+	return agent.SystemPrompt(r.active.ModelID, r.cwd, executable, files, r.config.Instructions), nil
 }
 
 func (r *Runtime) prepareSession(profile config.Model) (*session.Store, *agent.Runner, error, error) {
