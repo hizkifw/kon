@@ -75,9 +75,15 @@ type Model struct {
 	// (interrupting a running command), the second kills it.
 	interruptPresses int
 	flushPending     bool
-	// killRing holds the last line prefix removed by Ctrl+U so Ctrl+Y can
-	// yank it back, mirroring the shell's unix-line-discard and yank.
+	// killRing holds the last line segment removed by a kill key (Ctrl+U,
+	// Ctrl+K, Ctrl+W) so Ctrl+Y can yank it back, mirroring the shell's kill
+	// and yank commands.
 	killRing string
+	// killPending marks that the key being processed is a kill command, so the
+	// removed text is captured once the textarea has applied the deletion.
+	killPending bool
+	// search is the active reverse history search (Ctrl+R), nil when idle.
+	search *reverseSearch
 	// startAtBottom asks the first sized frame to scroll to the end, so a
 	// resumed conversation opens on its latest messages instead of at the top.
 	startAtBottom bool
@@ -223,6 +229,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.login != nil {
 			return m.updateLogin(msg)
 		}
+		if m.search != nil {
+			// The search owns every key while active so plain typing extends
+			// the query instead of editing the prompt.
+			return m.updateSearch(msg)
+		}
 		updated, cmd, handled := m.handleKey(msg.String())
 		if handled {
 			return updated, cmd
@@ -236,9 +247,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	var cmd tea.Cmd
 	before := m.input.Value()
+	pending := m.killPending
+	m.killPending = false
+	cursor := 0
+	if pending {
+		cursor = m.cursorOffset()
+	}
 	m.input, cmd = m.input.Update(msg)
 	commands = append(commands, cmd)
 	m.viewport.Update(msg)
+	if pending {
+		// A kill key ran; record what it removed so Ctrl+Y can yank it. An
+		// empty kill leaves the ring untouched, so yank keeps the prior text.
+		if removed := removedSpan(before, m.input.Value(), cursor); removed != "" {
+			m.killRing = removed
+		}
+	}
 	if m.input.Value() != before {
 		// Refresh the popup whenever the prompt changed, regardless of which
 		// key or paste produced the change. The command source only yields
@@ -260,24 +284,39 @@ func (m *Model) refreshInput() {
 	m.resize()
 }
 
-// linePrefix returns the text between the start of the cursor's line and the
-// cursor, which is what Ctrl+U discards. Columns count runes, so the line is
-// sliced by rune to keep multibyte text intact.
-func (m Model) linePrefix() string {
-	lines := strings.Split(m.input.Value(), "\n")
-	row := m.input.Line()
-	if row < 0 || row >= len(lines) {
+// removedSpan returns the text a kill deleted between before and after, or ""
+// when the edit was not a kill at cursor, the byte offset of the cursor in
+// before. Every kill removes one run that ends at the cursor (Ctrl+U, Ctrl+W)
+// or starts at it (Ctrl+K), so anchoring on the cursor recovers the exact span.
+// A plain prefix/suffix diff cannot: killing "ab" from "aba" would match the
+// leading "a" and report "ba", and could split a multibyte rune.
+func removedSpan(before, after string, cursor int) string {
+	n := len(before) - len(after)
+	if n <= 0 || cursor < 0 || cursor > len(before) {
 		return ""
 	}
+	if start := cursor - n; start >= 0 && before[:start]+before[cursor:] == after {
+		return before[start:cursor]
+	}
+	if end := cursor + n; end <= len(before) && before[:cursor]+before[end:] == after {
+		return before[cursor:end]
+	}
+	return ""
+}
+
+// cursorOffset returns the cursor's byte offset into the input value. The
+// textarea reports a logical row and a rune column, so the line is sliced by
+// rune to land on a character boundary.
+func (m Model) cursorOffset() int {
+	lines := strings.Split(m.input.Value(), "\n")
+	row := min(max(m.input.Line(), 0), len(lines)-1)
+	offset := 0
+	for _, line := range lines[:row] {
+		offset += len(line) + 1
+	}
 	line := []rune(lines[row])
-	col := m.input.Column()
-	if col < 0 {
-		col = 0
-	}
-	if col > len(line) {
-		col = len(line)
-	}
-	return string(line[:col])
+	col := min(max(m.input.Column(), 0), len(line))
+	return offset + len(string(line[:col]))
 }
 
 func (m Model) handleKey(key string) (tea.Model, tea.Cmd, bool) {
@@ -300,19 +339,19 @@ func (m Model) handleKey(key string) (tea.Model, tea.Cmd, bool) {
 			m.runCancel()
 		}
 		return m, tea.Quit, true
-	case "ctrl+u":
-		// Bash's unix-line-discard: kill from the cursor to the start of the
-		// line into the kill ring. The textarea performs the deletion; we
-		// only record what it removed so Ctrl+Y can restore it. An empty kill
-		// leaves the ring untouched, so yank still has the previous text.
-		if prefix := m.linePrefix(); prefix != "" {
-			m.killRing = prefix
-		}
+	case "ctrl+u", "ctrl+k", "ctrl+w":
+		// Kill commands: Ctrl+U to line start, Ctrl+K to line end, Ctrl+W by
+		// word, all mirroring the shell. The textarea performs the deletion, so
+		// mark the key and let Update record exactly what it removed.
+		m.killPending = true
 		return m, nil, false
 	case "ctrl+y":
 		m.input.InsertString(m.killRing)
 		m.refreshInput()
 		return m, nil, true
+	case "ctrl+r":
+		updated, cmd := m.startSearch()
+		return updated, cmd, true
 	case "pgup":
 		m.viewport.PageUp()
 		return m, nil, true

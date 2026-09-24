@@ -65,7 +65,10 @@ directory's permissions rather than running kon as root.
 | Ctrl+C | Clear the input, or hint at Ctrl+D when it is empty |
 | Ctrl+D | Quit when the input is empty, cancelling active work first |
 | Ctrl+U | Kill from the cursor to the start of the line |
-| Ctrl+Y | Yank the last Ctrl+U kill back at the cursor |
+| Ctrl+K | Kill from the cursor to the end of the line |
+| Ctrl+W | Kill the word before the cursor |
+| Ctrl+Y | Yank the last kill back at the cursor |
+| Ctrl+R | Reverse-search prompt history; type to match, Ctrl+R or Up for older matches, Down for newer, Enter accepts, Esc cancels |
 
 The status bar shows the working directory, context usage, and a status
 message; the header shows the active model. `ctx ~12.4k/128k` means usage is

@@ -995,6 +995,104 @@ func TestCtrlUKillsOnlyCurrentLine(t *testing.T) {
 	}
 }
 
+func TestCtrlKKillsToLineEndAndCtrlYYanks(t *testing.T) {
+	model := newTestModel(t)
+	model.input.SetValue("keep this tail")
+	// Cursor at end; move left over " tail" so Ctrl+K removes it.
+	for i := 0; i < len(" tail"); i++ {
+		updated, _ := model.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
+		model = updated.(Model)
+	}
+	updated, _ := model.Update(tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl})
+	model = updated.(Model)
+	if got := model.input.Value(); got != "keep this" {
+		t.Fatalf("ctrl+k did not kill to line end: %q", got)
+	}
+	if model.killRing != " tail" {
+		t.Fatalf("ctrl+k kill ring = %q, want %q", model.killRing, " tail")
+	}
+	updated, _ = model.Update(tea.KeyPressMsg{Code: 'y', Mod: tea.ModCtrl})
+	model = updated.(Model)
+	if got := model.input.Value(); got != "keep this tail" {
+		t.Fatalf("ctrl+y after ctrl+k = %q", got)
+	}
+}
+
+func TestCtrlWKillsWordAndCtrlYYanks(t *testing.T) {
+	model := newTestModel(t)
+	model.input.SetValue("alpha beta")
+	updated, _ := model.Update(tea.KeyPressMsg{Code: 'w', Mod: tea.ModCtrl})
+	model = updated.(Model)
+	if model.killRing != "beta" {
+		t.Fatalf("ctrl+w kill ring = %q, want %q", model.killRing, "beta")
+	}
+	updated, _ = model.Update(tea.KeyPressMsg{Code: 'y', Mod: tea.ModCtrl})
+	model = updated.(Model)
+	if got := model.input.Value(); got != "alpha beta" {
+		t.Fatalf("ctrl+y after ctrl+w = %q", got)
+	}
+}
+
+func TestRemovedSpan(t *testing.T) {
+	cases := []struct {
+		before, after string
+		cursor        int
+		want          string
+	}{
+		{"keep this tail", " tail", 9, "keep this"},
+		{"keep this tail", "keep this", 9, " tail"},
+		{"alpha beta", "alpha ", 10, "beta"},
+		// The deleted text shares bytes with what follows it; a prefix diff
+		// would report the shifted "ba" or split the multibyte rune.
+		{"aba", "a", 2, "ab"},
+		{"éè", "è", 2, "é"},
+		{"same", "same", 4, ""},
+		{"short", "longer text", 5, ""},
+	}
+	for _, tc := range cases {
+		if got := removedSpan(tc.before, tc.after, tc.cursor); got != tc.want {
+			t.Errorf("removedSpan(%q, %q, %d) = %q, want %q", tc.before, tc.after, tc.cursor, got, tc.want)
+		}
+	}
+}
+
+func TestCtrlUKillsRepeatedTextAndCtrlYRestoresIt(t *testing.T) {
+	for _, tc := range []struct{ value, killed string }{
+		{"aba", "ab"},
+		{"éè", "é"},
+	} {
+		model := newTestModel(t)
+		model.input.SetValue(tc.value)
+		updated, _ := model.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
+		model = updated.(Model)
+		updated, _ = model.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
+		model = updated.(Model)
+		if model.killRing != tc.killed {
+			t.Fatalf("%q: kill ring = %q, want %q", tc.value, model.killRing, tc.killed)
+		}
+		updated, _ = model.Update(tea.KeyPressMsg{Code: 'y', Mod: tea.ModCtrl})
+		model = updated.(Model)
+		if got := model.input.Value(); got != tc.value {
+			t.Fatalf("%q: ctrl+y restored %q", tc.value, got)
+		}
+	}
+}
+
+func TestCtrlUOnLaterLineUsesThatLinesCursor(t *testing.T) {
+	model := newTestModel(t)
+	model.input.SetValue("xx\nxxy")
+	updated, _ := model.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
+	model = updated.(Model)
+	if model.killRing != "xx" {
+		t.Fatalf("kill ring = %q, want %q", model.killRing, "xx")
+	}
+	if got := model.input.Value(); got != "xx\ny" {
+		t.Fatalf("ctrl+u left %q", got)
+	}
+}
+
 func TestInterruptedRunFinalizesStreamedTurn(t *testing.T) {
 	model := newTestModel(t)
 	model.busy = true
