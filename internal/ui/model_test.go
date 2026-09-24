@@ -395,6 +395,19 @@ func TestReplayedToolOutcomeUsesPersistedErrorAndDetails(t *testing.T) {
 	}
 }
 
+func TestReplayedCompactionShowsMarker(t *testing.T) {
+	model := newTestModel(t)
+	entries := []session.Entry{
+		{Type: session.EntryTypeCompaction, TokensBefore: 12_300, TokensBeforeEstimated: true},
+		{Message: &session.Message{Role: session.RoleUser, Parts: []session.Part{{Type: session.PartText, Text: "after"}}}},
+	}
+	model.applyHistory(entries)
+	blocks := model.transcript.blocks
+	if len(blocks) != 2 || blocks[0].kind != blockContext || blocks[0].text != "compacted ~12.3k tokens" {
+		t.Fatalf("replayed compaction blocks = %#v", blocks)
+	}
+}
+
 func TestParseSlashCommand(t *testing.T) {
 	registry := defaultRegistry()
 	command, err := registry.parse("/model review")

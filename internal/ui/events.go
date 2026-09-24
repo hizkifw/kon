@@ -6,6 +6,7 @@ import (
 	"github.com/hizkifw/kon/internal/agent"
 	"github.com/hizkifw/kon/internal/provider"
 	"github.com/hizkifw/kon/internal/session"
+	"github.com/hizkifw/kon/internal/tokens"
 	"github.com/hizkifw/kon/internal/tools"
 	"github.com/hizkifw/kon/internal/typedid"
 )
@@ -41,11 +42,7 @@ func (m *Model) applyAgentEvent(event agent.Event) bool {
 		m.status = ""
 		m.transcript.add(m.toolResultBlock(event))
 	case agent.EventCompacted:
-		prefix := ""
-		if event.Estimated {
-			prefix = "~"
-		}
-		m.transcript.add(block{kind: blockContext, text: "compacted " + prefix + event.Tokens.String() + " tokens"})
+		m.transcript.add(block{kind: blockContext, text: compactedLabel(event.Tokens, event.Estimated)})
 		m.status = "context compacted"
 	case agent.EventUsage:
 		m.contextTokens = event.Tokens
@@ -88,11 +85,11 @@ func (m *Model) toolResultBlock(event agent.Event) block {
 
 // applyHistory replays an opened session's active path into the transcript so a
 // resumed conversation is visible before the next prompt. It mirrors the live
-// event stream: user and assistant messages, thinking parts, and tool calls
-// paired with their results. Model-change and compaction entries are structural
-// and are not echoed here. Tool displays are resolved through the owning tools
-// with the call's persisted arguments, so replay looks exactly like the live
-// rendering.
+// event stream: user and assistant messages, thinking parts, tool calls paired
+// with their results, and the compacted marker left by each compaction. Model
+// changes are structural and are not echoed here. Tool displays are resolved
+// through the owning tools with the call's persisted arguments, so replay looks
+// exactly like the live rendering.
 func (m *Model) applyHistory(entries []session.Entry) {
 	m.applyHistoryTo(&m.transcript, entries)
 }
@@ -106,6 +103,13 @@ func (m *Model) applyHistoryTo(t *transcript, entries []session.Entry) {
 	// with.
 	callArgs := make(map[typedid.ToolCallID]json.RawMessage)
 	for _, entry := range entries {
+		// A compaction entry has no message; it is echoed as the same marker
+		// the live run emitted so a resumed transcript shows where the context
+		// was folded.
+		if entry.Type == session.EntryTypeCompaction {
+			t.add(block{kind: blockContext, text: compactedLabel(entry.TokensBefore, entry.TokensBeforeEstimated)})
+			continue
+		}
 		if entry.Message == nil {
 			continue
 		}
@@ -137,4 +141,15 @@ func (m *Model) applyHistoryTo(t *transcript, entries []session.Entry) {
 			t.add(block{kind: blockResult, name: name, display: display})
 		}
 	}
+}
+
+// compactedLabel is the transcript marker for a compaction. It is built in one
+// place so the live event and the replayed entry render identically, and so a
+// resumed session shows the same marker the run did.
+func compactedLabel(count tokens.Count, estimated bool) string {
+	prefix := ""
+	if estimated {
+		prefix = "~"
+	}
+	return "compacted " + prefix + count.String() + " tokens"
 }
