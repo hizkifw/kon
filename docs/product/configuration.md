@@ -125,6 +125,13 @@ and a catalog model that only has an on/off toggle gets the same `none` level.
 The selected level is sent as `reasoning_effort`, or as `reasoning.effort` for
 OpenRouter.
 
+A model's reasoning is sent back with its earlier replies, in the field the
+server streamed it in, so a model that thinks across tool calls keeps its
+chain of thought. Reasoning written by a different model is left out after a
+model switch. Set `"reasoning": true` for a model that produces reasoning;
+DeepSeek's API then receives the empty `reasoning_content` it requires on
+replies without reasoning. Derived models use the catalog's reasoning metadata.
+
 Like `default_model`, the selected level is saved as the top-level
 `reasoning_effort` and restored on the next launch. Switching models resets it
 to `default`. A saved level the model does not list is ignored, so the model

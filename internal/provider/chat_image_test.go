@@ -19,7 +19,7 @@ func TestToChatMessagesMapsImagePartsOnToolResults(t *testing.T) {
 			Role:  session.RoleTool,
 			Parts: []session.Part{{Type: session.PartToolResult, ToolCallID: "1", ToolName: "read", ToolOutput: "loaded image p.png"}, {Type: session.PartImage, ImageHash: hash, ImageMIME: "image/png"}},
 		},
-	}, func(string) ([]byte, error) { return []byte("hello"), nil })
+	}, chatReplay{}, func(string) ([]byte, error) { return []byte("hello"), nil })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +47,7 @@ func TestToChatMessagesReportsMissingImageBlob(t *testing.T) {
 		{Type: session.PartToolResult, ToolCallID: "1", ToolName: "read", ToolOutput: "loaded"},
 		{Type: session.PartImage, ImageHash: "0000000000000000000000000000000000000000000000000000000000000000", ImageMIME: "image/png"},
 	}}
-	_, err := toChatMessages([]session.Message{message}, func(string) ([]byte, error) { return nil, errors.New("missing") })
+	_, err := toChatMessages([]session.Message{message}, chatReplay{}, func(string) ([]byte, error) { return nil, errors.New("missing") })
 	if err == nil || !strings.Contains(err.Error(), "missing") {
 		t.Fatalf("missing blob error = %v", err)
 	}
@@ -56,7 +56,7 @@ func TestToChatMessagesReportsMissingImageBlob(t *testing.T) {
 func TestToChatMessagesIgnoresNonImageParts(t *testing.T) {
 	messages, err := toChatMessages([]session.Message{
 		{Role: session.RoleTool, Parts: []session.Part{{Type: session.PartToolResult, ToolCallID: "1", ToolName: "shell", ToolOutput: "done"}, {Type: session.PartReasoning, Text: "thoughts"}}},
-	}, nil)
+	}, chatReplay{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,7 @@ func TestToChatMessagesIgnoresNonImageParts(t *testing.T) {
 func TestToChatMessagesToolWithoutPartsKeepsString(t *testing.T) {
 	messages, err := toChatMessages([]session.Message{
 		session.ToolResultMessage("1", "shell", "done"),
-	}, nil)
+	}, chatReplay{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestToChatMessagesEncodesImagePartsOnTheWire(t *testing.T) {
 	const hash = "0000000000000000000000000000000000000000000000000000000000000000"
 	messages, err := toChatMessages([]session.Message{
 		{Role: session.RoleTool, Parts: []session.Part{{Type: session.PartToolResult, ToolCallID: "1", ToolName: "read", ToolOutput: "loaded"}, {Type: session.PartImage, ImageHash: hash, ImageMIME: "image/png"}}},
-	}, func(string) ([]byte, error) { return []byte{0}, nil })
+	}, chatReplay{}, func(string) ([]byte, error) { return []byte{0}, nil })
 	if err != nil {
 		t.Fatal(err)
 	}

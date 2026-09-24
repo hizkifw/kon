@@ -237,6 +237,7 @@ func (r *Runtime) resolveModel(name string) (config.Model, bool) {
 				profile.ContextWindowTokens = window
 			}
 			profile.Vision = slices.Contains(metadata.Modalities.Input, "image")
+			profile.Reasoning = metadata.Reasoning
 			profile.ReasoningEfforts = metadata.Efforts()
 			if len(profile.ReasoningEfforts) == 0 && metadata.ReasoningToggle() {
 				// A model that can only switch reasoning off gets one level:

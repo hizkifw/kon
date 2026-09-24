@@ -26,13 +26,15 @@ import (
 // serves it under /v1. kon builds and parses every message itself: request
 // bodies, SSE events, tool-call deltas, and usage reports are all owned here.
 type chatModel struct {
-	client    *http.Client
-	baseURL   string
-	apiKey    string
-	headers   map[string]string
-	model     string
-	wireType  string
-	effort    string
+	client   *http.Client
+	baseURL  string
+	apiKey   string
+	headers  map[string]string
+	model    string
+	wireType string
+	effort   string
+	// reasoning marks a model that produces reasoning; see chatReplay.
+	reasoning bool
 	readImage func(string) ([]byte, error)
 }
 
@@ -84,6 +86,7 @@ func newChatModel(profile config.Model, readImage func(string) ([]byte, error)) 
 		model:     profile.ModelID,
 		wireType:  profile.WireType(),
 		effort:    profile.ReasoningEffort,
+		reasoning: profile.Reasoning,
 		readImage: readImage,
 	}
 }
@@ -130,10 +133,19 @@ type chatStreamOptions struct {
 }
 
 type chatMessage struct {
-	Role       string         `json:"role"`
-	Content    any            `json:"content,omitempty"`
-	ToolCalls  []chatToolCall `json:"tool_calls,omitempty"`
-	ToolCallID string         `json:"tool_call_id,omitempty"`
+	Role    string `json:"role"`
+	Content any    `json:"content,omitempty"`
+	// An assistant's reasoning goes back in the field it arrived in; servers
+	// disagree on the name. ReasoningContent is a pointer so DeepSeek can be
+	// sent the empty string it requires on messages without reasoning.
+	ReasoningContent *string `json:"reasoning_content,omitempty"`
+	Reasoning        string  `json:"reasoning,omitempty"`
+	ReasoningText    string  `json:"reasoning_text,omitempty"`
+	// ReasoningDetails is OpenRouter's structured reasoning, returned verbatim
+	// in place of the plain text field because it can carry encrypted entries.
+	ReasoningDetails []json.RawMessage `json:"reasoning_details,omitempty"`
+	ToolCalls        []chatToolCall    `json:"tool_calls,omitempty"`
+	ToolCallID       string            `json:"tool_call_id,omitempty"`
 }
 
 // chatImageURL carries one image reference; the wire form is
@@ -214,11 +226,38 @@ type chatToolFunction struct {
 	Parameters  json.RawMessage `json:"parameters"`
 }
 
+// chatReplay controls how earlier assistant reasoning is sent back. The zero
+// value returns every message's reasoning in its recorded field.
+type chatReplay struct {
+	// model is the requesting model's ID. Reasoning written by a different
+	// model is dropped: its format and any encrypted payload belong to that
+	// model, and handing it to another invites a rejected request.
+	model string
+	// defaultField names the reasoning field for a message that did not record
+	// the one its reasoning arrived in.
+	defaultField string
+	// emptyReasoning sends an empty reasoning_content on every assistant
+	// message that has none, which DeepSeek's API requires of a reasoning
+	// model once the history holds a message without reasoning.
+	emptyReasoning bool
+}
+
+// replay is this model's reasoning replay policy.
+func (m *chatModel) replay() chatReplay {
+	replay := chatReplay{model: m.model, defaultField: "reasoning_content"}
+	if m.wireType == "openrouter" {
+		replay.defaultField = "reasoning"
+	}
+	replay.emptyReasoning = m.reasoning && strings.Contains(strings.ToLower(m.baseURL), "deepseek.com")
+	return replay
+}
+
 // toChatMessages maps the durable conversation onto chat completions messages.
-// Persisted reasoning parts are deliberately not replayed: the format has no
-// standard field for reasoning and several compatible servers reject it, so
-// reasoning is display-only for this wire format.
-func toChatMessages(messages []session.Message, readImage func(string) ([]byte, error)) ([]chatMessage, error) {
+// Persisted reasoning is sent back with every assistant message the same model
+// wrote: models that think across tool calls expect their earlier reasoning in
+// the history, and without it the next request's context is smaller than the
+// reported usage that preceded it.
+func toChatMessages(messages []session.Message, replay chatReplay, readImage func(string) ([]byte, error)) ([]chatMessage, error) {
 	out := make([]chatMessage, 0, len(messages))
 	for i, message := range messages {
 		switch message.Role {
@@ -237,10 +276,9 @@ func toChatMessages(messages []session.Message, readImage func(string) ([]byte, 
 			out = append(out, wire)
 		case session.RoleAssistant:
 			// A partial turn interrupted before any answer text carries only
-			// reasoning. This wire format has no reasoning field, so there is
-			// nothing to send; skipping it avoids an empty assistant message
-			// that several servers reject. The reasoning stays in the durable
-			// log and the transcript.
+			// reasoning. Skipping it avoids an assistant message with no
+			// content, which several servers reject. The reasoning stays in
+			// the durable log and the transcript.
 			text := message.Text()
 			calls := message.ToolCalls()
 			if text == "" && len(calls) == 0 {
@@ -250,6 +288,7 @@ func toChatMessages(messages []session.Message, readImage func(string) ([]byte, 
 			if text != "" {
 				wire.Content = &text
 			}
+			replay.attachReasoning(&wire, message)
 			for _, call := range calls {
 				wire.ToolCalls = append(wire.ToolCalls, chatToolCall{
 					ID:       call.ID.String(),
@@ -282,6 +321,62 @@ func toChatMessages(messages []session.Message, readImage func(string) ([]byte, 
 	return out, nil
 }
 
+// attachReasoning sets the wire reasoning for one assistant message.
+func (replay chatReplay) attachReasoning(wire *chatMessage, message session.Message) {
+	sameModel := replay.model == "" || message.Model.String() == "" || message.Model.String() == replay.model
+	if sameModel {
+		options := decodeChatOptions(message.ProviderOptions)
+		field := options.ReasoningField
+		if field == "" {
+			field = replay.defaultField
+		}
+		switch text := message.Reasoning(); {
+		case len(options.ReasoningDetails) > 0:
+			wire.ReasoningDetails = options.ReasoningDetails
+		case text == "":
+		case field == "reasoning":
+			wire.Reasoning = text
+		case field == "reasoning_text":
+			wire.ReasoningText = text
+		default:
+			wire.ReasoningContent = &text
+		}
+	}
+	if replay.emptyReasoning && wire.ReasoningContent == nil {
+		empty := ""
+		wire.ReasoningContent = &empty
+	}
+}
+
+// chatOptions is the provider-owned metadata this wire format keeps on an
+// assistant message, so its reasoning can be returned the way it arrived.
+type chatOptions struct {
+	ReasoningField   string            `json:"reasoning_field,omitempty"`
+	ReasoningDetails []json.RawMessage `json:"reasoning_details,omitempty"`
+}
+
+// decodeChatOptions reads a message's metadata. Metadata another format wrote,
+// or none at all, decodes to the zero value.
+func decodeChatOptions(raw json.RawMessage) chatOptions {
+	var options chatOptions
+	if len(raw) > 0 {
+		_ = json.Unmarshal(raw, &options)
+	}
+	return options
+}
+
+// encode returns the metadata for a message, or nil when there is none.
+func (options chatOptions) encode() json.RawMessage {
+	if options.ReasoningField == "" && len(options.ReasoningDetails) == 0 {
+		return nil
+	}
+	raw, err := json.Marshal(options)
+	if err != nil {
+		return nil
+	}
+	return raw
+}
+
 func toChatTools(tools []Tool) []chatTool {
 	if len(tools) == 0 {
 		return nil
@@ -296,7 +391,7 @@ func toChatTools(tools []Tool) []chatTool {
 // Stream runs one streamed generation and forwards text and reasoning deltas
 // through emit as they arrive.
 func (m *chatModel) Stream(ctx context.Context, messages []session.Message, tools []Tool, emit func(Event)) (Response, error) {
-	wireMessages, err := toChatMessages(messages, m.readImage)
+	wireMessages, err := toChatMessages(messages, m.replay(), m.readImage)
 	if err != nil {
 		return Response{}, err
 	}
@@ -348,7 +443,7 @@ func (m *chatModel) stream(ctx context.Context, payload chatRequest, emit func(E
 // so it can reuse the provider's cached prefix, while the summary itself can
 // never become a tool call.
 func (m *chatModel) Complete(ctx context.Context, messages []session.Message, tools []Tool, maxTokens tokens.Count) (Response, error) {
-	wireMessages, err := toChatMessages(messages, m.readImage)
+	wireMessages, err := toChatMessages(messages, m.replay(), m.readImage)
 	if err != nil {
 		return Response{}, err
 	}
@@ -403,9 +498,15 @@ func (m *chatModel) complete(ctx context.Context, payload chatRequest) (Response
 		if choice.Index != 0 {
 			continue
 		}
-		if reasoning := choice.Message.reasoning(); reasoning != "" {
+		var options chatOptions
+		if reasoning, field := choice.Message.reasoning(); reasoning != "" {
 			result.Parts = append(result.Parts, session.Part{Type: session.PartReasoning, Text: reasoning})
+			options.ReasoningField = field
 		}
+		for _, detail := range choice.Message.ReasoningDetails {
+			options.ReasoningDetails = appendReasoningDetail(options.ReasoningDetails, detail)
+		}
+		result.ProviderOptions = options.encode()
 		if choice.Message.Content != "" {
 			result.Parts = append(result.Parts, session.Part{Type: session.PartText, Text: choice.Message.Content})
 		}
@@ -497,29 +598,88 @@ type chatChoice struct {
 }
 
 type chatDelta struct {
-	Role             string          `json:"role"`
-	Content          string          `json:"content"`
-	ReasoningContent string          `json:"reasoning_content"`
-	Reasoning        json.RawMessage `json:"reasoning"`
-	ToolCalls        []chatToolCall  `json:"tool_calls"`
+	Role    string `json:"role"`
+	Content string `json:"content"`
+	chatReasoningFields
+	ToolCalls []chatToolCall `json:"tool_calls"`
 }
 
-// reasoning tolerates the two streaming conventions for reasoning text:
-// reasoning_content (DeepSeek and friends) and reasoning (OpenRouter). A
-// non-string reasoning value decodes into Reasoning raw and yields nothing
-// rather than failing the chunk.
-func (d chatDelta) reasoning() string {
-	if d.ReasoningContent != "" {
-		return d.ReasoningContent
+// chatReasoningFields are the places compatible servers put reasoning, in a
+// streamed delta and a complete reply alike.
+type chatReasoningFields struct {
+	ReasoningContent string            `json:"reasoning_content"`
+	Reasoning        json.RawMessage   `json:"reasoning"`
+	ReasoningText    string            `json:"reasoning_text"`
+	ReasoningDetails []json.RawMessage `json:"reasoning_details"`
+}
+
+// reasoning returns the reasoning text and the field it arrived in. Servers
+// use reasoning_content (DeepSeek, llama.cpp), reasoning (OpenRouter, vLLM),
+// or reasoning_text; the first non-empty one wins, because some servers fill
+// two with the same text. A non-string reasoning value decodes into Reasoning
+// raw and yields nothing rather than failing the chunk.
+func (f chatReasoningFields) reasoning() (text, field string) {
+	if f.ReasoningContent != "" {
+		return f.ReasoningContent, "reasoning_content"
 	}
-	if len(d.Reasoning) == 0 {
-		return ""
+	if len(f.Reasoning) > 0 {
+		if err := json.Unmarshal(f.Reasoning, &text); err == nil && text != "" {
+			return text, "reasoning"
+		}
 	}
-	var text string
-	if err := json.Unmarshal(d.Reasoning, &text); err != nil {
-		return ""
+	if f.ReasoningText != "" {
+		return f.ReasoningText, "reasoning_text"
 	}
-	return text
+	return "", ""
+}
+
+// appendReasoningDetail folds one reasoning_details entry into the list.
+// OpenRouter streams them as deltas: consecutive text or summary entries are
+// pieces of one logical entry and are joined, while encrypted entries stay
+// discrete. An entry of an unknown type is dropped rather than sent back.
+func appendReasoningDetail(details []json.RawMessage, raw json.RawMessage) []json.RawMessage {
+	var detail map[string]json.RawMessage
+	if json.Unmarshal(raw, &detail) != nil {
+		return details
+	}
+	kind := detailString(detail, "type")
+	key, ok := map[string]string{"reasoning.text": "text", "reasoning.summary": "summary", "reasoning.encrypted": "data"}[kind]
+	if !ok {
+		return details
+	}
+	if _, present := detail[key]; !present {
+		return details
+	}
+	if n := len(details); n > 0 && kind != "reasoning.encrypted" {
+		var last map[string]json.RawMessage
+		if json.Unmarshal(details[n-1], &last) == nil && detailString(last, "type") == kind {
+			joined, _ := json.Marshal(detailString(last, key) + detailString(detail, key))
+			last[key] = joined
+			// A later piece can carry what the first lacked, such as the
+			// signature that closes a text entry.
+			for field, value := range detail {
+				if _, present := last[field]; !present || isEmptyDetailValue(last[field]) {
+					last[field] = value
+				}
+			}
+			if merged, err := json.Marshal(last); err == nil {
+				details[n-1] = merged
+			}
+			return details
+		}
+	}
+	return append(details, append(json.RawMessage(nil), raw...))
+}
+
+func detailString(detail map[string]json.RawMessage, key string) string {
+	var value string
+	_ = json.Unmarshal(detail[key], &value)
+	return value
+}
+
+func isEmptyDetailValue(value json.RawMessage) bool {
+	trimmed := strings.TrimSpace(string(value))
+	return trimmed == "" || trimmed == "null" || trimmed == `""`
 }
 
 type chatError struct {
@@ -580,26 +740,9 @@ type chatCompletionChoice struct {
 }
 
 type chatReplyBody struct {
-	Content          string          `json:"content"`
-	ReasoningContent string          `json:"reasoning_content"`
-	Reasoning        json.RawMessage `json:"reasoning"`
-	ToolCalls        []chatToolCall  `json:"tool_calls"`
-}
-
-// reasoning handles the non-streamed reasoning conventions (reasoning_content
-// or reasoning as a string).
-func (m chatReplyBody) reasoning() string {
-	if m.ReasoningContent != "" {
-		return m.ReasoningContent
-	}
-	if len(m.Reasoning) == 0 {
-		return ""
-	}
-	var text string
-	if err := json.Unmarshal(m.Reasoning, &text); err != nil {
-		return ""
-	}
-	return text
+	Content string `json:"content"`
+	chatReasoningFields
+	ToolCalls []chatToolCall `json:"tool_calls"`
 }
 
 // decodeChatStream reads an SSE event stream, assembling assistant text,
@@ -633,11 +776,11 @@ func decodeChatStream(r io.Reader, emit func(Event)) (Response, error) {
 			if err := apply(payload); err != nil {
 				if errors.Is(err, errStreamDone) {
 					done = true
-					return state.Response, nil
+					return state.result(), nil
 				}
 				// Keep deltas assembled before a mid-stream provider error so
 				// the partial turn is not discarded.
-				return state.Response, err
+				return state.result(), err
 			}
 		default:
 			// Comments (": keep-alive") and event:/id:/retry: fields carry
@@ -648,9 +791,9 @@ func decodeChatStream(r io.Reader, emit func(Event)) (Response, error) {
 		// A dropped connection surfaces here; keep whatever was assembled so
 		// the partial turn is preserved rather than lost.
 		if errors.Is(err, bufio.ErrTooLong) {
-			return state.Response, fmt.Errorf("read chat stream: event exceeded %d bytes: %w", maxEventSize, err)
+			return state.result(), fmt.Errorf("read chat stream: event exceeded %d bytes: %w", maxEventSize, err)
 		}
-		return state.Response, fmt.Errorf("read chat stream: %w", err)
+		return state.result(), fmt.Errorf("read chat stream: %w", err)
 	}
 	// Flush a trailing event whose blank-line separator never arrived.
 	if len(data) > 0 {
@@ -658,7 +801,7 @@ func decodeChatStream(r io.Reader, emit func(Event)) (Response, error) {
 			if errors.Is(err, errStreamDone) {
 				done = true
 			} else {
-				return state.Response, err
+				return state.result(), err
 			}
 		}
 	}
@@ -666,14 +809,23 @@ func decodeChatStream(r io.Reader, emit func(Event)) (Response, error) {
 	// short even though the transport closed cleanly. Report it as an error so
 	// the caller keeps the partial turn instead of mistaking it for complete.
 	if !done && state.Finish == "" {
-		return state.Response, errors.New("read chat stream: connection closed before the stream finished")
+		return state.result(), errors.New("read chat stream: connection closed before the stream finished")
 	}
-	return state.Response, nil
+	return state.result(), nil
 }
 
 type chatStreamState struct {
 	Response
 	callParts map[int]int
+	options   chatOptions
+}
+
+// result is the assembled response with its reasoning metadata attached. Every
+// return path uses it, so a partial turn keeps the metadata that arrived too.
+func (state *chatStreamState) result() Response {
+	response := state.Response
+	response.ProviderOptions = state.options.encode()
+	return response
 }
 
 // errStreamDone marks the [DONE] sentinel and unwinds decodeChatStream.
@@ -698,11 +850,17 @@ func applyChatChunk(state *chatStreamState, payload string, emit func(Event)) er
 				emit(Event{Text: text})
 			}
 		}
-		if reasoning := choice.Delta.reasoning(); reasoning != "" {
+		if reasoning, field := choice.Delta.reasoning(); reasoning != "" {
+			if state.options.ReasoningField == "" {
+				state.options.ReasoningField = field
+			}
 			appendStreamText(&state.Parts, session.PartReasoning, reasoning)
 			if emit != nil {
 				emit(Event{Text: reasoning, Thinking: true})
 			}
+		}
+		for _, detail := range choice.Delta.ReasoningDetails {
+			state.options.ReasoningDetails = appendReasoningDetail(state.options.ReasoningDetails, detail)
 		}
 		for _, call := range choice.Delta.ToolCalls {
 			applyChatToolCallDelta(state, call)

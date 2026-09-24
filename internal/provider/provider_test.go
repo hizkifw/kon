@@ -62,9 +62,13 @@ func TestAssistantKeepsInterleavedPartsAndProviderMetadata(t *testing.T) {
 		{Type: PartToolCall, ToolCallID: "call-1", ToolName: "read", ToolInput: json.RawMessage(`{}`)},
 		{Type: PartText, Text: "last"},
 	}
-	message, err := client.assistant(Response{Parts: parts})
+	options := json.RawMessage(`{"reasoning_field":"reasoning"}`)
+	message, err := client.assistant(Response{Parts: parts, ProviderOptions: options})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if string(message.ProviderOptions) != string(options) {
+		t.Fatalf("message metadata = %s, want %s", message.ProviderOptions, options)
 	}
 	if message.Text() != "firstlast" || len(message.Parts) != 4 || message.Parts[1].Type != PartReasoning || string(message.Parts[1].ProviderOptions) != string(metadata) || message.Parts[3].Text != "last" {
 		t.Fatalf("ordered parts changed: %#v", message.Parts)
@@ -87,7 +91,8 @@ func TestAssistantRejectsEmptyResponse(t *testing.T) {
 func TestAssistantOrPartialPersistsInterruptedTurn(t *testing.T) {
 	client := &Client{modelID: typedid.ExternalModelID("gpt")}
 	cause := errors.New("stream interrupted")
-	message, err := client.assistantOrPartial(Response{Parts: []session.Part{{Type: PartReasoning, Text: "hm"}, {Type: PartText, Text: "half"}}, Finish: "stop", Usage: &session.Usage{PromptTokens: 5}}, cause)
+	options := json.RawMessage(`{"reasoning_field":"reasoning_text"}`)
+	message, err := client.assistantOrPartial(Response{Parts: []session.Part{{Type: PartReasoning, Text: "hm"}, {Type: PartText, Text: "half"}}, Finish: "stop", Usage: &session.Usage{PromptTokens: 5}, ProviderOptions: options}, cause)
 	if !errors.Is(err, cause) {
 		t.Fatalf("interruption not surfaced: %v", err)
 	}
@@ -98,6 +103,11 @@ func TestAssistantOrPartialPersistsInterruptedTurn(t *testing.T) {
 	// completed turn.
 	if message.Usage != nil || message.Finish != "" {
 		t.Fatalf("partial kept completion metadata: %#v", message)
+	}
+	// The reasoning that did arrive is sent back on the next request, so the
+	// field it came in must survive the interruption.
+	if string(message.ProviderOptions) != string(options) {
+		t.Fatalf("partial dropped reasoning metadata: %s", message.ProviderOptions)
 	}
 	if len(message.Parts) != 2 || message.Parts[0].Type != PartReasoning || message.Parts[1].Type != PartText {
 		t.Fatalf("partial parts = %#v", message.Parts)

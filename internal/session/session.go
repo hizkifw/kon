@@ -150,6 +150,17 @@ func (m Message) Text() string {
 	return out.String()
 }
 
+// Reasoning is the message's reasoning text, in part order.
+func (m Message) Reasoning() string {
+	var out strings.Builder
+	for _, part := range m.Parts {
+		if part.Type == PartReasoning {
+			out.WriteString(part.Text)
+		}
+	}
+	return out.String()
+}
+
 func (m Message) ToolCalls() []ToolCall {
 	var calls []ToolCall
 	for _, part := range m.Parts {

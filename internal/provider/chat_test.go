@@ -12,6 +12,7 @@ import (
 
 	"github.com/hizkifw/kon/internal/buildinfo"
 	"github.com/hizkifw/kon/internal/session"
+	"github.com/hizkifw/kon/internal/typedid"
 )
 
 // newTestModel returns a chatModel pointed at a stub server, plus the server.
@@ -119,6 +120,159 @@ func TestChatRequestSendsSelectedEffort(t *testing.T) {
 	}
 }
 
+// captureRequests serves a canned reply and records each request body.
+func captureRequests(t *testing.T) (*chatModel, *[]string) {
+	var bodies []string
+	model := newTestModel(t, func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		bodies = append(bodies, string(raw))
+		_, _ = io.WriteString(w, `{"choices":[{"index":0,"message":{"content":"ok"},"finish_reason":"stop"}]}`)
+	})
+	return model, &bodies
+}
+
+// assistantWire sends one assistant message through toChatMessages and returns
+// its wire form as JSON.
+func assistantWire(t *testing.T, replay chatReplay, message session.Message) string {
+	t.Helper()
+	wire, err := toChatMessages([]session.Message{session.TextMessage(session.RoleUser, "hi"), message}, replay, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(wire[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
+}
+
+func thinkingReply(model, options string) session.Message {
+	message := session.Message{Role: session.RoleAssistant, Model: typedid.ExternalModelID(model), Parts: []session.Part{{Type: PartReasoning, Text: "think"}, {Type: PartText, Text: "hello"}}}
+	if options != "" {
+		message.ProviderOptions = json.RawMessage(options)
+	}
+	return message
+}
+
+// TestChatStreamRecordsReasoningField checks that a stream records which field
+// its reasoning arrived in, for each convention compatible servers use.
+func TestChatStreamRecordsReasoningField(t *testing.T) {
+	for _, field := range []string{"reasoning_content", "reasoning", "reasoning_text"} {
+		t.Run(field, func(t *testing.T) {
+			events := sse(`{"choices":[{"index":0,"delta":{"`+field+`":"think"}}]}`) +
+				sse(`{"choices":[{"index":0,"delta":{"content":"hello"},"finish_reason":"stop"}]}`) + "data: [DONE]\n\n"
+			response, err := decodeChatStream(strings.NewReader(events), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if response.Reasoning() != "think" {
+				t.Fatalf("reasoning = %q", response.Reasoning())
+			}
+			if got := decodeChatOptions(response.ProviderOptions).ReasoningField; got != field {
+				t.Fatalf("recorded field = %q, want %q", got, field)
+			}
+		})
+	}
+}
+
+// TestChatReplayReturnsReasoningInRecordedField checks that reasoning goes back
+// in the field it arrived in, and that a message which recorded none falls back
+// to the wire type's default.
+func TestChatReplayReturnsReasoningInRecordedField(t *testing.T) {
+	replay := chatReplay{model: "m", defaultField: "reasoning_content"}
+	for field, want := range map[string]string{
+		"reasoning_content": `"reasoning_content":"think"`,
+		"reasoning":         `"reasoning":"think"`,
+		"reasoning_text":    `"reasoning_text":"think"`,
+	} {
+		got := assistantWire(t, replay, thinkingReply("m", `{"reasoning_field":"`+field+`"}`))
+		if !strings.Contains(got, want) || strings.Count(got, "reason") != 1 {
+			t.Fatalf("%s: wire = %s", field, got)
+		}
+	}
+	if got := assistantWire(t, replay, thinkingReply("m", "")); !strings.Contains(got, `"reasoning_content":"think"`) {
+		t.Fatalf("unrecorded default = %s", got)
+	}
+	model, bodies := captureRequests(t)
+	model.wireType = "openrouter"
+	if _, err := model.Complete(context.Background(), []session.Message{session.TextMessage(session.RoleUser, "hi"), thinkingReply("test-model", ""), session.TextMessage(session.RoleUser, "again")}, nil, 0); err != nil {
+		t.Fatal(err)
+	}
+	if got := (*bodies)[0]; !strings.Contains(got, `"reasoning":"think"`) || strings.Contains(got, "reasoning_content") {
+		t.Fatalf("openrouter default = %s", got)
+	}
+}
+
+// TestChatReplayDropsOtherModelsReasoning checks that reasoning written by a
+// different model is not handed to the requesting one, while its answer is.
+func TestChatReplayDropsOtherModelsReasoning(t *testing.T) {
+	got := assistantWire(t, chatReplay{model: "b", defaultField: "reasoning_content"}, thinkingReply("a", `{"reasoning_field":"reasoning","reasoning_details":[{"type":"reasoning.encrypted","data":"x"}]}`))
+	if strings.Contains(got, "reason") || !strings.Contains(got, `"content":"hello"`) {
+		t.Fatalf("wire = %s", got)
+	}
+}
+
+// TestChatStreamMergesReasoningDetails checks OpenRouter's structured
+// reasoning: streamed text pieces join into one entry, encrypted entries stay
+// discrete and opaque, unknown entries are dropped, and the whole list goes
+// back verbatim in place of the plain reasoning field.
+func TestChatStreamMergesReasoningDetails(t *testing.T) {
+	events := sse(`{"choices":[{"index":0,"delta":{"reasoning":"let me ","reasoning_details":[{"type":"reasoning.text","text":"let me ","index":0}]}}]}`) +
+		sse(`{"choices":[{"index":0,"delta":{"reasoning":"look","reasoning_details":[{"type":"reasoning.text","text":"look","signature":"sig","index":0}]}}]}`) +
+		sse(`{"choices":[{"index":0,"delta":{"reasoning_details":[{"type":"reasoning.encrypted","data":"opaque","id":"r1"},{"type":"mystery"}]}}]}`) +
+		sse(`{"choices":[{"index":0,"delta":{"content":"hello"},"finish_reason":"stop"}]}`) + "data: [DONE]\n\n"
+	response, err := decodeChatStream(strings.NewReader(events), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	details := decodeChatOptions(response.ProviderOptions).ReasoningDetails
+	if len(details) != 2 {
+		t.Fatalf("details = %s", details)
+	}
+	var text map[string]any
+	if err := json.Unmarshal(details[0], &text); err != nil {
+		t.Fatal(err)
+	}
+	if text["text"] != "let me look" || text["signature"] != "sig" {
+		t.Fatalf("merged text detail = %s", details[0])
+	}
+	if string(details[1]) != `{"type":"reasoning.encrypted","data":"opaque","id":"r1"}` {
+		t.Fatalf("encrypted detail was altered: %s", details[1])
+	}
+	message := session.Message{Role: session.RoleAssistant, Model: "m", Parts: response.Parts, ProviderOptions: response.ProviderOptions}
+	got := assistantWire(t, chatReplay{model: "m", defaultField: "reasoning"}, message)
+	if !strings.Contains(got, `"reasoning_details":[`) || strings.Contains(got, `"reasoning":`) {
+		t.Fatalf("wire = %s", got)
+	}
+}
+
+// TestChatReplaySendsEmptyReasoningToDeepSeek checks DeepSeek's rule for a
+// reasoning model: every assistant message carries reasoning_content, empty
+// when it has none, and no other server is sent the empty field.
+func TestChatReplaySendsEmptyReasoningToDeepSeek(t *testing.T) {
+	plain := session.Message{Role: session.RoleAssistant, Model: "m", Parts: []session.Part{{Type: PartText, Text: "hello"}}}
+	if got := assistantWire(t, chatReplay{model: "m", emptyReasoning: true}, plain); !strings.Contains(got, `"reasoning_content":""`) {
+		t.Fatalf("deepseek wire = %s", got)
+	}
+	if got := assistantWire(t, chatReplay{model: "m"}, plain); strings.Contains(got, "reason") {
+		t.Fatalf("other server wire = %s", got)
+	}
+	for _, c := range []struct {
+		baseURL   string
+		reasoning bool
+		want      bool
+	}{
+		{"https://api.deepseek.com/v1", true, true},
+		{"https://api.deepseek.com/v1", false, false},
+		{"https://api.fireworks.ai/inference/v1", true, false},
+	} {
+		model := &chatModel{baseURL: c.baseURL, reasoning: c.reasoning}
+		if got := model.replay().emptyReasoning; got != c.want {
+			t.Errorf("replay(%s, reasoning=%v).emptyReasoning = %v", c.baseURL, c.reasoning, got)
+		}
+	}
+}
+
 func TestChatStreamSendsChatCompletionsBody(t *testing.T) {
 	var method, path, authorization, accept, custom, userAgent string
 	var body chatRequest
@@ -138,8 +292,7 @@ func TestChatStreamSendsChatCompletionsBody(t *testing.T) {
 		session.TextMessage(session.RoleUser, "hi"),
 		{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartToolCall, ToolCallID: "call-9", ToolName: "edit", ToolInput: json.RawMessage(`{"path":"x"}`)}}},
 		session.ToolResultMessage("call-9", "edit", "done"),
-		// Reasoning parts are display-only for this format and must not leak
-		// into the request.
+		// Reasoning is sent back with the assistant message it belongs to.
 		{Role: session.RoleAssistant, Parts: []session.Part{{Type: PartReasoning, Text: "secret thoughts"}, {Type: PartText, Text: "checking"}}},
 	}
 	tools := []Tool{{Name: "edit", Description: "Edit a file", Parameters: json.RawMessage(`{"type":"object"}`)}}
@@ -179,8 +332,11 @@ func TestChatStreamSendsChatCompletionsBody(t *testing.T) {
 	if body.Messages[3].Role != "tool" || body.Messages[3].ToolCallID != "call-9" || body.Messages[3].Content.(string) != "done" {
 		t.Fatalf("tool message = %#v", body.Messages[3])
 	}
-	if body.Messages[4].Content == nil || body.Messages[4].Content.(string) != "checking" {
+	if body.Messages[4].Content == nil || body.Messages[4].Content.(string) != "checking" || body.Messages[4].ReasoningContent == nil || *body.Messages[4].ReasoningContent != "secret thoughts" {
 		t.Fatalf("assistant message = %#v", body.Messages[4])
+	}
+	if assistant.ReasoningContent != nil {
+		t.Fatalf("assistant without reasoning sent %q", *assistant.ReasoningContent)
 	}
 	if len(body.Tools) != 1 || body.Tools[0].Type != "function" || body.Tools[0].Function.Name != "edit" || string(body.Tools[0].Function.Parameters) != `{"type":"object"}` {
 		t.Fatalf("tools = %#v", body.Tools)
@@ -483,7 +639,7 @@ func TestToChatMessagesSkipsEmptyContent(t *testing.T) {
 		session.TextMessage(session.RoleUser, "hi"),
 		{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartToolCall, ToolCallID: "1", ToolName: "read", ToolInput: json.RawMessage(`{}`)}}},
 		session.ToolResultMessage("1", "read", ""),
-	}, nil)
+	}, chatReplay{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -502,7 +658,7 @@ func TestToChatMessagesSkipsEmptyContent(t *testing.T) {
 func TestToChatMessagesRejectsUnknownRole(t *testing.T) {
 	// A role this wire format cannot send must fail the request instead of
 	// silently truncating the conversation.
-	if _, err := toChatMessages([]session.Message{session.TextMessage("hyper", "hi")}, nil); err == nil {
+	if _, err := toChatMessages([]session.Message{session.TextMessage("hyper", "hi")}, chatReplay{}, nil); err == nil {
 		t.Fatal("unknown role was accepted")
 	}
 }

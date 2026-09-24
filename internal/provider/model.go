@@ -33,7 +33,7 @@ type Tool struct {
 }
 
 // Event is a streaming delta. Thinking marks reasoning the model produced
-// before its answer; it is display-only and never part of the response text.
+// before its answer; it is shown as thinking and kept out of the response text.
 type Event struct {
 	Text     string
 	Thinking bool
@@ -41,11 +41,13 @@ type Event struct {
 
 // Response is a provider-neutral generation result. Finish carries the
 // provider's own finish reason. Usage is the server's own token report, with
-// PromptTokens covering every input token, cached or not.
+// PromptTokens covering every input token, cached or not. ProviderOptions is
+// opaque metadata the wire format needs to send the message back as it arrived.
 type Response struct {
-	Parts  []session.Part
-	Finish session.FinishReason
-	Usage  *session.Usage
+	Parts           []session.Part
+	Finish          session.FinishReason
+	Usage           *session.Usage
+	ProviderOptions json.RawMessage
 }
 
 func (r Response) Text() string { return (session.Message{Parts: r.Parts}).Text() }
@@ -55,11 +57,5 @@ func (r Response) ToolCalls() []session.ToolCall {
 }
 
 func (r Response) Reasoning() string {
-	var text string
-	for _, part := range r.Parts {
-		if part.Type == session.PartReasoning {
-			text += part.Text
-		}
-	}
-	return text
+	return (session.Message{Parts: r.Parts}).Reasoning()
 }

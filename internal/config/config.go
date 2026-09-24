@@ -63,6 +63,9 @@ type Model struct {
 	// Vision marks models that accept image content. It gates whether the read
 	// tool attaches image parts to its results instead of a text notice.
 	Vision bool `json:"vision,omitempty"`
+	// Reasoning marks models that produce reasoning. Some servers hold such a
+	// model to stricter rules for replayed history; see the provider package.
+	Reasoning bool `json:"reasoning,omitempty"`
 	// ReasoningEfforts lists the reasoning effort levels the model accepts, in
 	// the order Shift+Tab cycles through them. Empty means kon never sends an
 	// effort, so servers that reject the parameter keep working.

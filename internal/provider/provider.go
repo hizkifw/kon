@@ -126,6 +126,7 @@ func (c *Client) buildAssistant(response Response, partial bool) (session.Messag
 	message := session.Message{
 		Role: session.RoleAssistant, Parts: response.Parts,
 		Model: c.modelID, Finish: response.Finish, Usage: response.Usage,
+		ProviderOptions: response.ProviderOptions,
 	}
 	return message, nil
 }

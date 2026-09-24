@@ -58,6 +58,13 @@ base64 image data. Equal bytes in one session share a blob. The provider
 verifies and loads blobs when it builds a vision request; text-only results
 carry no image part.
 
+An assistant message's `provider_options` holds metadata the wire format needs
+to send the reply back as it arrived. For chat completions that is
+`reasoning_field`, the field its reasoning streamed in (`reasoning_content`,
+`reasoning`, or `reasoning_text`), and `reasoning_details`, OpenRouter's
+structured reasoning, kept verbatim because it can hold encrypted entries.
+Reasoning is replayed only to the model that wrote it.
+
 Tool results may include `is_error: true` and a tool-owned `details` object.
 Shell details record `exit_code`, `duration`, and `output_bytes` (the byte
 length of output before the model-facing status marker). Text reads record
