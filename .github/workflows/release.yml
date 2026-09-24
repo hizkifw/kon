@@ -19,4 +19,4 @@ jobs:
       - run: ./scripts/release.sh "$GITHUB_REF_NAME"
       - env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/* --generate-notes --verify-tag
+        run: gh release create "$GITHUB_REF_NAME" dist/* --verify-tag

@@ -74,3 +74,14 @@ no terminal state; the UI owns no provider or session serialization.
 
 - Run `make check`; run `make test-race` for concurrency-sensitive changes.
 - Update the relevant docs: `docs/*`, `README.md`.
+
+## Releases
+
+A release tag's message becomes the GitHub release notes, so tag it properly:
+
+1. Check both `git tag` and `git ls-remote --tags origin` and pick the next
+   version that does not collide with either.
+2. Format the tag as semver with a `v` prefix, e.g. `v0.1.4`.
+3. Write the tag message as a summary of the changes between the previous
+   tag and this one; `gh release create` in `.github/workflows/release.yml`
+   uses it as the release description.
