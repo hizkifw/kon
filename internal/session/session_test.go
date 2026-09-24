@@ -345,6 +345,40 @@ func TestDiscoverSkipsUnreadableFiles(t *testing.T) {
 	}
 }
 
+// An empty session is written without fsync, so a power loss can leave it
+// truncated anywhere. Resume must still find the last real session.
+func TestLatestSkipsTornEmptySessions(t *testing.T) {
+	root, cwd := t.TempDir(), t.TempDir()
+	kept, err := New(root, cwd, "test", "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := kept.AppendMessage(Message{Role: RoleUser, Parts: []Part{{Type: PartText, Text: "content"}}}); err != nil {
+		t.Fatal(err)
+	}
+	kept.Close()
+
+	torn, err := New(root, cwd, "test", "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := torn.Path()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, size := range []int{0, len(b) / 2} {
+		if err := os.WriteFile(path, b[:size], 0o600); err != nil {
+			t.Fatal(err)
+		}
+		summary, ok, err := Latest(root, cwd)
+		if err != nil || !ok || summary.ID != kept.ID() {
+			t.Fatalf("Latest with %d-byte torn session = %v, %v, %v; want %s", size, summary.ID, ok, err, kept.ID())
+		}
+	}
+	torn.Close()
+}
+
 func TestActivePathIncludesMessagesInOrder(t *testing.T) {
 	store, err := New(t.TempDir(), t.TempDir(), "test", "system")
 	if err != nil {

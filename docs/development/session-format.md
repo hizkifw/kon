@@ -107,6 +107,11 @@ key on, so compaction does not invalidate the cache for the retained context.
 
 ## Durability
 
-kon marshals, appends, and syncs each complete line before continuing. On open,
+kon marshals, appends, and syncs each complete line before continuing. The one
+exception is a session that is still empty (header, root system message, and
+model changes only): those lines are not synced, because an empty session is
+discarded on close and skipped by discovery if a crash leaves it behind. The
+first conversation or compaction entry is synced, which makes every earlier line
+durable along with it. On open,
 only a malformed final line may be removed as crash residue. Existing complete
 entries are never rewritten by normal operation or compaction.

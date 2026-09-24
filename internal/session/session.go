@@ -295,7 +295,7 @@ func New(root, cwd, appVersion, systemPrompt string) (*Store, error) {
 		byID:   make(map[typedid.EntryID]int),
 		empty:  true,
 	}
-	if err := s.writeLine(s.header); err != nil {
+	if err := s.writeLine(s.header, false); err != nil {
 		f.Close()
 		return nil, err
 	}
@@ -817,13 +817,14 @@ func (s *Store) append(entry Entry) (typedid.EntryID, error) {
 		parent := *s.leafID
 		entry.ParentID = &parent
 	}
-	if err := s.writeLine(entry); err != nil {
-		return typedid.EntryID{}, err
-	}
 	// The root system message is written through this path on creation, and model
 	// changes are structural; neither makes the session worth keeping. The first
 	// appended conversation or compaction entry does.
-	if len(s.entries) > 0 && entry.Type != EntryTypeModelChange {
+	substantive := len(s.entries) > 0 && entry.Type != EntryTypeModelChange
+	if err := s.writeLine(entry, !s.empty || substantive); err != nil {
+		return typedid.EntryID{}, err
+	}
+	if substantive {
 		s.empty = false
 	}
 	s.byID[id] = len(s.entries)
@@ -832,13 +833,20 @@ func (s *Store) append(entry Entry) (typedid.EntryID, error) {
 	return id, nil
 }
 
-func (s *Store) writeLine(value any) error {
+// writeLine appends one record, syncing it when sync is set. An empty session
+// skips the sync: Close discards it, discovery ignores it if a crash leaves it
+// behind, and each fsync costs milliseconds of startup. The first substantive
+// entry's sync makes every earlier line durable along with it.
+func (s *Store) writeLine(value any, sync bool) error {
 	b, err := json.Marshal(value)
 	if err != nil {
 		return fmt.Errorf("encode session entry: %w", err)
 	}
 	if _, err := s.file.Write(append(b, '\n')); err != nil {
 		return fmt.Errorf("append session entry: %w", err)
+	}
+	if !sync {
+		return nil
 	}
 	if err := s.file.Sync(); err != nil {
 		return fmt.Errorf("sync session entry: %w", err)
