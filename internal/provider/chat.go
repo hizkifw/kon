@@ -31,6 +31,8 @@ type chatModel struct {
 	apiKey    string
 	headers   map[string]string
 	model     string
+	wireType  string
+	effort    string
 	readImage func(string) ([]byte, error)
 }
 
@@ -80,6 +82,8 @@ func newChatModel(profile config.Model, readImage func(string) ([]byte, error)) 
 		apiKey:    profile.APIKey,
 		headers:   profile.Headers,
 		model:     profile.ModelID,
+		wireType:  profile.WireType(),
+		effort:    profile.ReasoningEffort,
 		readImage: readImage,
 	}
 }
@@ -98,6 +102,27 @@ type chatRequest struct {
 	// MaxCompletionTokens is the replacement for MaxTokens on newer OpenAI
 	// reasoning models, which reject the legacy field.
 	MaxCompletionTokens tokens.Count `json:"max_completion_tokens,omitempty"`
+	ReasoningEffort     string       `json:"reasoning_effort,omitempty"`
+	// Reasoning is OpenRouter's normalized form of the same control.
+	Reasoning *chatReasoning `json:"reasoning,omitempty"`
+}
+
+type chatReasoning struct {
+	Effort string `json:"effort"`
+}
+
+// request starts a payload with the fields every call shares. The effort is
+// sent only when one is selected, so servers without the parameter never see it.
+func (m *chatModel) request(messages []chatMessage) chatRequest {
+	payload := chatRequest{Model: m.model, Messages: messages}
+	switch {
+	case m.effort == "":
+	case m.wireType == "openrouter":
+		payload.Reasoning = &chatReasoning{Effort: m.effort}
+	default:
+		payload.ReasoningEffort = m.effort
+	}
+	return payload
 }
 
 type chatStreamOptions struct {
@@ -275,13 +300,10 @@ func (m *chatModel) Stream(ctx context.Context, messages []session.Message, tool
 	if err != nil {
 		return Response{}, err
 	}
-	payload := chatRequest{
-		Model:         m.model,
-		Messages:      wireMessages,
-		Tools:         toChatTools(tools),
-		Stream:        true,
-		StreamOptions: &chatStreamOptions{IncludeUsage: true},
-	}
+	payload := m.request(wireMessages)
+	payload.Tools = toChatTools(tools)
+	payload.Stream = true
+	payload.StreamOptions = &chatStreamOptions{IncludeUsage: true}
 	response, err := m.stream(ctx, payload, emit)
 	if !isStreamOptionsError(err) {
 		return response, err
@@ -330,7 +352,8 @@ func (m *chatModel) Complete(ctx context.Context, messages []session.Message, to
 	if err != nil {
 		return Response{}, err
 	}
-	payload := chatRequest{Model: m.model, Messages: wireMessages, MaxTokens: maxTokens}
+	payload := m.request(wireMessages)
+	payload.MaxTokens = maxTokens
 	if len(tools) > 0 {
 		payload.Tools = toChatTools(tools)
 		payload.ToolChoice = "none"

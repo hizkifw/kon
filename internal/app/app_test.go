@@ -246,6 +246,130 @@ func TestExplicitModelChangeOmitsConnectionID(t *testing.T) {
 	t.Fatal("initial model selection was not recorded")
 }
 
+func TestCycleEffortSavesAndSwitchResetsIt(t *testing.T) {
+	root := t.TempDir()
+	paths := config.Paths{ConfigFile: filepath.Join(root, "config.json"), Sessions: filepath.Join(root, "sessions")}
+	cfg := config.Default()
+	cfg.Models[0].ModelID = "gpt"
+	cfg.Models[0].ReasoningEfforts = []string{"low", "high"}
+	cfg.Models = append(cfg.Models, config.Model{Name: "other", ModelID: "gpt-2", BaseURL: "https://example.test/v1", ReasoningEfforts: []string{"low"}})
+	cfg.ReasoningEffort = "high"
+	if err := cfg.Save(paths.ConfigFile); err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := New(cfg, paths, t.TempDir(), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+	if got := runtime.State().Active.ReasoningEffort; got != "high" {
+		t.Fatalf("saved effort = %q", got)
+	}
+	var got []string
+	for range 2 {
+		effort, err := runtime.CycleEffort()
+		if err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, effort)
+	}
+	if !slices.Equal(got, []string{"", "low"}) {
+		t.Fatalf("cycle = %q", got)
+	}
+	if saved, err := config.Load(paths.ConfigFile); err != nil || saved.ReasoningEffort != "low" {
+		t.Fatalf("saved effort = %q, %v", saved.ReasoningEffort, err)
+	}
+	if err := runtime.NewSession(); err != nil || runtime.State().Active.ReasoningEffort != "low" {
+		t.Fatalf("new session effort = %q, %v", runtime.State().Active.ReasoningEffort, err)
+	}
+	if err := runtime.SwitchModel("other"); err != nil {
+		t.Fatal(err)
+	}
+	if got := runtime.State().Active.ReasoningEffort; got != "" {
+		t.Fatalf("effort after switch = %q", got)
+	}
+	if saved, err := config.Load(paths.ConfigFile); err != nil || saved.ReasoningEffort != "" {
+		t.Fatalf("saved effort after switch = %q, %v", saved.ReasoningEffort, err)
+	}
+}
+
+func TestUnlistedSavedEffortFallsBackToDefault(t *testing.T) {
+	root := t.TempDir()
+	paths := config.Paths{ConfigFile: filepath.Join(root, "config.json"), Sessions: filepath.Join(root, "sessions")}
+	cfg := config.Default()
+	cfg.Models[0].ModelID = "gpt"
+	cfg.Models[0].ReasoningEfforts = []string{"low", "high"}
+	cfg.ReasoningEffort = "max"
+	runtime, err := New(cfg, paths, t.TempDir(), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+	if state := runtime.State(); !state.Ready() || state.Active.ReasoningEffort != "" {
+		t.Fatalf("state = %#v", state)
+	}
+}
+
+func TestToggleOnlyCatalogModelCanTurnReasoningOff(t *testing.T) {
+	root := t.TempDir()
+	paths := config.Paths{ConfigFile: filepath.Join(root, "config.json"), Sessions: filepath.Join(root, "sessions")}
+	cfg := config.Default()
+	cfg.Providers = []config.Provider{{ID: "fireworks-ai", Type: "openai-compatible", BaseURL: "https://api.fireworks.ai/inference/v1"}}
+	cfg.DefaultModel = "fireworks-ai/accounts/fireworks/models/kimi-k2p6"
+	cfg.ReasoningEffort = "none"
+	runtime, err := New(cfg, paths, t.TempDir(), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+	// The saved effort waits for the catalog to confirm the model accepts it.
+	if active := runtime.State().Active; active.ReasoningEffort != "" {
+		t.Fatalf("effort before catalog = %q", active.ReasoningEffort)
+	}
+	runtime.LoadCatalog()
+	if active := runtime.State().Active; !slices.Equal(active.ReasoningEfforts, []string{"none"}) || active.ReasoningEffort != "none" {
+		t.Fatalf("active after catalog = %#v", active)
+	}
+	if effort, err := runtime.CycleEffort(); err != nil || effort != "" {
+		t.Fatalf("effort = %q, %v", effort, err)
+	}
+}
+
+func TestCycleEffortReadsDerivedModelLevelsFromCatalog(t *testing.T) {
+	root := t.TempDir()
+	paths := config.Paths{ConfigFile: filepath.Join(root, "config.json"), Sessions: filepath.Join(root, "sessions")}
+	cfg := config.Default()
+	cfg.Providers = []config.Provider{{ID: "fireworks-ai", Type: "openai-compatible", BaseURL: "https://api.fireworks.ai/inference/v1"}}
+	cfg.DefaultModel = "fireworks-ai/accounts/fireworks/models/deepseek-v4p1-flash"
+	runtime, err := New(cfg, paths, t.TempDir(), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+	effort, err := runtime.CycleEffort()
+	if err != nil || effort != "low" {
+		t.Fatalf("first effort = %q, %v", effort, err)
+	}
+	if active := runtime.State().Active; active.DisplayName != "DeepSeek V4.1 Flash" || active.ReasoningEffort != "low" {
+		t.Fatalf("active = %#v", active)
+	}
+}
+
+func TestCycleEffortWithoutLevelsReportsIt(t *testing.T) {
+	root := t.TempDir()
+	paths := config.Paths{ConfigFile: filepath.Join(root, "config.json"), Sessions: filepath.Join(root, "sessions")}
+	cfg := config.Default()
+	cfg.Models[0].ModelID = "gpt"
+	runtime, err := New(cfg, paths, t.TempDir(), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+	if _, err := runtime.CycleEffort(); !errors.Is(err, ErrNoEffort) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 func TestLoadCatalogPopulatesActiveDerivedModel(t *testing.T) {
 	root := t.TempDir()
 	paths := config.Paths{ConfigFile: filepath.Join(root, "config.json"), Sessions: filepath.Join(root, "sessions")}

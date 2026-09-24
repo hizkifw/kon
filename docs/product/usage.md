@@ -58,6 +58,7 @@ directory's permissions rather than running kon as root.
 | Shift+Enter / Ctrl+Enter | Insert a newline |
 | Enter after a trailing `\` | Continue on a new line instead of submitting |
 | Tab / Shift+Tab | Fill in the selected suggestion |
+| Shift+Tab | Cycle the model's reasoning effort when no suggestion popup is open |
 | Up/Down | Recall prompts, or move the suggestion selection |
 | Esc | Dismiss the popup, or interrupt the running turn (press again to kill the command) |
 | Page Up/Page Down | Scroll the transcript |
@@ -71,7 +72,8 @@ directory's permissions rather than running kon as root.
 | Ctrl+R | Reverse-search prompt history; type to match, Ctrl+R or Up for older matches, Down for newer, Enter accepts, Esc cancels |
 
 The status bar shows the working directory, context usage, and a status
-message; the header shows the active model. `ctx ~12.4k/128.0k` means usage is
+message; the header shows the active model and, for a model with reasoning
+effort levels, the selected level (`default` when kon sends none). `ctx ~12.4k/128.0k` means usage is
 estimated; `?` means the provider has not supplied enough information yet.
 
 ## Tools and long conversations

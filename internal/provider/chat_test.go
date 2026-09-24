@@ -94,6 +94,31 @@ func TestChatStreamAssemblesDeltas(t *testing.T) {
 	}
 }
 
+func TestChatRequestSendsSelectedEffort(t *testing.T) {
+	var bodies []string
+	model := newTestModel(t, func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		bodies = append(bodies, string(raw))
+		_, _ = io.WriteString(w, `{"choices":[{"index":0,"message":{"content":"ok"},"finish_reason":"stop"}]}`)
+	})
+	messages := []session.Message{session.TextMessage(session.RoleUser, "hi")}
+	for _, effort := range []struct{ wireType, effort string }{{"openai-compatible", ""}, {"openai", "low"}, {"openrouter", "max"}} {
+		model.wireType, model.effort = effort.wireType, effort.effort
+		if _, err := model.Complete(context.Background(), messages, nil, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if strings.Contains(bodies[0], "reasoning") {
+		t.Fatalf("default effort leaked into request: %s", bodies[0])
+	}
+	if !strings.Contains(bodies[1], `"reasoning_effort":"low"`) {
+		t.Fatalf("openai request = %s", bodies[1])
+	}
+	if !strings.Contains(bodies[2], `"reasoning":{"effort":"max"}`) || strings.Contains(bodies[2], "reasoning_effort") {
+		t.Fatalf("openrouter request = %s", bodies[2])
+	}
+}
+
 func TestChatStreamSendsChatCompletionsBody(t *testing.T) {
 	var method, path, authorization, accept, custom, userAgent string
 	var body chatRequest

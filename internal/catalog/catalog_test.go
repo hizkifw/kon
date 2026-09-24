@@ -49,6 +49,30 @@ func TestBundledCatalogIsAvailable(t *testing.T) {
 	}
 }
 
+func TestBundledCatalogKeepsReasoningEfforts(t *testing.T) {
+	s, err := New("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, model := range s.Models("openai") {
+		efforts := model.Efforts()
+		if len(efforts) == 0 {
+			continue
+		}
+		found = true
+		efforts[0] = "changed"
+		again, _ := s.Model("openai", model.ID)
+		if again.Efforts()[0] == "changed" {
+			t.Fatal("caller mutated catalog reasoning options")
+		}
+		break
+	}
+	if !found {
+		t.Fatal("bundled snapshot dropped reasoning effort levels")
+	}
+}
+
 func TestRefreshAndCache(t *testing.T) {
 	cachePath := filepath.Join(t.TempDir(), "models.json.gz")
 	var requests int

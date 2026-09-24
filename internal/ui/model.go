@@ -28,6 +28,9 @@ type Runtime interface {
 	Run(context.Context, string, func(agent.Event)) error
 	Compact(context.Context, func(agent.Event)) error
 	SwitchModel(string) error
+	// CycleEffort advances the active model's reasoning effort and returns the
+	// new level, or "" for the provider default.
+	CycleEffort() (string, error)
 	Login(context.Context, config.Provider) (int, bool, error)
 	LoginProviders() []string
 	LoginConnection(string) (config.Provider, bool)
@@ -385,7 +388,8 @@ func (m Model) handleKey(key string) (tea.Model, tea.Cmd, bool) {
 			m.syncPreview()
 			return m, nil, true
 		}
-		return m, nil, false
+		updated, cmd := m.cycleEffort()
+		return updated, cmd, true
 	case "esc":
 		if m.menu.open() {
 			m.resetMenu()

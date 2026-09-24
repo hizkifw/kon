@@ -65,6 +65,9 @@ func (m Model) View() tea.View {
 			name = m.active.ConnectionID + " · " + name
 		}
 		header += " · " + name
+		if len(m.active.ReasoningEfforts) > 0 {
+			header += " · " + effortLabel(m.active.ReasoningEffort)
+		}
 	}
 	ctx := "ctx ?"
 	if m.contextTokens >= 0 {
@@ -114,6 +117,19 @@ func (m Model) View() tea.View {
 	view.ReportFocus = true
 	view.WindowTitle = "kon"
 	return view
+}
+
+// effortLabel names a reasoning effort for display. The empty level is the
+// provider's default, and "none" is spelled out so turning reasoning off reads
+// as a choice rather than a missing value.
+func effortLabel(effort string) string {
+	switch effort {
+	case "":
+		return "default"
+	case "none":
+		return "no thinking"
+	}
+	return effort
 }
 
 // accentBrand paints the "kon" wordmark in the muted red accent.

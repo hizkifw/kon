@@ -102,6 +102,7 @@ func (r *Runtime) resolveActive() error {
 	if !ok {
 		return nil
 	}
+	profile = r.withEffort(profile)
 	client, err := provider.New(profile, r.store.ReadImage)
 	if err != nil {
 		return err
@@ -110,6 +111,58 @@ func (r *Runtime) resolveActive() error {
 	r.runner = agent.New(profile, r.config.Compaction, client, r.store, tools.New(r.cwd, profile.Vision))
 	r.activeResolved = true
 	return nil
+}
+
+// CycleEffort advances the active model to its next reasoning effort, saves it
+// to the config like the active model, and returns it. After the last level
+// the cycle returns to the provider default, reported as "". It adds nothing to
+// the durable session, so the cached prompt prefix is untouched.
+func (r *Runtime) CycleEffort() (string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := r.mutable(); err != nil {
+		return "", err
+	}
+	if r.phase == PhaseNeedsConfiguration || r.runner == nil {
+		return "", ErrNotReady
+	}
+	// A derived model learns its effort levels from the catalog.
+	if err := r.resolveActive(); err != nil {
+		return "", err
+	}
+	efforts := r.active.ReasoningEfforts
+	if len(efforts) == 0 {
+		return "", ErrNoEffort
+	}
+	profile := r.active
+	profile.ReasoningEffort = ""
+	if i := slices.Index(efforts, r.active.ReasoningEffort); i+1 < len(efforts) {
+		profile.ReasoningEffort = efforts[i+1]
+	}
+	client, err := provider.New(profile, r.store.ReadImage)
+	if err != nil {
+		return "", err
+	}
+	updated := r.config
+	updated.ReasoningEffort = profile.ReasoningEffort
+	if err := updated.Save(r.paths.ConfigFile); err != nil {
+		return "", fmt.Errorf("saving reasoning effort: %w", err)
+	}
+	r.config = updated
+	r.active = profile
+	r.runner = agent.New(profile, r.config.Compaction, client, r.store, tools.New(r.cwd, profile.Vision))
+	return profile.ReasoningEffort, nil
+}
+
+// withEffort applies the saved effort to a profile of the active model. A
+// level the model does not list, including one saved before its catalog
+// levels were known, falls back to the provider default.
+func (r *Runtime) withEffort(profile config.Model) config.Model {
+	profile.ReasoningEffort = ""
+	if slices.Contains(profile.ReasoningEfforts, r.config.ReasoningEffort) {
+		profile.ReasoningEffort = r.config.ReasoningEffort
+	}
+	return profile
 }
 
 // describeActive adds catalog display metadata when the catalog has loaded,
@@ -184,6 +237,12 @@ func (r *Runtime) resolveModel(name string) (config.Model, bool) {
 				profile.ContextWindowTokens = window
 			}
 			profile.Vision = slices.Contains(metadata.Modalities.Input, "image")
+			profile.ReasoningEfforts = metadata.Efforts()
+			if len(profile.ReasoningEfforts) == 0 && metadata.ReasoningToggle() {
+				// A model that can only switch reasoning off gets one level:
+				// "none" is the chat format's effort value for no reasoning.
+				profile.ReasoningEfforts = []string{"none"}
+			}
 		}
 	}
 	return profile, true
@@ -257,6 +316,7 @@ func (r *Runtime) Login(ctx context.Context, connection config.Provider) (int, b
 	// switch to the durable session or rebuilding its system prompt.
 	if r.store != nil && r.active.Name != "" {
 		if profile, ok := r.resolveModel(r.active.Name); ok {
+			profile = r.withEffort(profile)
 			if profile.Ready() == nil {
 				client, err := provider.New(profile, r.store.ReadImage)
 				if err == nil {

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -27,6 +28,7 @@ var (
 	ErrBusy     = errors.New("agent is busy")
 	ErrClosed   = errors.New("app is closed")
 	ErrNotReady = errors.New("model is not configured")
+	ErrNoEffort = errors.New("model has no reasoning effort levels")
 )
 
 type Model struct {
@@ -36,7 +38,12 @@ type Model struct {
 	Type          string
 	ExternalID    string
 	ContextWindow tokens.Count
-	Source        string
+	// ReasoningEfforts lists the levels Shift+Tab cycles through; empty means
+	// the model has no reasoning control.
+	ReasoningEfforts []string
+	// ReasoningEffort is the selected effort; empty means the provider default.
+	ReasoningEffort string
+	Source          string
 }
 
 type Phase string
@@ -127,6 +134,9 @@ func start(cfg config.Config, paths config.Paths, cwd, version string, resume bo
 	}
 
 	profile, _ := cfg.ResolveModel(cfg.DefaultModel)
+	// A derived model has no levels until its catalog entry resolves, so its
+	// saved effort is applied again by resolveActive.
+	profile = r.withEffort(profile)
 	r.active = profile
 	_, r.activeResolved = cfg.Model(cfg.DefaultModel)
 
@@ -307,8 +317,10 @@ func (r *Runtime) SwitchModel(name string) error {
 	if err != nil {
 		return err
 	}
-	// Persist the selection so the next kon launch starts on this model.
+	// Persist the selection so the next kon launch starts on this model. Effort
+	// levels differ between models, so a switch starts on the provider default.
 	r.config.DefaultModel = profile.Name
+	r.config.ReasoningEffort = ""
 	if err := r.config.Save(r.paths.ConfigFile); err != nil {
 		return fmt.Errorf("model switched to %s, but saving config: %w", name, err)
 	}
@@ -523,5 +535,9 @@ func (r *Runtime) mutable() error {
 }
 
 func describe(profile config.Model) Model {
-	return Model{Name: profile.Name, Type: profile.WireType(), ExternalID: profile.ModelID, ContextWindow: profile.ContextWindowTokens}
+	return Model{
+		Name: profile.Name, Type: profile.WireType(), ExternalID: profile.ModelID,
+		ContextWindow:    profile.ContextWindowTokens,
+		ReasoningEfforts: slices.Clone(profile.ReasoningEfforts), ReasoningEffort: profile.ReasoningEffort,
+	}
 }

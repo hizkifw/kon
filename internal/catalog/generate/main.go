@@ -116,7 +116,7 @@ func project(raw []byte) ([]byte, error) {
 	providerFields := map[string]bool{"id": true, "name": true, "api": true, "npm": true, "env": true, "models": true}
 	modelFields := map[string]bool{
 		"id": true, "name": true, "description": true, "family": true,
-		"attachment": true, "reasoning": true, "tool_call": true,
+		"attachment": true, "reasoning": true, "reasoning_options": true, "tool_call": true,
 		"structured_output": true, "modalities": true, "limit": true, "cost": true,
 	}
 	for _, provider := range providers {

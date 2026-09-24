@@ -131,6 +131,20 @@ func TestValidateNamedModels(t *testing.T) {
 	}
 }
 
+func TestValidateReasoningEfforts(t *testing.T) {
+	cfg := Default()
+	cfg.Models[0].ReasoningEfforts = []string{"low", "high"}
+	// A saved effort the model does not list is ignored at runtime, not rejected.
+	cfg.ReasoningEffort = "max"
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Models[0].ReasoningEfforts = []string{"low", "low"}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("duplicate reasoning effort was accepted")
+	}
+}
+
 func TestCompatibleModelRequiresBaseURL(t *testing.T) {
 	cfg := Default()
 	cfg.Models[0].Type = "openai-compatible"

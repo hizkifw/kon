@@ -374,6 +374,23 @@ func (m Model) switchModel(name string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// cycleEffort moves the active model to its next reasoning effort. The level
+// shows in the header, so the status line only confirms the change.
+func (m Model) cycleEffort() (tea.Model, tea.Cmd) {
+	if m.busy {
+		m.status = "agent is busy; change the effort after this turn"
+		return m, nil
+	}
+	effort, err := m.runtime.CycleEffort()
+	if err != nil {
+		m.status = err.Error()
+		return m, nil
+	}
+	m.syncRuntimeState()
+	m.status = "reasoning effort: " + effortLabel(effort) + " (saved to config)"
+	return m, nil
+}
+
 // compact forces a manual context compaction. It refuses to run while another
 // operation is in flight and reports when there is nothing safe to compact.
 func (m Model) compact() (tea.Model, tea.Cmd) {

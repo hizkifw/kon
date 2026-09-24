@@ -110,6 +110,26 @@ then attaches PNG, JPEG, GIF, and WebP files up to 5 MB as image content.
 Without this flag, reading an image returns a text notice. Derived models use
 catalog image-input metadata when available.
 
+Set `reasoning_efforts` to the effort levels a reasoning model accepts, in the
+order Shift+Tab should cycle through them:
+
+```json
+{"name": "deep", "model": "o4-mini", "base_url": "https://api.openai.com/v1", "api_key": "...", "reasoning_efforts": ["low", "medium", "high"]}
+```
+
+The cycle ends on `default`, which sends no effort and leaves the choice to
+the provider. Without `reasoning_efforts`, kon never sends the parameter. For
+a model that can only switch reasoning off, use `["none"]`; the header shows
+that level as `no thinking`. Derived models use the catalog's effort levels,
+and a catalog model that only has an on/off toggle gets the same `none` level.
+The selected level is sent as `reasoning_effort`, or as `reasoning.effort` for
+OpenRouter.
+
+Like `default_model`, the selected level is saved as the top-level
+`reasoning_effort` and restored on the next launch. Switching models resets it
+to `default`. A saved level the model does not list is ignored, so the model
+starts on `default` instead of failing.
+
 ## Model catalog
 
 Run `kon models` to list model IDs from the bundled models.dev catalog or a

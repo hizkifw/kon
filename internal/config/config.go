@@ -18,11 +18,15 @@ import (
 const filename = "config.json"
 
 type Config struct {
-	DefaultModel string     `json:"default_model"`
-	Providers    []Provider `json:"providers,omitempty"`
-	Models       []Model    `json:"models"`
-	Compaction   Compaction `json:"compaction"`
-	Instructions string     `json:"instructions"`
+	DefaultModel string `json:"default_model"`
+	// ReasoningEffort is the effort last selected for the default model. It is
+	// not validated: a level the model does not list falls back to the
+	// provider default, so a stale value never blocks startup.
+	ReasoningEffort string     `json:"reasoning_effort,omitempty"`
+	Providers       []Provider `json:"providers,omitempty"`
+	Models          []Model    `json:"models"`
+	Compaction      Compaction `json:"compaction"`
+	Instructions    string     `json:"instructions"`
 	// ContextFiles enables discovery of AGENTS.md and CLAUDE.md files by walking
 	// up from the working directory. It is on by default; set it to false to
 	// keep the system prompt limited to the built-in rules and instructions.
@@ -59,6 +63,13 @@ type Model struct {
 	// Vision marks models that accept image content. It gates whether the read
 	// tool attaches image parts to its results instead of a text notice.
 	Vision bool `json:"vision,omitempty"`
+	// ReasoningEfforts lists the reasoning effort levels the model accepts, in
+	// the order Shift+Tab cycles through them. Empty means kon never sends an
+	// effort, so servers that reject the parameter keep working.
+	ReasoningEfforts []string `json:"reasoning_efforts,omitempty"`
+	// ReasoningEffort is the level a resolved profile sends. It is applied from
+	// Config.ReasoningEffort at runtime and is never stored per model.
+	ReasoningEffort string `json:"-"`
 }
 
 type Compaction struct {
@@ -243,6 +254,14 @@ func (c Config) Validate() error {
 		}
 		if model.WireType() == "openai-compatible" && strings.TrimSpace(model.BaseURL) == "" {
 			return fmt.Errorf("model %q requires base_url for openai-compatible", model.Name)
+		}
+		for j, effort := range model.ReasoningEfforts {
+			if !validName(effort) {
+				return fmt.Errorf("model %q reasoning_efforts[%d] must use letters, digits, '.', '_' or '-'", model.Name, j)
+			}
+			if slices.Contains(model.ReasoningEfforts[:j], effort) {
+				return fmt.Errorf("model %q lists reasoning effort %q twice", model.Name, effort)
+			}
 		}
 		if model.ContextWindowTokens < 0 {
 			return fmt.Errorf("model %q context_window_tokens must be non-negative", model.Name)

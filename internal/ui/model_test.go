@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -37,6 +38,7 @@ type fakeRuntime struct {
 	previewed      string
 	loginProvider  config.Provider
 	catalogLoads   int
+	efforts        []string
 }
 
 func (f *fakeRuntime) Models() []app.Model                                  { return f.models }
@@ -89,6 +91,43 @@ func (f *fakeRuntime) SwitchModel(name string) error {
 		}
 	}
 	return app.ErrNotReady
+}
+
+func (f *fakeRuntime) CycleEffort() (string, error) {
+	active := &f.state.Active
+	if len(active.ReasoningEfforts) == 0 {
+		return "", app.ErrNoEffort
+	}
+	i := slices.Index(active.ReasoningEfforts, active.ReasoningEffort)
+	active.ReasoningEffort = ""
+	if i+1 < len(active.ReasoningEfforts) {
+		active.ReasoningEffort = active.ReasoningEfforts[i+1]
+	}
+	return active.ReasoningEffort, nil
+}
+
+func TestShiftTabCyclesEffortIntoHeader(t *testing.T) {
+	m := newTestModel(t)
+	header := func(m Model) string { return plain(strings.SplitN(m.View().Content, "\n", 2)[0]) }
+	if got := header(m); !strings.HasSuffix(got, "kon · fast") {
+		t.Fatalf("header without levels = %q", got)
+	}
+	updated, _, _ := m.handleKey("shift+tab")
+	if status := updated.(Model).status; status != app.ErrNoEffort.Error() {
+		t.Fatalf("status without levels = %q", status)
+	}
+	m.runtime.(*fakeRuntime).state.Active.ReasoningEfforts = []string{"low", "none"}
+	m.syncRuntimeState()
+	for _, want := range []string{"low", "no thinking", "default"} {
+		updated, _, handled := m.handleKey("shift+tab")
+		m = updated.(Model)
+		if !handled || m.status != "reasoning effort: "+want+" (saved to config)" {
+			t.Fatalf("handled = %v, status = %q", handled, m.status)
+		}
+		if got := header(m); !strings.HasSuffix(got, "kon · fast · "+want) {
+			t.Fatalf("header = %q, want effort %q", got, want)
+		}
+	}
 }
 
 func TestSanitizeRemovesTerminalEscapes(t *testing.T) {

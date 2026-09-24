@@ -62,17 +62,42 @@ type storedProvider struct {
 }
 
 type Model struct {
-	ID               string     `json:"id"`
-	Name             string     `json:"name"`
-	Description      string     `json:"description"`
-	Family           string     `json:"family"`
-	Attachment       bool       `json:"attachment"`
-	Reasoning        bool       `json:"reasoning"`
-	ToolCall         bool       `json:"tool_call"`
-	StructuredOutput bool       `json:"structured_output"`
-	Modalities       Modalities `json:"modalities"`
-	Limit            Limit      `json:"limit"`
-	Cost             Cost       `json:"cost"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Family      string `json:"family"`
+	Attachment  bool   `json:"attachment"`
+	Reasoning   bool   `json:"reasoning"`
+	// ReasoningOptions lists the reasoning controls the model accepts. Only
+	// the "effort" kind is used by kon; toggle and budget_tokens are kept so
+	// the cached catalog stays a faithful projection of upstream.
+	ReasoningOptions []ReasoningOption `json:"reasoning_options,omitempty"`
+	ToolCall         bool              `json:"tool_call"`
+	StructuredOutput bool              `json:"structured_output"`
+	Modalities       Modalities        `json:"modalities"`
+	Limit            Limit             `json:"limit"`
+	Cost             Cost              `json:"cost"`
+}
+
+type ReasoningOption struct {
+	Type   string   `json:"type"`
+	Values []string `json:"values,omitempty"`
+}
+
+// Efforts returns the reasoning effort levels the model accepts, in upstream
+// order, or nil when it has no effort control.
+func (m Model) Efforts() []string {
+	for _, option := range m.ReasoningOptions {
+		if option.Type == "effort" && len(option.Values) > 0 {
+			return slices.Clone(option.Values)
+		}
+	}
+	return nil
+}
+
+// ReasoningToggle reports whether the model can switch reasoning on and off.
+func (m Model) ReasoningToggle() bool {
+	return slices.ContainsFunc(m.ReasoningOptions, func(option ReasoningOption) bool { return option.Type == "toggle" })
 }
 
 type Modalities struct {
@@ -316,6 +341,11 @@ func (s *Service) Model(providerID, modelID string) (Model, bool) {
 func cloneModel(model Model) Model {
 	model.Modalities.Input = slices.Clone(model.Modalities.Input)
 	model.Modalities.Output = slices.Clone(model.Modalities.Output)
+	options := slices.Clone(model.ReasoningOptions)
+	for i := range options {
+		options[i].Values = slices.Clone(options[i].Values)
+	}
+	model.ReasoningOptions = options
 	return model
 }
 
