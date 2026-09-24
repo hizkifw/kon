@@ -142,5 +142,8 @@ model changes or turn starts only): those lines are not synced, because an empty
 discarded on close and skipped by discovery if a crash leaves it behind. The
 first conversation or compaction entry is synced, which makes every earlier line
 durable along with it. On open,
-only a malformed final line may be removed as crash residue. Existing complete
-entries are never rewritten by normal operation or compaction.
+only a malformed final line may be removed as crash residue. An append whose
+write or sync fails (a full disk) is truncated away at once, so the next line
+never follows a partial one; if that truncation also fails, the store refuses
+further appends. Existing complete entries are never rewritten by normal
+operation or compaction.

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -272,7 +273,7 @@ type Store struct {
 	mu      sync.Mutex
 	header  Header
 	path    string
-	file    *os.File
+	file    sessionFile
 	entries []Entry
 	byID    map[typedid.EntryID]int
 	leafID  *typedid.EntryID
@@ -281,6 +282,20 @@ type Store struct {
 	// not leave a resumable file behind, which would otherwise shadow an earlier
 	// session that actually has content.
 	empty bool
+	// broken is set when a failed append could not be rolled back. The file
+	// then ends in a torn line, and appending after it would bury that line
+	// mid-file where Open refuses it, so every later append fails instead.
+	broken error
+}
+
+// sessionFile is the part of *os.File the store writes through, so tests can
+// simulate a write that fails partway.
+type sessionFile interface {
+	Write([]byte) (int, error)
+	Seek(offset int64, whence int) (int64, error)
+	Truncate(size int64) error
+	Sync() error
+	Close() error
 }
 
 func New(root, cwd, appVersion, systemPrompt string) (*Store, error) {
@@ -853,6 +868,9 @@ func (s *Store) append(entry Entry) (typedid.EntryID, error) {
 	if s.file == nil {
 		return typedid.EntryID{}, errors.New("session is closed")
 	}
+	if s.broken != nil {
+		return typedid.EntryID{}, s.broken
+	}
 	id, err := typedid.NewEntryID()
 	if err != nil {
 		return typedid.EntryID{}, err
@@ -883,21 +901,40 @@ func (s *Store) append(entry Entry) (typedid.EntryID, error) {
 // skips the sync: Close discards it, discovery ignores it if a crash leaves it
 // behind, and each fsync costs milliseconds of startup. The first substantive
 // entry's sync makes every earlier line durable along with it.
+//
+// A failed write or sync truncates the file back to where the record began.
+// The entry is not added in memory either, so file and memory stay in step,
+// and a partial line from a full disk is never followed by the next record.
 func (s *Store) writeLine(value any, sync bool) error {
 	b, err := json.Marshal(value)
 	if err != nil {
 		return fmt.Errorf("encode session entry: %w", err)
 	}
+	offset, err := s.file.Seek(0, io.SeekEnd)
+	if err != nil {
+		return fmt.Errorf("find session end: %w", err)
+	}
 	if _, err := s.file.Write(append(b, '\n')); err != nil {
-		return fmt.Errorf("append session entry: %w", err)
+		return s.rollback(offset, fmt.Errorf("append session entry: %w", err))
 	}
 	if !sync {
 		return nil
 	}
 	if err := s.file.Sync(); err != nil {
-		return fmt.Errorf("sync session entry: %w", err)
+		return s.rollback(offset, fmt.Errorf("sync session entry: %w", err))
 	}
 	return nil
+}
+
+// rollback removes a record that failed partway. The next writeLine seeks to
+// the new end, which also covers a new session's file, opened without append
+// mode.
+func (s *Store) rollback(offset int64, cause error) error {
+	if err := s.file.Truncate(offset); err != nil {
+		s.broken = fmt.Errorf("session file has an incomplete record: %w", errors.Join(cause, err))
+		return s.broken
+	}
+	return cause
 }
 
 // Context walks parent links and applies the newest compaction on that path.

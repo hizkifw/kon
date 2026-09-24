@@ -2,9 +2,10 @@
 package history
 
 import (
-	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"time"
 )
@@ -55,20 +56,22 @@ func (s *Store) Load() ([]Entry, error) {
 		return nil, fmt.Errorf("seek prompt history: %w", err)
 	}
 
+	// Reading the bounded tail whole leaves no per-line limit: a line longer
+	// than a scanner buffer (one huge paste) used to fail the load, and with it
+	// startup.
+	tail, err := io.ReadAll(f)
+	if err != nil {
+		return nil, fmt.Errorf("read prompt history: %w", err)
+	}
+	lines := bytes.Split(tail, []byte("\n"))
+	if start > 0 {
+		// The bounded read probably began in the middle of a JSONL record.
+		lines = lines[1:]
+	}
 	entries := make([]Entry, 0, maxLoaded)
-	scanner := bufio.NewScanner(f)
-	buf := make([]byte, 64*1024)
-	scanner.Buffer(buf, 2*1024*1024)
-	first := true
-	for scanner.Scan() {
-		if first && start > 0 {
-			// The bounded read probably began in the middle of a JSONL record.
-			first = false
-			continue
-		}
-		first = false
+	for _, line := range lines {
 		var entry Entry
-		if json.Unmarshal(scanner.Bytes(), &entry) != nil || entry.Text == "" {
+		if json.Unmarshal(line, &entry) != nil || entry.Text == "" {
 			continue
 		}
 		if len(entries) == maxLoaded {
@@ -77,9 +80,6 @@ func (s *Store) Load() ([]Entry, error) {
 		} else {
 			entries = append(entries, entry)
 		}
-	}
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("read prompt history: %w", err)
 	}
 	return entries, nil
 }
