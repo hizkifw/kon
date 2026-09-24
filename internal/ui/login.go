@@ -136,7 +136,7 @@ func (m Model) updateLogin(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) beginLogin() (tea.Model, tea.Cmd) {
 	m.login.pending = true
 	m.status = m.login.question()
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(m.ctx)
 	m.login.cancel = cancel
 	connection := m.login.connection
 	flow := m.login

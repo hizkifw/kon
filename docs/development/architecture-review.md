@@ -37,19 +37,22 @@ execute, so a process killed during a long shell command is covered too.
 ### 2. Quitting mid-run can hang kon on exit
 
 - [x] Make `emit` non-blocking once the run is abandoned
-- [ ] Cancel the run on every exit path, not only Ctrl+D
+- [x] Cancel the run on every exit path, not only Ctrl+D
 
 Ctrl+D cancels the active run before quitting. Agent events and the final
 completion message select on the run's context (`runAndForward`,
-`internal/ui/model.go:645`), so abandoned sends cannot hold the runner open
-after cancellation.
+`internal/ui/model.go:646`), so abandoned sends cannot hold the runner open
+after cancellation. A closed event channel after cancellation is treated as an
+interrupted run (`waitRunEvent`). `TestRunForwardingStopsWhenEventsAreNoLongerRead`
+covers abandoned event and completion sends.
 
-Remaining gap: a SIGTERM or SIGINT delivered to the process quits Bubble Tea
-without passing through the key handler, so the UI never cancels the run's
-context. `cmd/kon/session.go` then calls `Runtime.Close`, which cancels only
-its own child context (`internal/app/app.go:441`) and waits for a runner whose
-next `emit` has no reader. Cancel the UI's run context after `program.Run`
-returns, or guard `Runtime.Run`'s emit on the runtime's context.
+Fixed: a SIGTERM or SIGINT quits Bubble Tea without passing through the key
+handler, so the UI never cancelled the run's context. Once no one read the
+events, a shell live-display tick could block in `emit`, and the shell tool
+waits for its reporter before returning, so `Runtime.Close` waited forever.
+Runs and logins now derive from a program-lifetime context passed to `ui.New`,
+which `cmd/kon/session.go` cancels as soon as `program.Run` returns and before
+`Runtime.Close`. `TestCancellingProgramContextReleasesAbandonedRun` covers it.
 
 ### 3. Tool outcome is not persisted; display parses model-facing text
 

@@ -59,6 +59,9 @@ type runEventMsg struct{ event agent.Event }
 type flushTranscriptMsg struct{}
 
 type Model struct {
+	// ctx lives as long as the program. Runs and logins derive from it so that
+	// every exit path, including a signal that bypasses Update, releases them.
+	ctx                     context.Context
 	width, height           int
 	viewport                scrollView
 	input                   textarea.Model
@@ -116,7 +119,7 @@ type previewReturn struct {
 	atBottom bool
 }
 
-func New(cwd, configPath string, runtime Runtime, historyStore *history.Store, entries []history.Entry) Model {
+func New(ctx context.Context, cwd, configPath string, runtime Runtime, historyStore *history.Store, entries []history.Entry) Model {
 	input := textarea.New()
 	input.Placeholder = "Ask kon…"
 	input.Prompt = ""
@@ -147,7 +150,7 @@ func New(cwd, configPath string, runtime Runtime, historyStore *history.Store, e
 		status = "needs configuration"
 	}
 	model := Model{
-		viewport: vp, input: input, history: newPromptHistory(historyStore, entries),
+		ctx: ctx, viewport: vp, input: input, history: newPromptHistory(historyStore, entries),
 		runtime: runtime, commands: defaultRegistry(),
 		active: state.Active, cwd: cwd, configPath: configPath,
 		transcript: transcript{cwd: cwd, banner: welcomeBanner},
@@ -635,7 +638,7 @@ func (m Model) submit() (tea.Model, tea.Cmd) {
 // way.
 func (m Model) startRun(status string, fn func(context.Context, func(agent.Event)) error) (tea.Model, tea.Cmd) {
 	m.busy, m.status, m.interruptPresses = true, status, 0
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(m.ctx)
 	m.runCancel = cancel
 	m.runEvents = make(chan tea.Msg)
 	events := m.runEvents

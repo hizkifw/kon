@@ -96,11 +96,17 @@ func runSession(args []string) (runErr error) {
 	if err != nil {
 		return err
 	}
-	model := ui.New(cwd, paths.ConfigFile, runtime, historyStore, historyEntries)
+	uiCtx, cancelUI := context.WithCancel(context.Background())
+	defer cancelUI()
+	model := ui.New(uiCtx, cwd, paths.ConfigFile, runtime, historyStore, historyEntries)
 	// Reuse the color profile lipgloss detected at init. Detecting again costs a
 	// `tmux info` subprocess inside tmux, which delays the first frame.
 	program := tea.NewProgram(model, tea.WithColorProfile(lipgloss.Writer.Profile))
 	_, uiErr := program.Run()
+	// A signal quits the program without reaching the key handler that cancels
+	// an active run. Cancel here so the run's event sends stop waiting on a
+	// reader that is gone; otherwise Runtime.Close would wait on it forever.
+	cancelUI()
 	// Capture the session ID before closing the runtime; Close releases the
 	// store that owns the header.
 	sessionID := runtime.SessionID()

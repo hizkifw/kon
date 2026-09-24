@@ -184,7 +184,7 @@ func TestSwitchModelUpdatesRuntimeState(t *testing.T) {
 		{Name: "review", Type: "anthropic", ExternalID: "claude", ContextWindow: 200},
 	}
 	runtime := &fakeRuntime{state: app.State{Active: models[0], Phase: app.PhaseReady}, models: models}
-	m := New("/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
+	m := New(context.Background(), "/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
 	updated, _ := m.switchModel("review")
 	got := updated.(Model)
 	if got.active.Name != "review" || got.active.ContextWindow != 200 || got.contextTokens != -1 {
@@ -217,7 +217,7 @@ func TestLoginMasksKeyAndKeepsItOutOfTranscript(t *testing.T) {
 
 func TestCompatibleLoginCollectsEndpointBeforeKey(t *testing.T) {
 	runtime := &fakeRuntime{state: app.State{Phase: app.PhaseNeedsConfiguration}}
-	m := New("/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
+	m := New(context.Background(), "/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
 	started, _ := m.startLogin("openai-compatible")
 	m = started.(Model)
 	m.login.input.SetValue("http://localhost:8080/v1")
@@ -239,7 +239,7 @@ func TestCompatibleLoginCollectsEndpointBeforeKey(t *testing.T) {
 
 func TestCatalogProviderLoginUsesKnownEndpoint(t *testing.T) {
 	runtime := &fakeRuntime{state: app.State{Phase: app.PhaseNeedsConfiguration}}
-	m := New("/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
+	m := New(context.Background(), "/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
 	started, _ := m.startLogin("fireworks-ai")
 	m = started.(Model)
 	if m.login.wantsURL() || m.login.input.EchoMode != textinput.EchoPassword {
@@ -516,7 +516,7 @@ func newMultiModel(t testing.TB, names ...string) Model {
 		models = append(models, app.Model{Name: name, Type: "anthropic", ExternalID: "claude"})
 	}
 	runtime := &fakeRuntime{state: app.State{Active: models[0], Phase: app.PhaseReady}, models: models}
-	m := New("/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
+	m := New(context.Background(), "/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
 	m.width, m.height = 80, 24
 	return m
 }
@@ -553,7 +553,7 @@ func TestModelPickerShowsDisplayNameAndKeepsQualifiedValue(t *testing.T) {
 		Type: "openai-compatible", ExternalID: "accounts/fireworks/models/deepseek-v4-pro", Source: "catalog",
 	}}
 	runtime := &fakeRuntime{state: app.State{Active: models[0], Phase: app.PhaseReady}, models: models}
-	m := New("/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
+	m := New(context.Background(), "/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
 	items := completeModelNames(m, "deepseek")
 	if len(items) != 1 || items[0].Value != qualified || items[0].Label != "fireworks-2 · DeepSeek V4 Pro" || items[0].Description != "accounts/fireworks/models/deepseek-v4-pro" {
 		t.Fatalf("picker items = %#v", items)
@@ -657,7 +657,7 @@ func TestEnterAcceptsCompletion(t *testing.T) {
 
 func TestEnterCompletesLikeTabThenSubmits(t *testing.T) {
 	runtime := &fakeRuntime{state: app.State{Phase: app.PhaseReady}}
-	m := New("/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
+	m := New(context.Background(), "/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
 	m.input.SetValue("/new")
 	m.openMenu()
 	// Enter behaves like Tab: with the popup open it accepts the selection,
@@ -1285,6 +1285,31 @@ func TestRunForwardingStopsWhenEventsAreNoLongerRead(t *testing.T) {
 	}
 }
 
+func TestCancellingProgramContextReleasesAbandonedRun(t *testing.T) {
+	// A signal quits Bubble Tea without Update, so nothing reads the run's
+	// events and the run's own cancel is never called. Cancelling the context
+	// the model was built with must still let the run return.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runtime := &fakeRuntime{state: app.State{Phase: app.PhaseReady}}
+	m := New(ctx, "/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
+	finished := make(chan struct{})
+	emitted := make(chan struct{})
+	m.startRun("thinking…", func(_ context.Context, emit func(agent.Event)) error {
+		defer close(finished)
+		close(emitted)
+		emit(agent.Event{Kind: agent.EventText, Text: "hello"})
+		return nil
+	})
+	<-emitted
+	cancel()
+	select {
+	case <-finished:
+	case <-time.After(time.Second):
+		t.Fatal("run stayed blocked after the program context was cancelled")
+	}
+}
+
 func TestTypingDoesNotScrollTranscript(t *testing.T) {
 	model := newTestModel(t)
 	model.transcript.add(block{kind: blockUser, text: strings.Repeat("line\n", 60)})
@@ -1373,7 +1398,7 @@ func TestResumeCommandReplaysSession(t *testing.T) {
 			{Message: &session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: "earlier answer"}}}},
 		},
 	}
-	m := New("/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
+	m := New(context.Background(), "/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
 	m.width, m.height = 80, 24
 	m.resize()
 
@@ -1410,7 +1435,7 @@ func TestResumeCommandReplaysThinking(t *testing.T) {
 			}},
 		},
 	}
-	m := New("/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
+	m := New(context.Background(), "/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
 	m.width, m.height = 80, 24
 	m.resize()
 
@@ -1436,7 +1461,7 @@ func TestResumeAdoptsPersistedContextUsage(t *testing.T) {
 		contextTokens: 4321,
 		contextKnown:  true,
 	}
-	m := New("/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
+	m := New(context.Background(), "/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
 	m.width, m.height = 80, 24
 	m.resize()
 
@@ -1456,7 +1481,7 @@ func TestResumeCommandListsWithoutID(t *testing.T) {
 		state:    app.State{Phase: app.PhaseReady},
 		sessions: []session.Summary{{ID: id, CreatedAt: time.Unix(0, 0)}},
 	}
-	m := New("/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
+	m := New(context.Background(), "/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
 	m.width, m.height = 80, 24
 	m.resize()
 	updated, _ := m.resume(nil)
@@ -1497,7 +1522,7 @@ func TestResumePreviewRendersHighlightedSession(t *testing.T) {
 			{Message: &session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: "previewed answer"}}}},
 		},
 	}
-	m := New("/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
+	m := New(context.Background(), "/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
 	m.width, m.height = 80, 24
 	m.resize()
 	m.transcript.add(block{kind: blockUser, text: "live conversation"})
@@ -1569,7 +1594,7 @@ func TestResumedSessionStartsAtBottom(t *testing.T) {
 		entries = append(entries, session.Entry{Message: &session.Message{Role: session.RoleUser, Parts: []session.Part{{Type: session.PartText, Text: strings.Repeat("line\n", 3) + "tail"}}}})
 	}
 	runtime := &fakeRuntime{state: app.State{Phase: app.PhaseReady}, entries: entries}
-	m := New("/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
+	m := New(context.Background(), "/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
 	if !m.startAtBottom {
 		t.Fatal("resumed model did not request an initial scroll to the bottom")
 	}
@@ -1643,7 +1668,7 @@ func TestUnconfiguredLaunchGreetsInTranscript(t *testing.T) {
 		Problem: app.ErrNotReady,
 		Active:  app.Model{Name: "default"},
 	}}
-	m := New("/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
+	m := New(context.Background(), "/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
 	if m.status != "needs configuration" {
 		t.Fatalf("status = %q", m.status)
 	}
@@ -1658,7 +1683,7 @@ func TestUnconfiguredLaunchGreetsInTranscript(t *testing.T) {
 	}
 
 	ready := &fakeRuntime{state: app.State{Phase: app.PhaseReady}}
-	if got := New("/tmp", "/tmp/config.json", ready, history.New(t.TempDir()+"/history.jsonl"), nil); len(got.transcript.blocks) != 0 {
+	if got := New(context.Background(), "/tmp", "/tmp/config.json", ready, history.New(t.TempDir()+"/history.jsonl"), nil); len(got.transcript.blocks) != 0 {
 		t.Fatalf("configured launch greeted: %#v", got.transcript.blocks)
 	}
 }
@@ -1667,7 +1692,7 @@ func newTestModel(t testing.TB) Model {
 	t.Helper()
 	model := app.Model{Name: "fast", Type: "openai", ExternalID: "gpt", ContextWindow: 100}
 	runtime := &fakeRuntime{state: app.State{Active: model, Phase: app.PhaseReady}, models: []app.Model{model}}
-	result := New("/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
+	result := New(context.Background(), "/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
 	result.width, result.height = 80, 24
 	result.resize()
 	return result
