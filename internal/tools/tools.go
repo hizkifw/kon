@@ -29,7 +29,7 @@ type Tool interface {
 	// result; with a nil error the result is the successful output.
 	Run(ctx context.Context, env Env, arguments json.RawMessage) (Result, error)
 	// Interrupt escalates cancellation for the tool's currently running call:
-	// attempt is the number of consecutive Ctrl+C presses, so 1 is the polite
+	// attempt is the number of consecutive interrupt presses, so 1 is the polite
 	// "stop cleanly" press and 2 is the harder "you were asked twice" press.
 	// Most tools are synchronous and return false; a long-running tool such as
 	// shell reports whether it had something to escalate against.

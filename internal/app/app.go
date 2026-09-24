@@ -232,7 +232,7 @@ func (r *Runtime) Run(ctx context.Context, prompt string, emit func(agent.Event)
 
 // Compact forces a manual compaction of the live session. Like Run it occupies
 // the busy phase so it cannot race an active request, and it can be cancelled
-// with Ctrl+C through the same context.
+// with Esc through the same context.
 func (r *Runtime) Compact(ctx context.Context, emit func(agent.Event)) error {
 	r.mu.Lock()
 	if r.phase == PhaseClosed {
@@ -273,7 +273,7 @@ func (r *Runtime) Compact(ctx context.Context, emit func(agent.Event)) error {
 }
 
 // Interrupt escalates cancellation of the tool call the agent is currently
-// running. attempt is the number of consecutive Ctrl+C presses; the runner
+// running. attempt is the number of consecutive interrupt presses; the runner
 // forwards it to every registered tool. A shell command is interrupted on the
 // first press and force-killed on the second if it ignored the interrupt.
 func (r *Runtime) Interrupt(attempt int) bool {

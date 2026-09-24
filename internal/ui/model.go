@@ -46,7 +46,7 @@ type Runtime interface {
 	// is known, so a resumed session can show it instead of an unknown value.
 	ContextUsage() (int, bool)
 	// Interrupt escalates cancellation of the running tool call. attempt is
-	// the number of consecutive Ctrl+C presses; see agent.Runner.Interrupt.
+	// the number of consecutive Esc presses; see agent.Runner.Interrupt.
 	Interrupt(attempt int) bool
 }
 
@@ -70,11 +70,14 @@ type Model struct {
 	busy                    bool
 	runCancel               context.CancelFunc
 	runEvents               chan tea.Msg
-	// ctrlCPresses counts consecutive Ctrl+C presses while a run is in
+	// interruptPresses counts consecutive Esc presses while a run is in
 	// flight, so the harness can escalate: the first press cancels the run
 	// (interrupting a running command), the second kills it.
-	ctrlCPresses int
-	flushPending bool
+	interruptPresses int
+	flushPending     bool
+	// killRing holds the last line prefix removed by Ctrl+U so Ctrl+Y can
+	// yank it back, mirroring the shell's unix-line-discard and yank.
+	killRing string
 	// startAtBottom asks the first sized frame to scroll to the end, so a
 	// resumed conversation opens on its latest messages instead of at the top.
 	startAtBottom bool
@@ -192,7 +195,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshTranscript(true)
 		return m, nil
 	case runDoneMsg:
-		m.busy, m.runCancel, m.runEvents, m.ctrlCPresses = false, nil, nil, 0
+		m.busy, m.runCancel, m.runEvents, m.interruptPresses = false, nil, nil, 0
 		m.syncRuntimeState()
 		// An interrupted stream never received its done event, so finalize the
 		// live stream here to freeze the partial answer and reasoning that were
@@ -257,35 +260,59 @@ func (m *Model) refreshInput() {
 	m.resize()
 }
 
+// linePrefix returns the text between the start of the cursor's line and the
+// cursor, which is what Ctrl+U discards. Columns count runes, so the line is
+// sliced by rune to keep multibyte text intact.
+func (m Model) linePrefix() string {
+	lines := strings.Split(m.input.Value(), "\n")
+	row := m.input.Line()
+	if row < 0 || row >= len(lines) {
+		return ""
+	}
+	line := []rune(lines[row])
+	col := m.input.Column()
+	if col < 0 {
+		col = 0
+	}
+	if col > len(line) {
+		col = len(line)
+	}
+	return string(line[:col])
+}
+
 func (m Model) handleKey(key string) (tea.Model, tea.Cmd, bool) {
 	switch key {
 	case "ctrl+c":
-		if m.busy && m.runCancel != nil {
-			// The first press cancels the run, which interrupts a running
-			// tool call so it can stop cleanly. The second press escalates
-			// to a kill for tools that ignored the interrupt.
-			m.ctrlCPresses++
-			m.runCancel()
-			if m.ctrlCPresses == 1 {
-				m.status = "cancelling… press Ctrl+C again to kill the command"
-				return m, nil, true
-			}
-			if m.runtime.Interrupt(m.ctrlCPresses) {
-				m.status = "killed the command"
-			} else {
-				m.status = "no command to kill; waiting for the run to cancel"
-			}
+		if m.input.Value() != "" {
+			m.input.Reset()
+			m.refreshInput()
 			return m, nil, true
 		}
-		return m, tea.Quit, true
+		m.status = "press Ctrl+D to exit"
+		return m, nil, true
 	case "ctrl+d":
-		if strings.TrimSpace(m.input.Value()) == "" {
-			if m.runCancel != nil {
-				m.runCancel()
-			}
-			return m, tea.Quit, true
+		if m.input.Value() != "" {
+			// Ctrl+D only exits on an empty input box; with text present it
+			// does nothing so it cannot silently drop an in-progress prompt.
+			return m, nil, true
+		}
+		if m.runCancel != nil {
+			m.runCancel()
+		}
+		return m, tea.Quit, true
+	case "ctrl+u":
+		// Bash's unix-line-discard: kill from the cursor to the start of the
+		// line into the kill ring. The textarea performs the deletion; we
+		// only record what it removed so Ctrl+Y can restore it. An empty kill
+		// leaves the ring untouched, so yank still has the previous text.
+		if prefix := m.linePrefix(); prefix != "" {
+			m.killRing = prefix
 		}
 		return m, nil, false
+	case "ctrl+y":
+		m.input.InsertString(m.killRing)
+		m.refreshInput()
+		return m, nil, true
 	case "pgup":
 		m.viewport.PageUp()
 		return m, nil, true
@@ -325,12 +352,21 @@ func (m Model) handleKey(key string) (tea.Model, tea.Cmd, bool) {
 			return m, nil, true
 		}
 		if m.busy && m.runCancel != nil {
-			// Esc interrupts a stream in flight. Unlike Ctrl+C it never
-			// escalates to killing a running tool and does not count toward
-			// the Ctrl+C sequence; it only cancels the generation so the
-			// partial turn is kept.
+			// Esc is the only interrupt. The first press cancels the run,
+			// which interrupts a running tool so it can stop cleanly; a
+			// second press escalates to a kill for a tool that ignored the
+			// interrupt.
+			m.interruptPresses++
 			m.runCancel()
-			m.status = "interrupting…"
+			if m.interruptPresses == 1 {
+				m.status = "interrupting… press Esc again to kill the command"
+				return m, nil, true
+			}
+			if m.runtime.Interrupt(m.interruptPresses) {
+				m.status = "killed the command"
+			} else {
+				m.status = "no command to kill; waiting for the run to cancel"
+			}
 			return m, nil, true
 		}
 		return m, nil, false
@@ -502,7 +538,7 @@ func (m Model) submit() (tea.Model, tea.Cmd) {
 		return command.run(m)
 	}
 	if m.busy {
-		m.status = "agent is busy; Ctrl+C cancels"
+		m.status = "agent is busy; Esc interrupts"
 		return m, nil
 	}
 	state := m.runtime.State()
@@ -531,7 +567,7 @@ func (m Model) submit() (tea.Model, tea.Cmd) {
 // submission and manual compaction so both report progress and cancel the same
 // way.
 func (m Model) startRun(status string, fn func(context.Context, func(agent.Event)) error) (tea.Model, tea.Cmd) {
-	m.busy, m.status, m.ctrlCPresses = true, status, 0
+	m.busy, m.status, m.interruptPresses = true, status, 0
 	ctx, cancel := context.WithCancel(context.Background())
 	m.runCancel = cancel
 	m.runEvents = make(chan tea.Msg)

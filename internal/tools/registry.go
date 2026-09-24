@@ -63,8 +63,8 @@ var defaultDisplays = func() *Registry {
 }()
 
 // InterruptAll escalates cancellation across every registered tool. attempt is
-// the number of consecutive Ctrl+C presses; it is forwarded as-is so tools can
-// distinguish the polite first press from the harder repeat. It reports
+// the number of consecutive interrupt presses; it is forwarded as-is so tools
+// can distinguish the polite first press from the harder repeat. It reports
 // whether any tool had something to escalate against.
 func (r *Registry) InterruptAll(attempt int) bool {
 	interrupted := false

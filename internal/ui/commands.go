@@ -378,7 +378,7 @@ func (m Model) switchModel(name string) (tea.Model, tea.Cmd) {
 // operation is in flight and reports when there is nothing safe to compact.
 func (m Model) compact() (tea.Model, tea.Cmd) {
 	if m.busy {
-		m.status = "agent is busy; Ctrl+C cancels"
+		m.status = "agent is busy; Esc interrupts"
 		return m, nil
 	}
 	state := m.runtime.State()

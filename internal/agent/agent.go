@@ -123,8 +123,8 @@ func (r *Runner) usageFor(items []session.ContextMessage) (int, bool) {
 }
 
 // Interrupt escalates cancellation of the tool call in flight. The UI sends
-// the number of consecutive Ctrl+C presses; the runner forwards them to every
-// registered tool, whose shells are interrupted on the first press and
+// the number of consecutive interrupt presses; the runner forwards them to
+// every registered tool, whose shells are interrupted on the first press and
 // force-killed on the second if they ignored the interrupt.
 func (r *Runner) Interrupt(attempt int) bool {
 	return r.tools.Interrupt(attempt)

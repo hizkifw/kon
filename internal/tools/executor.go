@@ -24,7 +24,7 @@ func New(cwd string, vision bool) *Executor {
 }
 
 // Interrupt escalates cancellation of the tool the agent is currently running.
-// attempt is the number of consecutive Ctrl+C presses; see Tool.Interrupt.
+// attempt is the number of consecutive interrupt presses; see Tool.Interrupt.
 func (e *Executor) Interrupt(attempt int) bool {
 	return e.registry.InterruptAll(attempt)
 }

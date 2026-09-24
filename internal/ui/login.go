@@ -27,7 +27,7 @@ type loginDoneMsg struct {
 
 func (m Model) startLogin(providerID string) (tea.Model, tea.Cmd) {
 	if m.busy {
-		m.status = "agent is busy; Ctrl+C cancels"
+		m.status = "agent is busy; Esc interrupts"
 		return m, nil
 	}
 	input := textinput.New()
@@ -87,7 +87,7 @@ func (m Model) updateLogin(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	if key, ok := msg.(tea.KeyPressMsg); ok {
 		switch key.String() {
-		case "esc", "ctrl+c":
+		case "esc":
 			if f.cancel != nil {
 				f.cancel()
 			}

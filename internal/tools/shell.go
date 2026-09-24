@@ -333,9 +333,9 @@ func normalizeShellOutput(output string) string {
 
 // Interrupt escalates cancellation of the command currently running in the
 // shell tool. attempt 1 interrupts the command's process group: the polite
-// Ctrl+C that lets it clean up and exit on its own terms. attempt 2 and above
-// force-kill it, for a command that ignored the interrupt. It reports whether
-// a command was running to receive the escalation.
+// terminal interrupt that lets it clean up and exit on its own terms. attempt 2
+// and above force-kill it, for a command that ignored the interrupt. It reports
+// whether a command was running to receive the escalation.
 func (t *shellTool) Interrupt(attempt int) bool {
 	t.mu.Lock()
 	cmd := t.running

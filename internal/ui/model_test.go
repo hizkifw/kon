@@ -759,39 +759,39 @@ func TestShellResultBlockSplitsCodeAndDuration(t *testing.T) {
 	}
 }
 
-func TestSecondCtrlCKillsRunningCommand(t *testing.T) {
+func TestSecondEscKillsRunningCommand(t *testing.T) {
 	model := newTestModel(t)
 	model.busy = true
 	model.runCancel = func() {}
-	first, _, handled := model.handleKey("ctrl+c")
+	first, _, handled := model.handleKey("esc")
 	firstModel := first.(Model)
-	if !handled || firstModel.ctrlCPresses != 1 || !strings.Contains(firstModel.status, "cancelling") {
-		t.Fatalf("first ctrl+c did not cancel the run: status %q", firstModel.status)
+	if !handled || firstModel.interruptPresses != 1 || !strings.Contains(firstModel.status, "interrupt") {
+		t.Fatalf("first esc did not cancel the run: status %q", firstModel.status)
 	}
-	second, _, _ := firstModel.handleKey("ctrl+c")
+	second, _, _ := firstModel.handleKey("esc")
 	secondModel := second.(Model)
 	runtime := secondModel.runtime.(*fakeRuntime)
 	if runtime.kills != 1 || !strings.Contains(secondModel.status, "killed") {
-		t.Fatalf("second ctrl+c did not kill the command: kills=%d status %q", runtime.kills, secondModel.status)
+		t.Fatalf("second esc did not kill the command: kills=%d status %q", runtime.kills, secondModel.status)
 	}
 }
 
-func TestCtrlCWithoutACommandReportsCancellation(t *testing.T) {
+func TestEscWithoutACommandReportsCancellation(t *testing.T) {
 	model := newTestModel(t)
 	model.busy = true
 	model.runCancel = func() {}
 	model.runtime.(*fakeRuntime).killFails = true
-	first, _, _ := model.handleKey("ctrl+c")
-	second, _, handled := first.(Model).handleKey("ctrl+c")
+	first, _, _ := model.handleKey("esc")
+	second, _, handled := first.(Model).handleKey("esc")
 	secondModel := second.(Model)
 	if !handled {
-		t.Fatal("second ctrl+c was not handled")
+		t.Fatal("second esc was not handled")
 	}
 	if secondModel.runtime.(*fakeRuntime).kills != 1 {
-		t.Fatal("second ctrl+c did not attempt the kill")
+		t.Fatal("second esc did not attempt the kill")
 	}
 	if !strings.Contains(secondModel.status, "no command to kill") {
-		t.Fatalf("second ctrl+c left a stale status: %q", secondModel.status)
+		t.Fatalf("second esc left a stale status: %q", secondModel.status)
 	}
 }
 
@@ -859,6 +859,142 @@ func TestEscWithoutBusyRunIsUnhandled(t *testing.T) {
 	}
 }
 
+func TestCtrlCClearsInputOrHints(t *testing.T) {
+	model := newTestModel(t)
+	model.input.SetValue("draft prompt")
+	updated, cmd, handled := model.handleKey("ctrl+c")
+	got := updated.(Model)
+	if !handled || cmd != nil {
+		t.Fatalf("ctrl+c with text: handled=%v cmd=%v", handled, cmd)
+	}
+	if got.input.Value() != "" {
+		t.Fatalf("ctrl+c did not clear the input: %q", got.input.Value())
+	}
+
+	updated, _, handled = got.handleKey("ctrl+c")
+	got = updated.(Model)
+	if !handled {
+		t.Fatal("ctrl+c on empty input was not handled")
+	}
+	if !strings.Contains(got.status, "Ctrl+D") {
+		t.Fatalf("ctrl+c on empty input did not hint at Ctrl+D: %q", got.status)
+	}
+}
+
+func TestCtrlCNeverQuitsOrInterrupts(t *testing.T) {
+	model := newTestModel(t)
+	canceled := false
+	model.busy = true
+	model.runCancel = func() { canceled = true }
+	_, cmd, handled := model.handleKey("ctrl+c")
+	if !handled {
+		t.Fatal("ctrl+c was not handled")
+	}
+	if cmd != nil {
+		if _, quit := cmd().(tea.QuitMsg); quit {
+			t.Fatal("ctrl+c quit the app")
+		}
+	}
+	if canceled {
+		t.Fatal("ctrl+c interrupted the run")
+	}
+}
+
+func TestCtrlDQuitsOnEmptyInput(t *testing.T) {
+	model := newTestModel(t)
+	canceled := false
+	model.busy = true
+	model.runCancel = func() { canceled = true }
+	_, cmd, handled := model.handleKey("ctrl+d")
+	if !handled || cmd == nil {
+		t.Fatal("ctrl+d on empty input was not handled")
+	}
+	if !canceled {
+		t.Fatal("ctrl+d did not cancel the active run")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatal("ctrl+d on empty input did not quit")
+	}
+	model.input.SetValue("  ")
+	if _, cmd, handled := model.handleKey("ctrl+d"); !handled || cmd != nil {
+		t.Fatal("ctrl+d on whitespace input should no-op, not quit")
+	}
+	model.input.SetValue("hello")
+	if _, cmd, handled := model.handleKey("ctrl+d"); !handled || cmd != nil {
+		t.Fatal("ctrl+d with text should no-op, not quit")
+	}
+}
+
+func TestCtrlUKillsToLineStartAndCtrlYYanks(t *testing.T) {
+	// Drive through Update so the textarea performs the deletion and the
+	// kill ring is populated exactly as it is at runtime.
+	model := newTestModel(t)
+	model.input.SetValue("keep this tail")
+
+	// Move the cursor to sit between "keep this" and " tail".
+	for i := 0; i < len(" tail"); i++ {
+		updated, _ := model.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
+		model = updated.(Model)
+	}
+
+	updated, _ := model.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
+	model = updated.(Model)
+	if got := model.input.Value(); got != " tail" {
+		t.Fatalf("ctrl+u did not discard to line start: %q", got)
+	}
+	if model.killRing != "keep this" {
+		t.Fatalf("ctrl+u kill ring = %q, want %q", model.killRing, "keep this")
+	}
+
+	updated, _ = model.Update(tea.KeyPressMsg{Code: 'y', Mod: tea.ModCtrl})
+	model = updated.(Model)
+	if got := model.input.Value(); got != "keep this tail" {
+		t.Fatalf("ctrl+y did not restore the killed text: %q", got)
+	}
+}
+
+func TestCtrlYWithoutAKillIsNoop(t *testing.T) {
+	model := newTestModel(t)
+	model.input.SetValue("prompt")
+	updated, _ := model.Update(tea.KeyPressMsg{Code: 'y', Mod: tea.ModCtrl})
+	if got := updated.(Model).input.Value(); got != "prompt" {
+		t.Fatalf("ctrl+y with an empty kill ring changed the input: %q", got)
+	}
+}
+
+func TestCtrlUOnEmptyPrefixKeepsKillRing(t *testing.T) {
+	model := newTestModel(t)
+	model.input.SetValue("alpha")
+	// Kill the whole line so the ring holds it, then kill again with the
+	// cursor already at line start: the second kill removes nothing and must
+	// not wipe the ring.
+	updated, _ := model.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
+	model = updated.(Model)
+	if model.killRing != "alpha" {
+		t.Fatalf("kill ring = %q, want %q", model.killRing, "alpha")
+	}
+	updated, _ = model.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
+	model = updated.(Model)
+	if model.killRing != "alpha" {
+		t.Fatalf("empty kill clobbered the ring: %q", model.killRing)
+	}
+}
+
+func TestCtrlUKillsOnlyCurrentLine(t *testing.T) {
+	model := newTestModel(t)
+	model.input.SetValue("first line\nsecond line")
+	// Cursor starts at the end of the last line; kill it and confirm the
+	// first line is untouched.
+	updated, _ := model.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
+	model = updated.(Model)
+	if got := model.input.Value(); got != "first line\n" {
+		t.Fatalf("ctrl+u crossed a line boundary: %q", got)
+	}
+	if model.killRing != "second line" {
+		t.Fatalf("kill ring = %q, want %q", model.killRing, "second line")
+	}
+}
+
 func TestInterruptedRunFinalizesStreamedTurn(t *testing.T) {
 	model := newTestModel(t)
 	model.busy = true
@@ -923,31 +1059,6 @@ func TestEnterWithoutBackslashSubmits(t *testing.T) {
 	updated, _ := model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if got := updated.(Model); got.input.Value() != "" {
 		t.Fatalf("enter left the prompt unsubmitted: %q", got.input.Value())
-	}
-}
-
-func TestCtrlDQuitsOnEmptyInput(t *testing.T) {
-	model := newTestModel(t)
-	canceled := false
-	model.busy = true
-	model.runCancel = func() { canceled = true }
-	_, cmd, handled := model.handleKey("ctrl+d")
-	if !handled || cmd == nil {
-		t.Fatal("ctrl+d on empty input was not handled")
-	}
-	if !canceled {
-		t.Fatal("ctrl+d did not cancel the active run")
-	}
-	if _, ok := cmd().(tea.QuitMsg); !ok {
-		t.Fatal("ctrl+d on empty input did not quit")
-	}
-	model.input.SetValue("  ")
-	if _, cmd, handled := model.handleKey("ctrl+d"); !handled || cmd == nil {
-		t.Fatal("ctrl+d on whitespace input was not handled")
-	}
-	model.input.SetValue("hello")
-	if _, _, handled := model.handleKey("ctrl+d"); handled {
-		t.Fatal("ctrl+d with text was swallowed")
 	}
 }
 
@@ -1324,7 +1435,7 @@ func TestCompactCommandRefusesWhileBusy(t *testing.T) {
 	m := newTestModel(t)
 	m.busy = true
 	updated, _ := m.compact()
-	if got := updated.(Model); got.status != "agent is busy; Ctrl+C cancels" {
+	if got := updated.(Model); got.status != "agent is busy; Esc interrupts" {
 		t.Fatalf("status = %q", got.status)
 	}
 }

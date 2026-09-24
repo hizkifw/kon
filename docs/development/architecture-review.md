@@ -216,7 +216,7 @@ and compounds quickly.
   synchronously in `Update`. `Runtime.Models` holds `r.mu` while the catalog
   decompresses, which blocks `State()`.
 - [ ] **Stream idle timeout and retry with backoff** for 429/5xx and dropped
-  connections. A stalled server currently hangs until Ctrl+C.
+  connections. A stalled server currently hangs until Esc.
 - [ ] **Freeze the tool roster per session.** The system prompt is frozen, but
   the tool list is also part of the cache prefix. Once MCP or dynamic tools
   exist, consider persisting a roster hash.

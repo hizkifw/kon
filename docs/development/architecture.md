@@ -262,8 +262,9 @@ sensible dependency for a provider-neutral harness.
 - Shell commands must carry a model-specified timeout (at most 600 seconds)
   and report their wall-clock time with the exit status. A timed-out or
   cancelled command's captured output is preserved in the tool result.
-- Ctrl+C cancels the active request or command through a shared context. A
-  second press force-kills the command's process group.
+- Esc interrupts the active request or command through a shared context. A
+  second press force-kills the command's process group. Ctrl+C never interrupts;
+  it clears the input, or hints at Ctrl+D to exit when the input is empty.
 
 ## Dependency policy
 

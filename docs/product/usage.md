@@ -59,11 +59,13 @@ directory's permissions rather than running kon as root.
 | Enter after a trailing `\` | Continue on a new line instead of submitting |
 | Tab / Shift+Tab | Fill in the selected suggestion |
 | Up/Down | Recall prompts, or move the suggestion selection |
-| Esc | Dismiss the popup, or cancel generation without killing a running command |
+| Esc | Dismiss the popup, or interrupt the running turn (press again to kill the command) |
 | Page Up/Page Down | Scroll the transcript |
 | Mouse wheel | Scroll the transcript |
-| Ctrl+C | Cancel active work, or exit while idle |
+| Ctrl+C | Clear the input, or hint at Ctrl+D when it is empty |
 | Ctrl+D | Quit when the input is empty, cancelling active work first |
+| Ctrl+U | Kill from the cursor to the start of the line |
+| Ctrl+Y | Yank the last Ctrl+U kill back at the cursor |
 
 The status bar shows the working directory, context usage, and a status
 message; the header shows the active model. `ctx ~12.4k/128k` means usage is
