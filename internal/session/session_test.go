@@ -891,6 +891,51 @@ func TestModelChangeIsDurableButExcludedFromContext(t *testing.T) {
 	}
 }
 
+func TestTurnMarkersRoundTripButStayOutOfContext(t *testing.T) {
+	store, err := New(t.TempDir(), t.TempDir(), "test", "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AppendTurnStart(); err != nil {
+		t.Fatal(err)
+	}
+	if !store.Empty() {
+		t.Fatal("a turn start alone should leave the session empty")
+	}
+	if _, err := store.AppendMessage(TextMessage(RoleUser, "hello")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AppendTurnEnd(-time.Second); err == nil {
+		t.Fatal("negative turn duration was accepted")
+	}
+	if _, err := store.AppendTurnEnd(2*time.Minute + 1500*time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	path := store.Path()
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	entries := reopened.ActivePath()
+	if len(entries) != 4 || entries[1].Type != EntryTypeTurnStart || entries[3].Type != EntryTypeTurnEnd {
+		t.Fatalf("turn markers did not round-trip: %#v", entries)
+	}
+	if got := entries[3].TurnDuration(); got != 2*time.Minute+1500*time.Millisecond {
+		t.Fatalf("turn duration = %v", got)
+	}
+	context, err := reopened.Context()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(context) != 2 {
+		t.Fatalf("context contains %d messages, want 2", len(context))
+	}
+}
+
 func TestImagePartRoundTripsThroughPersistence(t *testing.T) {
 	dir := t.TempDir()
 	store, err := New(dir, dir, "test", "system")

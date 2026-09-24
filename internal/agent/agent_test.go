@@ -171,6 +171,45 @@ func TestRunnerPersistsPartialTurnOnInterruptedStream(t *testing.T) {
 	}
 }
 
+// TestRunnerBracketsTurnWithMarkers checks that a turn is recorded as a start
+// before its user message and an end after its last entry, and that a turn
+// cut short by cancellation still records its end: only a process that dies
+// mid-turn may leave a start unmatched.
+func TestRunnerBracketsTurnWithMarkers(t *testing.T) {
+	for _, c := range []struct {
+		name     string
+		provider Provider
+	}{
+		{"completed", &fakeProvider{}},
+		{"interrupted", &interruptingProvider{}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			store, err := session.New(t.TempDir(), t.TempDir(), "test", "system")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer store.Close()
+			runner := New(config.Model{}, config.Compaction{}, c.provider, store, tools.New(t.TempDir(), false))
+			_ = runner.Run(context.Background(), "hello", func(Event) {})
+			path := store.ActivePath()
+			// The root system message leads, then the turn.
+			if len(path) < 4 || path[1].Type != session.EntryTypeTurnStart || path[2].Message == nil || path[2].Message.Role != session.RoleUser {
+				t.Fatalf("turn does not open with a start then the prompt: %#v", path)
+			}
+			if last := path[len(path)-1]; last.Type != session.EntryTypeTurnEnd || last.DurationMS < 0 {
+				t.Fatalf("turn does not close with an end: %#v", last)
+			}
+			contextMessages, err := store.Context()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(contextMessages) != len(path)-2 {
+				t.Fatalf("turn markers leaked into model context: %d messages for %d entries", len(contextMessages), len(path))
+			}
+		})
+	}
+}
+
 type toolCallProvider struct{}
 
 func (toolCallProvider) Stream(context.Context, []session.Message, []provider.Tool, func(provider.Event)) (session.Message, error) {

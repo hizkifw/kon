@@ -86,10 +86,10 @@ func (m *Model) toolResultBlock(event agent.Event) block {
 // applyHistory replays an opened session's active path into the transcript so a
 // resumed conversation is visible before the next prompt. It mirrors the live
 // event stream: user and assistant messages, thinking parts, tool calls paired
-// with their results, and the compacted marker left by each compaction. Model
-// changes are structural and are not echoed here. Tool displays are resolved
-// through the owning tools with the call's persisted arguments, so replay looks
-// exactly like the live rendering.
+// with their results, the compacted marker left by each compaction, and each
+// turn's recorded duration. Model changes are structural and are not echoed
+// here. Tool displays are resolved through the owning tools with the call's
+// persisted arguments, so replay looks exactly like the live rendering.
 func (m *Model) applyHistory(entries []session.Entry) {
 	m.applyHistoryTo(&m.transcript, entries)
 }
@@ -102,11 +102,33 @@ func (m *Model) applyHistoryTo(t *transcript, entries []session.Entry) {
 	// result resolves its display from the same arguments the call was made
 	// with.
 	callArgs := make(map[typedid.ToolCallID]json.RawMessage)
+	// A turn start opens a turn and its turn end closes it with the duration
+	// the runner measured, which is shown as the same "Worked for …" marker a
+	// live turn leaves behind. A start still open when the next one begins, or
+	// when the history ends, belongs to a process that died mid-turn.
+	open := false
+	stopped := func() {
+		if open {
+			t.add(block{kind: blockElapsed, text: stoppedLabel})
+		}
+		open = false
+	}
 	for _, entry := range entries {
-		// A compaction entry has no message; it is echoed as the same marker
-		// the live run emitted so a resumed transcript shows where the context
-		// was folded.
-		if entry.Type == session.EntryTypeCompaction {
+		switch entry.Type {
+		case session.EntryTypeTurnStart:
+			stopped()
+			open = true
+			continue
+		case session.EntryTypeTurnEnd:
+			// An end is shown even without its start, which a preview's window
+			// can cut off: the duration it carries needs nothing else.
+			open = false
+			t.add(block{kind: blockElapsed, text: workedLabel(entry.TurnDuration())})
+			continue
+		case session.EntryTypeCompaction:
+			// A compaction entry has no message; it is echoed as the same
+			// marker the live run emitted so a resumed transcript shows where
+			// the context was folded.
 			t.add(block{kind: blockContext, text: compactedLabel(entry.TokensBefore, entry.TokensBeforeEstimated)})
 			continue
 		}
@@ -141,6 +163,7 @@ func (m *Model) applyHistoryTo(t *transcript, entries []session.Entry) {
 			t.add(block{kind: blockResult, name: name, display: display})
 		}
 	}
+	stopped()
 }
 
 // compactedLabel is the transcript marker for a compaction. It is built in one

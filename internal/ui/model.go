@@ -79,6 +79,12 @@ type Model struct {
 	// (interrupting a running command), the second kills it.
 	interruptPresses int
 	flushPending     bool
+	// timer times the user turn currently in flight, nil while idle. It starts
+	// on submit and freezes into a blockElapsed when the run ends.
+	timer *turnTimer
+	// timerEpoch counts started turns; a tick whose epoch is stale is dropped so
+	// a chain from a finished run cannot keep repainting.
+	timerEpoch int
 	// killRing holds the last line segment removed by a kill key (Ctrl+U,
 	// Ctrl+K, Ctrl+W) so Ctrl+Y can yank it back, mirroring the shell's kill
 	// and yank commands.
@@ -204,6 +210,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.flushPending = false
 		m.refreshTranscript(true)
 		return m, nil
+	case timerTickMsg:
+		// Drop a tick whose turn has ended (or been superseded): without the
+		// epoch check a tick left in flight at run end would reschedule itself
+		// and keep the app repainting forever.
+		if m.timer == nil || msg.epoch != m.timer.epoch {
+			return m, nil
+		}
+		m.syncTimer(time.Now())
+		m.refreshTranscript(true)
+		return m, timerTick(msg.epoch)
 	case runDoneMsg:
 		m.busy, m.runCancel, m.runEvents, m.interruptPresses = false, nil, nil, 0
 		m.syncRuntimeState()
@@ -222,6 +238,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = "error: " + msg.err.Error()
 			m.transcript.add(block{kind: blockError, text: msg.err.Error()})
 		}
+		// The elapsed marker is the turn's last line: finalizing the stream and
+		// appending any error first keeps it below everything it timed.
+		m.finishTimer()
 		m.refreshTranscript(true)
 		return m, nil
 	case loginDoneMsg:
@@ -597,13 +616,17 @@ func (m Model) submit() (tea.Model, tea.Cmd) {
 	m.transcript.add(block{kind: blockUser, text: sanitize(text)})
 	m.input.Reset()
 	m.resize()
+	// Start the timer before the first refresh so the indicator appears with
+	// the prompt rather than a frame later.
+	m.startTimer()
 	m.refreshTranscript(true)
 	// Submitting is the user's own action: always show the new prompt, even
 	// if they were scrolled up reading the transcript.
 	m.viewport.GotoBottom()
-	return m.startRun("thinking…", func(ctx context.Context, emit func(agent.Event)) error {
+	updated, cmd := m.startRun("thinking…", func(ctx context.Context, emit func(agent.Event)) error {
 		return m.runtime.Run(ctx, text, emit)
 	})
+	return updated, tea.Batch(cmd, timerTick(m.timerEpoch))
 }
 
 // startRun marks the model busy and drives a runtime operation on a goroutine,

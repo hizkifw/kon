@@ -91,6 +91,23 @@ is omitted for a standalone profile. The external ID remains opaque. Model
 change entries record which profile applies to subsequent turns and do not
 enter model context.
 
+## Turn entries
+
+```json
+{"type":"turn_start","id":"ent_4Tn7Wq2Lc9Xm5Rb8Kd3F","parent_id":"ent_9qW4mK7zT2bN8Vc5Rx1A","timestamp":"..."}
+{"type":"turn_end","id":"ent_8Pz3Hs6Vn1Qa7Mf4Jy2E","parent_id":"ent_H7kP2dR9wA5nM3xQ8Lc4","timestamp":"...","duration_ms":320450}
+```
+
+A turn is one prompt's run through every model call and tool step until kon
+stops. `turn_start` is written before the turn's first user message, and
+`turn_end` after its last entry, carrying the duration kon measured in
+milliseconds (omitted when zero). The end is written however the turn stops,
+including user cancellation, so a start with no matching end means the process
+died mid-turn. The transcript shows the recorded duration on replay rather than
+inferring one from timestamps, because entries such as a later manual
+compaction can land long after the turn they follow. Turn entries do not enter
+model context.
+
 ## Compaction entries
 
 ```json
@@ -114,7 +131,7 @@ key on, so compaction does not invalidate the cache for the retained context.
 
 kon marshals, appends, and syncs each complete line before continuing. The one
 exception is a session that is still empty (header, root system message, and
-model changes only): those lines are not synced, because an empty session is
+model changes or turn starts only): those lines are not synced, because an empty session is
 discarded on close and skipped by discovery if a crash leaves it behind. The
 first conversation or compaction entry is synced, which makes every earlier line
 durable along with it. On open,

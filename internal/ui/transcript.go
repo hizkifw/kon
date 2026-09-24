@@ -23,6 +23,9 @@ const (
 	blockContext
 	blockModel
 	blockModels
+	// blockElapsed is a finished turn's "Worked for …" total. It is appended
+	// when a run ends and stays in history as the turn's duration.
+	blockElapsed
 )
 
 // block is one entry in the transcript. Tool calls arrive as a blockTool
@@ -142,6 +145,12 @@ type transcript struct {
 	stableN     int
 	sepDone     bool
 	liveFin     int
+	// liveTimer is the running turn's "Working… 12s" indicator, or "" when no
+	// turn is in flight. It is rendered as a trailing line after the live tail,
+	// so it repaints each second without disturbing the stream caches above it.
+	// timerLines is how many trailing t.lines entries belong to it.
+	liveTimer  string
+	timerLines int
 
 	dirty bool
 	width int
@@ -268,20 +277,28 @@ func (t *transcript) reset() {
 	t.active = nil
 	t.activeThinking = false
 	t.strip = ansiStripper{}
+	t.liveTimer = ""
 	t.lines = nil
 	t.cacheBase = ""
 	t.cacheBanner = ""
 	t.stableN = 0
 	t.sepDone = false
 	t.liveFin = 0
+	t.timerLines = 0
 	t.dirty = false
 }
 
 // pending renders the live, not-yet-finalized portion of the transcript. Only
 // one stream is active at a time. When an incremental live stream is available
 // it is used; otherwise (e.g. a transcript built directly from blocks) the
-// buffered text is rendered from scratch.
+// buffered text is rendered from scratch. The running turn's timer, when set,
+// trails the live content as its own block.
 func (t *transcript) pending(width int) string {
+	return joinLive(t.pendingStream(width), t.timerText(width))
+}
+
+// pendingStream renders the live stream alone, without the trailing timer.
+func (t *transcript) pendingStream(width int) string {
 	switch {
 	case t.thinking != "":
 		if t.active != nil && t.activeThinking {
@@ -295,6 +312,29 @@ func (t *transcript) pending(width int) string {
 		return strings.Join(renderMarkdownBlock(markdown.Render(string(t.stream), markdown.Theme{}, markdownContentWidth(width)), colorAgentBg, colorAgentFg, width), "\n")
 	default:
 		return ""
+	}
+}
+
+// timerText renders the running indicator as its own live section, or "" when no
+// turn is in flight. It shares blockElapsed's dim styling so the running and
+// finished forms read as the same element.
+func (t *transcript) timerText(width int) string {
+	if t.liveTimer == "" {
+		return ""
+	}
+	return strings.Join(markerLines(t.liveTimer, width), "\n")
+}
+
+// joinLive concatenates two live sections with the transcript's blank separator,
+// dropping an empty one so no stray gap is left behind.
+func joinLive(a, b string) string {
+	switch {
+	case a == "":
+		return b
+	case b == "":
+		return a
+	default:
+		return a + "\n\n" + b
 	}
 }
 
@@ -336,6 +376,7 @@ func (t *transcript) prepare(width int) string {
 		t.stableN = 0
 		t.sepDone = false
 		t.liveFin = 0
+		t.timerLines = 0
 		t.rebuildActive(width)
 	}
 	if t.dirty {
@@ -404,7 +445,13 @@ func (t *transcript) linesFor(width int) []string {
 		t.stableN = len(t.lines)
 		t.sepDone = false
 		t.liveFin = 0
+		t.timerLines = 0
 	}
+	// Drop the previous frame's timer before the stream tail touches the slice.
+	// The stream branch below truncates from liveStart, which would otherwise
+	// discard the timer's lines and make the drop count cut into the live stream.
+	t.lines = t.lines[:len(t.lines)-t.timerLines]
+	t.timerLines = 0
 	// The label and finalized live lines are append-only. Each frame drops the
 	// previous current line (and, if nothing is live now, the separator) and
 	// rebuilds only what changed.
@@ -424,6 +471,17 @@ func (t *transcript) linesFor(width int) []string {
 		t.lines = t.lines[:t.stableN]
 		t.sepDone = false
 		t.liveFin = 0
+	}
+	// The running timer trails everything, stream and all. Only its own lines
+	// are rebuilt each frame, so a ticking second never repaints the stream.
+	if timer := t.timerText(width); timer != "" {
+		before := len(t.lines)
+		if len(t.lines) > 0 {
+			t.lines = append(t.lines, "")
+		}
+		t.lines = append(t.lines, strings.Split(timer, "\n")...)
+		// Count the separator too, so the next frame drops all of it.
+		t.timerLines = len(t.lines) - before
 	}
 	return t.lines
 }
@@ -522,6 +580,8 @@ func (t *transcript) renderBlock(b block, width int) []string {
 		return messageSlab(normalizeText(b.text), colorErrorBg, colorErrorFg, width)
 	case blockContext:
 		return []string{separatorLine(b.text, width)}
+	case blockElapsed:
+		return markerLines(b.text, width)
 	case blockModel, blockModels:
 		return dimLines(normalizeText(b.text), width)
 	default:
@@ -698,6 +758,18 @@ func separatorLine(text string, width int) string {
 func dimLines(text string, width int) []string {
 	style := lipgloss.NewStyle().Foreground(colorFaint).Width(width)
 	return strings.Split(style.Render(text), "\n")
+}
+
+// markerLines renders a turn marker (the running indicator or a frozen total) in
+// a muted gray, inset one cell like message slabs so it aligns with the text
+// above it. A wrapped continuation keeps the inset too.
+func markerLines(text string, width int) []string {
+	body := wrapPlain(text, max(1, width-1))
+	out := make([]string, 0, len(body))
+	for _, line := range body {
+		out = append(out, " "+lipgloss.NewStyle().Foreground(colorFaint).Render(line))
+	}
+	return out
 }
 
 // slabLine renders one full-width line of a background slab with individually

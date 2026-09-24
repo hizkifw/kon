@@ -65,6 +65,13 @@ const (
 	EntryTypeMessage     EntryType = "message"
 	EntryTypeCompaction  EntryType = "compaction"
 	EntryTypeModelChange EntryType = "model_change"
+	// A turn is bracketed by a start entry, written before its first user
+	// message, and an end entry carrying the duration the runner measured. The
+	// pair lets a replay show a turn's total without inferring boundaries from
+	// timestamps, and a start with no end marks a turn the process never
+	// finished. Neither enters model context.
+	EntryTypeTurnStart EntryType = "turn_start"
+	EntryTypeTurnEnd   EntryType = "turn_end"
 )
 
 type FinishReason string
@@ -231,6 +238,7 @@ type Entry struct {
 	TokensBeforeEstimated bool             `json:"tokens_before_estimated,omitempty"`
 	Usage                 *Usage           `json:"usage,omitempty"`
 	Model                 *ModelSelection  `json:"model,omitempty"`
+	DurationMS            int64            `json:"duration_ms,omitempty"`
 	Raw                   json.RawMessage  `json:"-"`
 }
 
@@ -812,6 +820,22 @@ func (s *Store) AppendModelChange(selection ModelSelection) (typedid.EntryID, er
 	return s.append(Entry{Type: EntryTypeModelChange, Model: &selection})
 }
 
+func (s *Store) AppendTurnStart() (typedid.EntryID, error) {
+	return s.append(Entry{Type: EntryTypeTurnStart})
+}
+
+func (s *Store) AppendTurnEnd(duration time.Duration) (typedid.EntryID, error) {
+	if duration < 0 {
+		return typedid.EntryID{}, errors.New("turn end requires a non-negative duration")
+	}
+	return s.append(Entry{Type: EntryTypeTurnEnd, DurationMS: duration.Milliseconds()})
+}
+
+// TurnDuration is a turn end entry's recorded duration.
+func (entry Entry) TurnDuration() time.Duration {
+	return time.Duration(entry.DurationMS) * time.Millisecond
+}
+
 func (s *Store) append(entry Entry) (typedid.EntryID, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -829,9 +853,9 @@ func (s *Store) append(entry Entry) (typedid.EntryID, error) {
 		entry.ParentID = &parent
 	}
 	// The root system message is written through this path on creation, and model
-	// changes are structural; neither makes the session worth keeping. The first
-	// appended conversation or compaction entry does.
-	substantive := len(s.entries) > 0 && entry.Type != EntryTypeModelChange
+	// changes and turn starts are structural; none makes the session worth
+	// keeping. The first appended conversation or compaction entry does.
+	substantive := len(s.entries) > 0 && entry.Type != EntryTypeModelChange && entry.Type != EntryTypeTurnStart
 	if err := s.writeLine(entry, !s.empty || substantive); err != nil {
 		return typedid.EntryID{}, err
 	}
@@ -1058,6 +1082,10 @@ func (entry Entry) validate() error {
 	case EntryTypeModelChange:
 		if entry.Model == nil || entry.Model.Name == "" || entry.Model.WireFormat == "" || entry.Model.ExternalID.String() == "" {
 			return errors.New("model change requires name, wire format, and external ID")
+		}
+	case EntryTypeTurnEnd:
+		if entry.DurationMS < 0 {
+			return errors.New("turn end requires a non-negative duration")
 		}
 	}
 	// Unknown types retain their envelope for forward-compatible readers.

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/hizkifw/kon/internal/config"
 	"github.com/hizkifw/kon/internal/contextfiles"
@@ -177,8 +178,24 @@ func renderContextFiles(files []contextfiles.File) string {
 	return out.String()
 }
 
-// Run appends prompt before any network work, then drives tool calls to a final response.
-func (r *Runner) Run(ctx context.Context, prompt string, emit func(Event)) error {
+// Run appends prompt before any network work, then drives tool calls to a final
+// response. The turn is bracketed by start and end entries so a replay can show
+// its duration; the end is written however the turn returns, including on
+// cancellation, so only a process that dies mid-turn leaves a start unmatched.
+func (r *Runner) Run(ctx context.Context, prompt string, emit func(Event)) (err error) {
+	start := time.Now()
+	if _, err := r.session.AppendTurnStart(); err != nil {
+		return err
+	}
+	defer func() {
+		if _, endErr := r.session.AppendTurnEnd(time.Since(start)); endErr != nil && err == nil {
+			err = endErr
+		}
+	}()
+	return r.run(ctx, prompt, emit)
+}
+
+func (r *Runner) run(ctx context.Context, prompt string, emit func(Event)) error {
 	if _, err := r.session.AppendMessage(session.TextMessage(session.RoleUser, prompt)); err != nil {
 		return err
 	}
