@@ -119,9 +119,13 @@ from `/releases/download/<tag>/`, verify the hash, extract, and place the binary
 on `PATH`. Both then run the installed binary as `kon upgrade --finalize`, which
 applies any pending storage migrations and refreshes the model catalog, so the
 first launch starts clean. A finalize failure only warns: migrations are
-retry-safe and run again at next startup. Both are self-contained, so they can
-be piped from `raw.githubusercontent.com`
-straight into `sh` or `iex`.
+retry-safe and run again at next startup. That subcommand's own progress lines
+name internal migration steps, so both installers capture its output and surface
+it only when it fails; the interactive run prints the wordmark from
+`internal/ui/banner.go`, a bullet per step, and one confirmation line once
+everything is done. Color follows the terminal and `NO_COLOR`; a piped run stays
+plain. Both are self-contained, so they can be piped from
+`raw.githubusercontent.com` straight into `sh` or `iex`.
 The PowerShell installer selects the Windows archive from `RuntimeInformation`
 when available, then falls back to the host and process architecture environment
 variables for older Windows PowerShell runtimes.
