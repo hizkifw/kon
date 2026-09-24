@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"image/color"
 	"os"
 	"strings"
 
@@ -52,10 +53,10 @@ func (m *Model) activeTranscript() *transcript {
 }
 
 func (m Model) View() tea.View {
-	barBg := lipgloss.Color("#1C1C1C")
-	headerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#C8C8C8")).Background(barBg).Width(max(1, m.width))
-	statusStyle := lipgloss.NewStyle().Foreground(colorFaint).Background(barBg).Width(max(1, m.width))
-	header := accentBrand(" kon")
+	headerStyle := lipgloss.NewStyle().Foreground(colorBarFg).Background(colorBarBg).Width(max(1, m.width))
+	labelStyle := lipgloss.NewStyle().Foreground(colorBarFg).Background(colorBarBg)
+	statusStyle := lipgloss.NewStyle().Foreground(colorFaint).Background(colorBarBg).Width(max(1, m.width))
+	label := ""
 	if m.active.Name != "" {
 		name := m.active.DisplayName
 		if name == "" {
@@ -64,11 +65,14 @@ func (m Model) View() tea.View {
 		if m.active.ConnectionID != "" {
 			name = m.active.ConnectionID + " · " + name
 		}
-		header += " · " + name
+		label = " · " + name
 		if len(m.active.ReasoningEfforts) > 0 {
-			header += " · " + effortLabel(m.active.ReasoningEffort)
+			label += " · " + effortLabel(m.active.ReasoningEffort)
 		}
 	}
+	// The brand and the label are painted as separate spans: the brand's style
+	// reset would otherwise clear the bar background for the rest of the line.
+	header := accentBrand(" kon", colorBarBg) + labelStyle.Render(label)
 	ctx := "ctx ?"
 	if m.contextTokens >= 0 {
 		prefix := ""
@@ -132,9 +136,11 @@ func effortLabel(effort string) string {
 	return effort
 }
 
-// accentBrand paints the "kon" wordmark in the muted red accent.
-func accentBrand(s string) string {
-	return lipgloss.NewStyle().Bold(true).Foreground(colorAccent).Render(s)
+// accentBrand paints the "kon" wordmark in the muted red accent over bg. The
+// background must be set here: rendering the brand inside an already-styled bar
+// emits a reset that would otherwise clear the bar for the rest of the line.
+func accentBrand(s string, bg color.Color) string {
+	return lipgloss.NewStyle().Bold(true).Foreground(colorAccent).Background(bg).Render(s)
 }
 
 // inputView insets the prompt one cell from each edge: the block is shifted

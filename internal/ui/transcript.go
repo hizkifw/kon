@@ -68,6 +68,11 @@ var (
 	colorOK    = lipgloss.Color("#79C98B")
 	colorRun   = colorFaint // in-flight tools stay quiet
 	colorFail  = lipgloss.Color("#E06C6C")
+
+	// Header and status bar share one background so the top and bottom edges
+	// read as a single frame.
+	colorBarBg = lipgloss.Color("#1C1C1C")
+	colorBarFg = lipgloss.Color("#C8C8C8")
 )
 
 // part is one styled segment of a slab line.

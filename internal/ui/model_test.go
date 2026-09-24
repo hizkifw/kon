@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
@@ -127,6 +128,39 @@ func TestShiftTabCyclesEffortIntoHeader(t *testing.T) {
 		if got := header(m); !strings.HasSuffix(got, "kon · fast · "+want) {
 			t.Fatalf("header = %q, want effort %q", got, want)
 		}
+	}
+}
+
+func TestHeaderPaintsWholeLineOnBarBackground(t *testing.T) {
+	m := newTestModel(t)
+	m.runtime.(*fakeRuntime).state.Active.ReasoningEfforts = []string{"low", "none"}
+	m.syncRuntimeState()
+	// The brand and the label are rendered as separate spans; a style reset in
+	// either must not drop the bar background for the rest of the header line.
+	line := strings.SplitN(m.View().Content, "\n", 2)[0]
+	want := bgSeq(colorBarBg)
+	bg := ""
+	for i := 0; i < len(line); {
+		if line[i] == 0x1b && i+1 < len(line) && line[i+1] == '[' {
+			j := i + 2
+			for j < len(line) && line[j] != 'm' {
+				j++
+			}
+			params := line[i+2 : j]
+			switch {
+			case strings.Contains(params, "48;2;"):
+				bg = params[strings.Index(params, "48;2;"):]
+			case params == "" || params == "0" || strings.Contains(params, "49"):
+				bg = ""
+			}
+			i = j + 1
+			continue
+		}
+		r, size := utf8.DecodeRuneInString(line[i:])
+		if bg != want {
+			t.Fatalf("cell %q at byte %d has background %q, want %q", r, i, bg, want)
+		}
+		i += size
 	}
 }
 
