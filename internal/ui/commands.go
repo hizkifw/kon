@@ -25,9 +25,12 @@ type argument struct {
 // positional argument, already validated against the command's arguments.
 type commandFunc func(m Model, args []string) (tea.Model, tea.Cmd)
 
-// slashCommand is a command registered with a registry.
+// slashCommand is a command registered with a registry. aliases are alternate
+// spellings that resolve to the same command; the canonical name is the one
+// shown in usage and the popup's primary row.
 type slashCommand struct {
 	name      string
+	aliases   []string
 	summary   string
 	arguments []argument
 	run       commandFunc
@@ -69,6 +72,8 @@ func newRegistry() *registry {
 
 // register adds a command. It panics on a duplicate or empty name because the
 // registry is assembled once at startup and duplicates are a programming error.
+// Aliases are indexed to the same command; a name or alias that collides with
+// any existing spelling is rejected.
 func (r *registry) register(command slashCommand) {
 	if command.name == "" {
 		panic("ui: slash command with empty name")
@@ -78,6 +83,15 @@ func (r *registry) register(command slashCommand) {
 	}
 	stored := command
 	r.byName[stored.name] = &stored
+	for _, alias := range command.aliases {
+		if alias == "" {
+			panic("ui: slash command alias with empty name")
+		}
+		if _, exists := r.byName[alias]; exists {
+			panic("ui: duplicate slash command: " + alias)
+		}
+		r.byName[alias] = &stored
+	}
 	r.ordered = append(r.ordered, &stored)
 }
 
@@ -160,16 +174,33 @@ func (r *registry) completion(m Model, input string) []menuItem {
 	return argument.complete(m, prefix)
 }
 
-// completeNames suggests registered command names matching prefix, or every
-// command when prefix is empty.
+// completeNames suggests commands whose canonical name or an alias matches
+// prefix, or every command when prefix is empty. Aliases match for completion
+// but never get their own row: selecting one fills in the canonical name, so the
+// alias is a typing shortcut rather than a second entry.
 func (r *registry) completeNames(prefix string) []menuItem {
 	candidates := make([]menuItem, 0, len(r.ordered))
 	for _, command := range r.ordered {
-		if strings.HasPrefix(command.name, prefix) {
-			candidates = append(candidates, menuItem{Value: "/" + command.name, Description: command.summary})
+		if !command.matches(prefix) {
+			continue
 		}
+		candidates = append(candidates, menuItem{Value: "/" + command.name, Description: command.summary})
 	}
 	return candidates
+}
+
+// matches reports whether prefix matches the command's canonical name or any
+// alias.
+func (c slashCommand) matches(prefix string) bool {
+	if strings.HasPrefix(c.name, prefix) {
+		return true
+	}
+	for _, alias := range c.aliases {
+		if strings.HasPrefix(alias, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // splitArguments separates completed argument tokens from the token currently
@@ -194,6 +225,7 @@ func defaultRegistry() *registry {
 	registry := newRegistry()
 	registry.register(slashCommand{
 		name:    "new",
+		aliases: []string{"clear"},
 		summary: "start a new session",
 		run: func(m Model, _ []string) (tea.Model, tea.Cmd) {
 			return m.newSession()

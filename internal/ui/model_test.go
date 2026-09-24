@@ -415,6 +415,14 @@ func TestParseSlashCommand(t *testing.T) {
 	if _, err := registry.parse("/bogus"); err == nil {
 		t.Fatal("unknown command was accepted")
 	}
+	// An alias resolves to the same command and shares its argument validation.
+	alias, err := registry.parse("/clear")
+	if err != nil || alias.command.name != "new" {
+		t.Fatalf("alias = %#v, err = %v", alias, err)
+	}
+	if _, err := registry.parse("/clear extra"); err == nil {
+		t.Fatal("alias bypassed argument validation")
+	}
 }
 
 // newMultiModel builds a model with the named profiles and a ready runtime,
@@ -435,9 +443,14 @@ func newMultiModel(t testing.TB, names ...string) Model {
 func TestRegistryCompleteDispatchesToArgument(t *testing.T) {
 	m := newMultiModel(t, "fast", "review", "reason")
 
-	got := m.commands.completion(m, "/c")
+	got := m.commands.completion(m, "/co")
 	if len(got) != 1 || got[0].Value != "/compact" {
 		t.Fatalf("command completion = %#v", got)
+	}
+	// An alias matches completion but resolves to the canonical command's row.
+	alias := m.commands.completion(m, "/cle")
+	if len(alias) != 1 || alias[0].Value != "/new" {
+		t.Fatalf("alias completion = %#v", alias)
 	}
 	got = m.commands.completion(m, "/mo")
 	if len(got) != 1 || got[0].Value != "/model" {
