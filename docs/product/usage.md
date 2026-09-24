@@ -9,7 +9,10 @@ resume with: kon --resume ses_7Yk2mP9Qa4Zx8Vc1Nd6R
 ```
 
 Use that command, or `kon --resume` alone to reopen the most recent session
-for the directory. `/resume` lists sessions inside the app, and `/resume <id>`
+for the directory. A resumed session continues on the model it last used, and
+the transcript shows where it switched models. If that model is no longer
+configured, kon continues on your current default instead. Resuming never
+changes `default_model`. `/resume` lists sessions inside the app, and `/resume <id>`
 switches to one. Typing `/resume ` opens a picker. Highlighting a row previews
 its recent turns without switching; `Esc` cancels the preview.
 

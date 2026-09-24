@@ -172,20 +172,21 @@ store closed underneath it. One operation guard would close that too.
 
 ### 11. Decide what model a resumed session uses
 
-- [ ] Restore the recorded model, or record the switch
-- [ ] Stop naming the model in the frozen system prompt, or accept that it goes stale
+- [x] Restore the recorded model, or record the switch
+- [x] Stop naming the model in the frozen system prompt, or accept that it goes stale
 
-`Runtime.openStore` (`internal/app/app.go:510`) uses the current default
-profile and appends nothing, so the durable log can say model X while new turns
-run on model Y. Either restore the session's last model-change entry or append
-one when they differ.
+`Runtime.openStore` now restores the session's last model-change entry, and
+appends one only when a different model will answer (the recorded profile no
+longer resolves, or it now names another model ID). Resuming does not touch
+`default_model`. Replay renders each later model change the way a live switch
+does, re-titled once the catalog loads.
 
-This is now more visible: the system prompt names the model that created the
-session (`Current model:`, `internal/agent/agent.go:151`). The prompt is
-correctly never rebuilt, so after `/model` or a mismatched resume the root
-message states the wrong model, and model-change entries never reach the model.
-Drop the line, or tell the model about a switch in an appended message rather
-than by editing the prompt.
+The system prompt no longer names the model, the approach pi takes. The prompt
+is never rebuilt, so a named model went stale after `/model`; announcing a
+switch in a later message was considered and rejected, because some models
+distrust a user message that speaks as the system, and not every server
+accepts a system message after the first. Sessions created before this change
+keep the `Current model:` line in their stored prompt.
 
 ### 12. Keep prompt wording out of `session`
 

@@ -70,6 +70,14 @@ func (f *fakeRuntime) LoginEntry(id string) (app.LoginEntry, bool) {
 	}
 	return provider.CatalogLoginEntry(entry)
 }
+func (f *fakeRuntime) DescribeSelection(selection session.ModelSelection) app.Model {
+	for _, model := range f.models {
+		if model.Name == selection.Name {
+			return model
+		}
+	}
+	return app.Model{Name: selection.Name, DisplayName: selection.ExternalID.String()}
+}
 func (f *fakeRuntime) LoadCatalog()                         { f.catalogLoads++ }
 func (f *fakeRuntime) Interrupt(attempt int) bool           { f.kills++; return !f.killFails }
 func (f *fakeRuntime) Resume(id typedid.SessionID) error    { f.id = id; return nil }
@@ -189,6 +197,34 @@ func TestSwitchModelUpdatesRuntimeState(t *testing.T) {
 	got := updated.(Model)
 	if got.active.Name != "review" || got.active.ContextWindow != 200 || got.contextTokens != -1 {
 		t.Fatalf("unexpected state: %#v", got)
+	}
+}
+
+func TestSwitchModelMessageMatchesHeaderFormatting(t *testing.T) {
+	models := []app.Model{
+		{Name: "fast", WireFormat: "openai", ExternalID: "gpt"},
+		{
+			Name:             "review",
+			ConnectionID:     "fireworks-ai",
+			DisplayName:      "DeepSeek V4.1 Flash",
+			ExternalID:       "accounts/fireworks/models/deepseek-v4p1-flash",
+			ReasoningEfforts: []string{"low", "high"},
+		},
+	}
+	runtime := &fakeRuntime{state: app.State{Active: models[0], Phase: app.PhaseReady}, models: models}
+	m := New(context.Background(), "/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
+	updated, _ := m.switchModel("review")
+	got := updated.(Model)
+	if len(got.transcript.blocks) != 1 {
+		t.Fatalf("expected one model change block, got %#v", got.transcript.blocks)
+	}
+	text := got.transcript.blocks[0].text
+	want := " Model changed to fireworks-ai · DeepSeek V4.1 Flash · default"
+	if text != want {
+		t.Fatalf("model change message = %q, want %q", text, want)
+	}
+	if strings.Contains(text, "accounts/") || strings.Contains(text, "openai-compatible") {
+		t.Fatalf("model change message leaked provider detail: %q", text)
 	}
 }
 

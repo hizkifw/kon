@@ -140,58 +140,70 @@ func start(cfg config.Config, paths config.Paths, cwd, version string, resume bo
 	r.active = profile
 	_, r.activeResolved = cfg.Model(cfg.DefaultModel)
 
-	var (
-		store   *session.Store
-		runner  *agent.Runner
-		problem error
-		err     error
-	)
 	if resume {
-		store, runner, problem, err = r.openTarget(id)
+		target, err := r.openTarget(id)
 		if err != nil {
 			return nil, err
 		}
-	} else {
-		store, runner, problem, err = r.prepareSession(profile)
-		if err != nil {
-			return nil, err
-		}
+		r.install(target)
+		return r, nil
 	}
-	r.store, r.runner, r.problem = store, runner, problem
+	store, runner, problem, err := r.prepareSession(profile)
+	if err != nil {
+		return nil, err
+	}
+	r.install(opened{store: store, runner: runner, profile: profile, problem: problem})
+	return r, nil
+}
+
+// opened is a session ready to install: its store, the model that will answer
+// in it, and that model's runner, or the problem that keeps it from running.
+type opened struct {
+	store   *session.Store
+	runner  *agent.Runner
+	profile config.Model
+	problem error
+}
+
+// install makes an opened session and its model the live ones. The caller
+// closes any session it replaces.
+func (r *Runtime) install(o opened) {
+	r.store, r.runner, r.problem = o.store, o.runner, o.problem
+	r.active = o.profile
+	_, r.activeResolved = r.config.Model(o.profile.Name)
 	r.phase = PhaseReady
-	if problem != nil {
+	if o.problem != nil {
 		r.phase = PhaseNeedsConfiguration
 	}
-	return r, nil
 }
 
 // openTarget opens the session to resume. With a zero id it resumes the newest
 // session for cwd; with no sessions at all it starts a fresh one.
-func (r *Runtime) openTarget(id typedid.SessionID) (*session.Store, *agent.Runner, error, error) {
+func (r *Runtime) openTarget(id typedid.SessionID) (opened, error) {
 	var path string
 	if id.IsZero() {
 		summary, ok, err := session.Latest(r.paths.Sessions, r.cwd)
 		if err != nil {
-			return nil, nil, nil, err
+			return opened{}, err
 		}
 		if !ok {
 			// Nothing to resume: fall back to a new session so --resume still
 			// launches rather than failing on an empty workspace.
-			return r.prepareSession(r.active)
+			store, runner, problem, err := r.prepareSession(r.active)
+			if err != nil {
+				return opened{}, err
+			}
+			return opened{store: store, runner: runner, profile: r.active, problem: problem}, nil
 		}
 		path = summary.Path
 	} else {
 		summary, err := session.Find(r.paths.Sessions, r.cwd, id)
 		if err != nil {
-			return nil, nil, nil, err
+			return opened{}, err
 		}
 		path = summary.Path
 	}
-	store, runner, problem, err := r.openStore(path)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	return store, runner, problem, nil
+	return r.openStore(path)
 }
 
 func (r *Runtime) State() State {
@@ -398,16 +410,12 @@ func (r *Runtime) Resume(id typedid.SessionID) error {
 	if err != nil {
 		return err
 	}
-	store, runner, problem, err := r.openStore(summary.Path)
+	target, err := r.openStore(summary.Path)
 	if err != nil {
 		return err
 	}
 	previous := r.store
-	r.store, r.runner, r.problem = store, runner, problem
-	r.phase = PhaseReady
-	if problem != nil {
-		r.phase = PhaseNeedsConfiguration
-	}
+	r.install(target)
 	if previous != nil {
 		r.cleanupErr = errors.Join(r.cleanupErr, previous.Close())
 	}
@@ -485,7 +493,7 @@ func (r *Runtime) systemPrompt() (string, error) {
 		}
 		files = discovered
 	}
-	return agent.SystemPrompt(r.active.ModelID, r.cwd, executable, files, r.config.Instructions), nil
+	return agent.SystemPrompt(r.cwd, executable, files, r.config.Instructions), nil
 }
 
 func (r *Runtime) prepareSession(profile config.Model) (*session.Store, *agent.Runner, error, error) {
@@ -504,24 +512,52 @@ func (r *Runtime) prepareSession(profile config.Model) (*session.Store, *agent.R
 	return store, runner, nil, nil
 }
 
-// openStore opens a persisted session and, when the active model is configured,
-// builds a runner for it. No model-change entry is appended: the resumed
-// session already records the model that applies to it.
-func (r *Runtime) openStore(path string) (*session.Store, *agent.Runner, error, error) {
+// openStore opens a persisted session on the model it last recorded, so a
+// resumed conversation continues with the model that was answering it. When
+// that model no longer resolves, or the session never recorded one, it
+// continues on the current model instead.
+//
+// A model change is appended only when the model that will answer differs
+// from the session's last record, so the log always says which model wrote
+// each reply. Restoring the recorded model adds nothing.
+func (r *Runtime) openStore(path string) (opened, error) {
 	store, err := r.openSession(path)
 	if err != nil {
-		return nil, nil, nil, err
+		return opened{}, err
 	}
-	if problem := r.active.Ready(); problem != nil {
-		return store, nil, problem, nil
+	last := lastModelChange(store.ActivePath())
+	profile := r.active
+	if last != nil {
+		if recorded, ok := r.config.ResolveModel(last.Name); ok {
+			profile = r.withEffort(recorded)
+		}
 	}
-	client, err := provider.New(r.active, store.ReadImage)
-	if err != nil {
+	if problem := profile.Ready(); problem != nil {
+		return opened{store: store, profile: profile, problem: problem}, nil
+	}
+	var runner *agent.Runner
+	if last != nil && last.Name == profile.Name && last.ExternalID.String() == profile.ModelID {
+		client, err := provider.New(profile, store.ReadImage)
+		if err != nil {
+			_ = store.Close()
+			return opened{}, err
+		}
+		runner = agent.New(profile, r.config.Compaction, client, store, tools.New(r.cwd, profile.Vision))
+	} else if runner, err = r.createRunner(profile, store); err != nil {
 		_ = store.Close()
-		return nil, nil, nil, err
+		return opened{}, err
 	}
-	runner := agent.New(r.active, r.config.Compaction, client, store, tools.New(r.cwd, r.active.Vision))
-	return store, runner, nil, nil
+	return opened{store: store, runner: runner, profile: profile}, nil
+}
+
+// lastModelChange is the newest model selection recorded on a path, or nil.
+func lastModelChange(path []session.Entry) *session.ModelSelection {
+	for i := len(path) - 1; i >= 0; i-- {
+		if path[i].Type == session.EntryTypeModelChange && path[i].Model != nil {
+			return path[i].Model
+		}
+	}
+	return nil
 }
 
 func (r *Runtime) mutable() error {

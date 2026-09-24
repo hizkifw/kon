@@ -98,7 +98,10 @@ the server, not which service it was. `connection_id` names the configured
 connection used for a derived model, which is what identifies the service, and
 is omitted for a standalone profile. The external ID remains opaque. Model
 change entries record which profile applies to subsequent turns and do not
-enter model context.
+enter model context. Resuming restores the last one on the active path; kon
+appends a new entry only when a different model will answer, such as when the
+recorded profile no longer resolves, so the log always names the model behind
+each reply.
 
 ## Turn entries
 

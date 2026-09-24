@@ -107,6 +107,10 @@ func (m *Model) applyHistoryTo(t *transcript, entries []session.Entry) {
 	// live turn leaves behind. A start still open when the next one begins, or
 	// when the history ends, belongs to a process that died mid-turn.
 	open := false
+	// The first model selection on the path is the one the session started
+	// on, which the header already names. Each later one that picks a
+	// different model is a switch, shown the way a live switch was.
+	var selected *session.ModelSelection
 	stopped := func() {
 		if open {
 			t.add(block{kind: blockElapsed, text: stoppedLabel})
@@ -124,6 +128,16 @@ func (m *Model) applyHistoryTo(t *transcript, entries []session.Entry) {
 			// can cut off: the duration it carries needs nothing else.
 			open = false
 			t.add(block{kind: blockElapsed, text: workedLabel(entry.TurnDuration())})
+			continue
+		case session.EntryTypeModelChange:
+			if entry.Model == nil {
+				continue
+			}
+			selection := *entry.Model
+			if selected != nil && (selection.Name != selected.Name || selection.ExternalID != selected.ExternalID) {
+				t.add(block{kind: blockModel, text: modelChangedText(m.runtime.DescribeSelection(selection)), model: &selection})
+			}
+			selected = &selection
 			continue
 		case session.EntryTypeCompaction:
 			// A compaction entry has no message; it is echoed as the same

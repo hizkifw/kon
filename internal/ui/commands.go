@@ -372,9 +372,7 @@ func (m Model) switchModel(name string) (tea.Model, tea.Cmd) {
 	m.contextTokens = -1
 	m.input.Reset()
 	m.status = "model: " + name + " (saved to config)"
-	// The wire format is parenthesized rather than joined with a slash, which
-	// would read as a provider-qualified model name.
-	m.transcript.add(block{kind: blockModel, text: m.active.Name + "  " + m.active.ExternalID + " (" + m.active.WireFormat + ")"})
+	m.transcript.add(block{kind: blockModel, text: modelChangedText(m.active)})
 	m.refreshTranscript(true)
 	return m, nil
 }

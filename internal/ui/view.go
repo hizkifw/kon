@@ -7,6 +7,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"github.com/hizkifw/kon/internal/app"
 )
 
 // maxInputLines caps how tall the prompt input grows, in visual rows
@@ -58,17 +60,7 @@ func (m Model) View() tea.View {
 	statusStyle := lipgloss.NewStyle().Foreground(colorFaint).Background(colorBarBg).Width(max(1, m.width))
 	label := ""
 	if m.active.Name != "" {
-		name := m.active.DisplayName
-		if name == "" {
-			name = m.active.Name
-		}
-		if m.active.ConnectionID != "" {
-			name = m.active.ConnectionID + " · " + name
-		}
-		label = " · " + name
-		if len(m.active.ReasoningEfforts) > 0 {
-			label += " · " + effortLabel(m.active.ReasoningEffort)
-		}
+		label = " · " + modelTitle(m.active)
 	}
 	// The brand and the label are painted as separate spans: the brand's style
 	// reset would otherwise clear the bar background for the rest of the line.
@@ -122,6 +114,27 @@ func (m Model) View() tea.View {
 	view.WindowTitle = "kon"
 	return view
 }
+
+// modelTitle names a model the way the header shows it: its connection, its
+// display name, and the selected reasoning effort when the model has levels.
+// It deliberately leaves out the external ID, which is long and provider
+// specific; that belongs in the model picker.
+func modelTitle(active app.Model) string {
+	name := active.DisplayName
+	if name == "" {
+		name = active.Name
+	}
+	if active.ConnectionID != "" {
+		name = active.ConnectionID + " · " + name
+	}
+	if len(active.ReasoningEfforts) > 0 {
+		name += " · " + effortLabel(active.ReasoningEffort)
+	}
+	return name
+}
+
+// modelChangedText is the transcript line for a model switch, live or replayed.
+func modelChangedText(model app.Model) string { return " Model changed to " + modelTitle(model) }
 
 // effortLabel names a reasoning effort for display. The empty level is the
 // provider's default, and "none" is spelled out so turning reasoning off reads

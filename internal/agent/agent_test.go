@@ -550,7 +550,7 @@ func newTestEntryID(t *testing.T) typedid.EntryID {
 }
 
 func TestSystemPromptRendersContextFilesInOrder(t *testing.T) {
-	prompt := SystemPrompt("gpt-x", "/work/project", "/usr/local/bin/kon", []contextfiles.File{
+	prompt := SystemPrompt("/work/project", "/usr/local/bin/kon", []contextfiles.File{
 		{Path: "/work/AGENTS.md", Content: "outer rules\n"},
 		{Path: "/work/project/AGENTS.md", Content: "inner rules"},
 	}, "")
@@ -567,18 +567,8 @@ func TestSystemPromptRendersContextFilesInOrder(t *testing.T) {
 	}
 }
 
-func TestSystemPromptNamesCurrentModel(t *testing.T) {
-	prompt := SystemPrompt("provider/model-42", "/work", "/usr/local/bin/kon", nil, "")
-	if !strings.Contains(prompt, "Current model: provider/model-42") {
-		t.Fatalf("model missing from prompt:\n%s", prompt)
-	}
-	if strings.Contains(SystemPrompt("", "/work", "/usr/local/bin/kon", nil, ""), "Current model") {
-		t.Fatalf("empty model should omit the line entirely")
-	}
-}
-
 func TestSystemPromptOmitsContextSectionWhenEmpty(t *testing.T) {
-	prompt := SystemPrompt("gpt-x", "/work", "/usr/local/bin/kon", nil, "")
+	prompt := SystemPrompt("/work", "/usr/local/bin/kon", nil, "")
 	if strings.Contains(prompt, "project_instructions") || strings.Contains(prompt, "Project-specific instructions") {
 		t.Fatalf("empty context files produced a section:\n%s", prompt)
 	}
@@ -586,7 +576,7 @@ func TestSystemPromptOmitsContextSectionWhenEmpty(t *testing.T) {
 
 func TestSystemPromptPointsToBundledDocs(t *testing.T) {
 	executable := "/path with spaces/kon"
-	prompt := SystemPrompt("gpt-x", "/work", executable, nil, "")
+	prompt := SystemPrompt("/work", executable, nil, "")
 	if !strings.Contains(prompt, "Current kon executable: "+executable) {
 		t.Fatalf("executable path missing from prompt:\n%s", prompt)
 	}
@@ -596,7 +586,7 @@ func TestSystemPromptPointsToBundledDocs(t *testing.T) {
 }
 
 func TestSystemPromptPlacesInstructionsLast(t *testing.T) {
-	prompt := SystemPrompt("gpt-x", "/work", "/usr/local/bin/kon", []contextfiles.File{{Path: "/work/AGENTS.md", Content: "project rules"}}, "user rules")
+	prompt := SystemPrompt("/work", "/usr/local/bin/kon", []contextfiles.File{{Path: "/work/AGENTS.md", Content: "project rules"}}, "user rules")
 	project := strings.Index(prompt, "project rules")
 	instructions := strings.Index(prompt, "Additional user instructions:\nuser rules")
 	if project < 0 || instructions < 0 || project > instructions {

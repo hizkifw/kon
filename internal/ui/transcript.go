@@ -8,6 +8,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/hizkifw/kon/internal/markdown"
+	"github.com/hizkifw/kon/internal/session"
 	"github.com/hizkifw/kon/internal/tools"
 )
 
@@ -39,6 +40,9 @@ type block struct {
 	args    string // raw JSON arguments for tool blocks
 	text    string
 	display tools.Display
+	// model is the recorded selection behind a replayed model change, kept so
+	// its title can be named again once the catalog loads.
+	model *session.ModelSelection
 }
 
 // Transcript palette. The base is neutral grey: message slabs differ by
@@ -359,6 +363,11 @@ func (t *transcript) rebuildActive(width int) {
 // prepare refreshes the chunk cache for the given width and returns the stable
 // joined text. It folds any newly stable blocks and joins chunks only when the
 // chunk set changed, so repeated frames while streaming do not rejoin history.
+// restyle discards every cached rendering so blocks edited in place render
+// again. Zero is never a real width, so the next prepare rebuilds everything
+// as it does after a resize.
+func (t *transcript) restyle() { t.width = 0 }
+
 func (t *transcript) prepare(width int) string {
 	if width < 1 {
 		width = 1

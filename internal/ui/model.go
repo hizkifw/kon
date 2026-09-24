@@ -34,6 +34,7 @@ type Runtime interface {
 	Login(context.Context, config.Provider) (int, bool, error)
 	LoginProviders() []string
 	LoginEntry(string) (app.LoginEntry, bool)
+	DescribeSelection(session.ModelSelection) app.Model
 	LoadCatalog()
 	NewSession() error
 	Resume(typedid.SessionID) error
@@ -250,6 +251,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.finishLogin(msg)
 	case catalogLoadedMsg:
 		m.syncRuntimeState()
+		m.retitleModelChanges()
 		return m, nil
 	case tea.KeyPressMsg:
 		if m.login != nil {
@@ -667,6 +669,25 @@ func waitRunEvent(events <-chan tea.Msg) tea.Cmd {
 			return runDoneMsg{err: context.Canceled}
 		}
 		return msg
+	}
+}
+
+// retitleModelChanges names replayed model changes again. They were named
+// before the catalog loaded, when a derived model had only its model ID.
+func (m *Model) retitleModelChanges() {
+	changed := false
+	for i, b := range m.transcript.blocks {
+		if b.kind != blockModel || b.model == nil {
+			continue
+		}
+		if text := modelChangedText(m.runtime.DescribeSelection(*b.model)); text != b.text {
+			m.transcript.blocks[i].text = text
+			changed = true
+		}
+	}
+	if changed {
+		m.transcript.restyle()
+		m.refreshTranscript(true)
 	}
 }
 

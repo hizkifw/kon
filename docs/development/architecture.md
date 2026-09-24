@@ -232,6 +232,10 @@ rebuilt, edits
 to an instruction file take effect on a new session rather than a resumed one;
 this is the same byte-stability the compaction design depends on.
 
+The prompt does not name the model. It is never rebuilt, so a model named in
+it would go stale after `/model`, and model-change entries do not enter model
+context.
+
 The summary is kept out of the system prompt on purpose. Provider prompt caches
 key on a stable leading prefix, so folding the summary into the system message
 would invalidate the cache for the entire retained context on every compaction.

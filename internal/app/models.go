@@ -14,6 +14,7 @@ import (
 	"github.com/hizkifw/kon/internal/catalog"
 	"github.com/hizkifw/kon/internal/config"
 	"github.com/hizkifw/kon/internal/provider"
+	"github.com/hizkifw/kon/internal/session"
 	"github.com/hizkifw/kon/internal/tokens"
 	"github.com/hizkifw/kon/internal/tools"
 )
@@ -168,17 +169,47 @@ func (r *Runtime) withEffort(profile config.Model) config.Model {
 // describeActive adds catalog display metadata when the catalog has loaded,
 // without waiting for it.
 func (r *Runtime) describeActive() Model {
-	entry := describe(r.active)
-	entry.DisplayName = r.active.Name
-	if _, explicit := r.config.Model(r.active.Name); explicit || !r.config.DerivedModel(r.active.Name) {
+	return r.describeProfile(r.active, r.activeResolved)
+}
+
+// DescribeSelection names a recorded model selection the way the header names
+// the live model, for a replayed model change. It never waits for the catalog:
+// until the catalog loads, a derived model is named by its model ID and has no
+// effort levels. The effort is always the provider default, which is where a
+// switch starts.
+func (r *Runtime) DescribeSelection(selection session.ModelSelection) Model {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	profile, ok := r.config.ResolveModel(selection.Name)
+	if !ok {
+		// The profile or connection is gone; the record still names the model.
+		return Model{
+			Name: selection.Name, ConnectionID: selection.ConnectionID, DisplayName: selection.ExternalID.String(),
+			WireFormat: selection.WireFormat, ExternalID: selection.ExternalID.String(),
+		}
+	}
+	resolved := r.catalog.Load() != nil
+	if resolved {
+		// The catalog is already loaded, so this does not block on it.
+		profile, _ = r.resolveModel(selection.Name)
+	}
+	return r.describeProfile(profile, resolved)
+}
+
+// describeProfile names a profile for display. A derived model is named by its
+// catalog display name once withCatalog allows it, and by its model ID before.
+func (r *Runtime) describeProfile(profile config.Model, withCatalog bool) Model {
+	entry := describe(profile)
+	entry.DisplayName = profile.Name
+	if _, explicit := r.config.Model(profile.Name); explicit || !r.config.DerivedModel(profile.Name) {
 		return entry
 	}
-	providerID, _, _ := strings.Cut(r.active.Name, "/")
+	providerID, _, _ := strings.Cut(profile.Name, "/")
 	connection, _ := r.config.Provider(providerID)
 	entry.ConnectionID = connection.ID
-	entry.DisplayName = r.active.ModelID
-	if service, key := r.catalog.Load(), catalogKey(connection); r.activeResolved && service != nil && key != "" {
-		if metadata, ok := service.Model(key, r.active.ModelID); ok && metadata.Name != "" {
+	entry.DisplayName = profile.ModelID
+	if service, key := r.catalog.Load(), catalogKey(connection); withCatalog && service != nil && key != "" {
+		if metadata, ok := service.Model(key, profile.ModelID); ok && metadata.Name != "" {
 			entry.DisplayName = metadata.Name
 		}
 	}
