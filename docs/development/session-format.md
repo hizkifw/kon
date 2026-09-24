@@ -13,6 +13,11 @@ The schema version governs the file representation. Readers accept only version
 4. The startup migration converts version 1 sessions written by kon v0.1.1 to
 version 4 before a reader opens them. Versions 2 and 3 are not migrated.
 
+Session files are named `<UTC timestamp>_<session ID>.jsonl`, where the timestamp
+has millisecond precision. Listing orders sessions by the header `timestamp`
+rather than the name, because two sessions created in the same millisecond would
+otherwise tie on their random session ID.
+
 ## Entry envelope
 
 Every entry has these fields:

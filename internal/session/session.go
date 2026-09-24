@@ -22,7 +22,8 @@ import (
 const SchemaVersion = 4
 
 // fileSuffix ends every persisted session file. Names begin with a fixed-width
-// UTC timestamp, so lexical order is creation order.
+// UTC timestamp; lexical order approximates creation order but only to the
+// millisecond, so Discover re-sorts by the header's full-precision timestamp.
 const fileSuffix = ".jsonl"
 
 // A projected compaction summary is delivered as a user message wrapped in
@@ -570,7 +571,9 @@ type Summary struct {
 // Discover lists every readable session recorded for cwd, newest first. The
 // cwd-scoped directory is derived the same way New derives its target, so a
 // session is visible here exactly when a future New in cwd would be able to
-// resume it. Files that are not valid sessions are skipped.
+// resume it. Files that are not valid sessions are skipped. Ordering uses each
+// header's full-precision timestamp, because the timestamp embedded in a file
+// name is truncated to milliseconds and ties on the random session ID.
 func Discover(root, cwd string) ([]Summary, error) {
 	dir, err := directoryFor(root, cwd)
 	if err != nil {
@@ -589,9 +592,6 @@ func Discover(root, cwd string) ([]Summary, error) {
 			names = append(names, entry.Name())
 		}
 	}
-	// Timestamp-prefixed names sort chronologically; newest first matches how
-	// "/resume" presents choices.
-	sort.Sort(sort.Reverse(sort.StringSlice(names)))
 	summaries := make([]Summary, 0, len(names))
 	for _, name := range names {
 		summary, err := readSummary(filepath.Join(dir, name))
@@ -601,6 +601,17 @@ func Discover(root, cwd string) ([]Summary, error) {
 		}
 		summaries = append(summaries, summary)
 	}
+	// Newest first matches how "/resume" presents choices. Ordering uses each
+	// header's full-precision timestamp rather than the file name, whose
+	// timestamp is truncated to milliseconds: two sessions created in the same
+	// millisecond would otherwise tie on their random session ID. Descending
+	// path is a total tiebreaker for equal timestamps.
+	sort.SliceStable(summaries, func(i, j int) bool {
+		if !summaries[i].CreatedAt.Equal(summaries[j].CreatedAt) {
+			return summaries[i].CreatedAt.After(summaries[j].CreatedAt)
+		}
+		return summaries[i].Path > summaries[j].Path
+	})
 	return summaries, nil
 }
 

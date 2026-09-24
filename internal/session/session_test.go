@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hizkifw/kon/internal/typedid"
 )
@@ -128,6 +129,73 @@ func TestDiscoverFindsSessionsNewestFirst(t *testing.T) {
 	}
 	if summaries[0].CWD == "" {
 		t.Fatal("summary is missing its working directory")
+	}
+}
+
+// TestDiscoverOrdersByHeaderWhenNamesCollide covers two sessions created in the
+// same millisecond. Their file names share a timestamp prefix, so name order
+// falls back to the random session ID; only the header's full-precision
+// timestamp can order them. The fixture forces name order to be the reverse of
+// time order so the test fails without reading the header.
+func TestDiscoverOrdersByHeaderWhenNamesCollide(t *testing.T) {
+	root, cwd := t.TempDir(), t.TempDir()
+	dir, err := directoryFor(root, cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// The "older" session sorts later by name than the "newer" one, so a
+	// name-only ordering would surface it first.
+	older, err := typedid.ParseSessionID("ses_zzzzzzzzzzzzzzzzzzzz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	newer, err := typedid.ParseSessionID("ses_00000000000000000000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeSessionWithHeaderTime(t, dir, older, "older", time.Date(2026, 1, 1, 0, 0, 0, 1, time.UTC))
+	writeSessionWithHeaderTime(t, dir, newer, "newer", time.Date(2026, 1, 1, 0, 0, 0, 2, time.UTC))
+
+	summaries, err := Discover(root, cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(summaries) != 2 {
+		t.Fatalf("Discover returned %d sessions, want 2", len(summaries))
+	}
+	if summaries[0].ID != newer || summaries[1].ID != older {
+		t.Fatalf("Discover order = [%s %s], want [%s %s]", summaries[0].ID, summaries[1].ID, newer, older)
+	}
+}
+
+// writeSessionWithHeaderTime writes a minimal valid session file whose name
+// carries a fixed millisecond prefix (so names collide) while the header records
+// the given full-precision timestamp.
+func writeSessionWithHeaderTime(t *testing.T, dir string, sessionID typedid.SessionID, title string, created time.Time) {
+	t.Helper()
+	entryID, err := typedid.NewEntryID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	header := Header{Type: "session", Version: SchemaVersion, ID: sessionID, AppVersion: "test", Timestamp: created, CWD: "/tmp"}
+	message := TextMessage(RoleUser, title)
+	path := filepath.Join(dir, created.UTC().Format("20060102T150405.000Z")+"_"+sessionID.String()+fileSuffix)
+	var b strings.Builder
+	writeRecord := func(v any) {
+		data, err := json.Marshal(v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b.Write(data)
+		b.WriteByte('\n')
+	}
+	writeRecord(header)
+	writeRecord(Entry{Type: EntryTypeMessage, ID: entryID, Timestamp: created, Message: &message})
+	if err := os.WriteFile(path, []byte(b.String()), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
 
