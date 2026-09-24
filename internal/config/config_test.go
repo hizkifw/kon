@@ -20,16 +20,8 @@ func TestInitializeAndCredential(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	model, ok := cfg.Model(cfg.DefaultModel)
-	if !ok {
-		t.Fatal("default model missing")
-	}
-	if model.APIKey != "" {
-		t.Fatalf("default model APIKey = %q", model.APIKey)
-	}
-	model.APIKey = "literal"
-	if model.APIKey != "literal" {
-		t.Fatalf("APIKey not preserved")
+	if cfg.DefaultModel != "" || len(cfg.Models) != 0 {
+		t.Fatalf("default config ships a model: %#v", cfg)
 	}
 	info, err := os.Stat(paths.ConfigFile)
 	if err != nil {
@@ -42,8 +34,8 @@ func TestInitializeAndCredential(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(b), `"api_key"`) {
-		t.Fatalf("default config missing api_key field:\n%s", b)
+	if !strings.Contains(string(b), `"models": []`) {
+		t.Fatalf("default config missing empty models list:\n%s", b)
 	}
 }
 
@@ -73,7 +65,7 @@ func TestInitializePreservesInvalidConfig(t *testing.T) {
 }
 
 func TestSaveRewritesDefaultModel(t *testing.T) {
-	cfg := Default()
+	cfg := testConfig()
 	cfg.Models = append(cfg.Models, Model{Name: "review", Type: "openai", ModelID: "gpt-4o", ContextWindowTokens: 100_000})
 	path := filepath.Join(t.TempDir(), filename)
 	if err := cfg.Save(path); err != nil {
@@ -115,8 +107,42 @@ func TestContextFilesEnabledDefaultsTrue(t *testing.T) {
 	}
 }
 
-func TestValidateNamedModels(t *testing.T) {
+// testConfig returns the default config with one explicit profile, the shape
+// most validation tests start from.
+func testConfig() Config {
 	cfg := Default()
+	cfg.DefaultModel = "default"
+	cfg.Models = []Model{{Name: "default", Type: "openai-compatible", BaseURL: "https://api.openai.com/v1"}}
+	return cfg
+}
+
+func TestEmptyDefaultIsValid(t *testing.T) {
+	if err := Default().Validate(); err != nil {
+		t.Fatal(err)
+	}
+	cfg := Default()
+	cfg.DefaultModel = "missing"
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("default_model naming no model was accepted")
+	}
+}
+
+func TestLoadKeepsAnOmittedModelsListEmpty(t *testing.T) {
+	path := filepath.Join(t.TempDir(), filename)
+	if err := os.WriteFile(path, []byte(`{"compaction":{"reserve_tokens":1,"keep_recent_tokens":1}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Models) != 0 {
+		t.Fatalf("models = %#v", cfg.Models)
+	}
+}
+
+func TestValidateNamedModels(t *testing.T) {
+	cfg := testConfig()
 	cfg.DefaultModel = "review"
 	cfg.Models = append(cfg.Models, Model{Name: "review", Type: "openai", ModelID: "gpt-4o", ContextWindowTokens: 100_000})
 	if err := cfg.Validate(); err != nil {
@@ -132,7 +158,7 @@ func TestValidateNamedModels(t *testing.T) {
 }
 
 func TestValidateReasoningEfforts(t *testing.T) {
-	cfg := Default()
+	cfg := testConfig()
 	cfg.Models[0].ReasoningEfforts = []string{"low", "high"}
 	// A saved effort the model does not list is ignored at runtime, not rejected.
 	cfg.ReasoningEffort = "max"
@@ -146,7 +172,7 @@ func TestValidateReasoningEfforts(t *testing.T) {
 }
 
 func TestCompatibleModelRequiresBaseURL(t *testing.T) {
-	cfg := Default()
+	cfg := testConfig()
 	cfg.Models[0].Type = "openai-compatible"
 	cfg.Models[0].BaseURL = ""
 	if err := cfg.Validate(); err == nil {
@@ -171,7 +197,7 @@ func TestProviderConnectionResolvesDerivedModels(t *testing.T) {
 }
 
 func TestExplicitModelIgnoresSameNamedProvider(t *testing.T) {
-	cfg := Default()
+	cfg := testConfig()
 	cfg.Providers = []Provider{{ID: "openai-compatible", Type: "openai-compatible", BaseURL: "https://remote.test/v1", APIKey: "remote", Headers: map[string]string{"X-Org": "a"}}}
 	cfg.Models = append(cfg.Models, Model{Name: "local", Type: "openai-compatible", ModelID: "m", BaseURL: "http://localhost:8080/v1"})
 	if err := cfg.Validate(); err != nil {
@@ -184,7 +210,7 @@ func TestExplicitModelIgnoresSameNamedProvider(t *testing.T) {
 }
 
 func TestModelTypeDefaultsToCompatible(t *testing.T) {
-	cfg := Default()
+	cfg := testConfig()
 	cfg.Models = append(cfg.Models, Model{Name: "local", ModelID: "m"})
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("untyped model without base_url was accepted")

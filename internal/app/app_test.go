@@ -73,6 +73,14 @@ func TestNewSessionSwapsThenClosesPreviousStore(t *testing.T) {
 	}
 }
 
+// configured returns the default config with one runnable explicit profile.
+func configured(modelID string) config.Config {
+	cfg := config.Default()
+	cfg.DefaultModel = "default"
+	cfg.Models = []config.Model{{Name: "default", Type: "openai-compatible", ModelID: modelID, BaseURL: "https://api.openai.com/v1"}}
+	return cfg
+}
+
 func TestUnconfiguredDefaultIsExplicitState(t *testing.T) {
 	cfg := config.Default()
 	paths := config.Paths{Sessions: t.TempDir(), ConfigFile: t.TempDir() + "/config.json"}
@@ -82,7 +90,7 @@ func TestUnconfiguredDefaultIsExplicitState(t *testing.T) {
 	}
 	defer runtime.Close()
 	state := runtime.State()
-	if state.Ready() || state.Phase != PhaseNeedsConfiguration || state.Problem == nil || state.Active.Name != "default" {
+	if state.Ready() || state.Phase != PhaseNeedsConfiguration || state.Problem == nil || state.Active.Name != "" {
 		t.Fatalf("unexpected state: %#v", state)
 	}
 }
@@ -130,11 +138,15 @@ func TestLoginAddsDerivedModelWithoutMaterializingIt(t *testing.T) {
 	if err := runtime.SwitchModel(derived); err != nil {
 		t.Fatal(err)
 	}
+	// Starting from the empty default, login plus a switch is a full setup.
+	if state := runtime.State(); !state.Ready() {
+		t.Fatalf("state after switch = %#v", state)
+	}
 	saved, err := config.Load(paths.ConfigFile)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if saved.DefaultModel != derived || len(saved.Models) != 1 || saved.Models[0].Name != "default" {
+	if saved.DefaultModel != derived || len(saved.Models) != 0 {
 		t.Fatalf("derived selection was materialized: %#v", saved)
 	}
 	if len(loadProviderModels(paths.ProviderModels)["openai"]) != 1 {
@@ -227,8 +239,7 @@ func TestDerivedModelChangeRecordsConnectionAndWireFormat(t *testing.T) {
 }
 
 func TestExplicitModelChangeOmitsConnectionID(t *testing.T) {
-	cfg := config.Default()
-	cfg.Models[0].ModelID = "gpt-4o"
+	cfg := configured("gpt-4o")
 	root := t.TempDir()
 	runtime, err := New(cfg, config.Paths{Sessions: filepath.Join(root, "sessions"), ConfigFile: filepath.Join(root, "config.json")}, t.TempDir(), "test")
 	if err != nil {
@@ -249,8 +260,7 @@ func TestExplicitModelChangeOmitsConnectionID(t *testing.T) {
 func TestCycleEffortSavesAndSwitchResetsIt(t *testing.T) {
 	root := t.TempDir()
 	paths := config.Paths{ConfigFile: filepath.Join(root, "config.json"), Sessions: filepath.Join(root, "sessions")}
-	cfg := config.Default()
-	cfg.Models[0].ModelID = "gpt"
+	cfg := configured("gpt")
 	cfg.Models[0].ReasoningEfforts = []string{"low", "high"}
 	cfg.Models = append(cfg.Models, config.Model{Name: "other", ModelID: "gpt-2", BaseURL: "https://example.test/v1", ReasoningEfforts: []string{"low"}})
 	cfg.ReasoningEffort = "high"
@@ -296,8 +306,7 @@ func TestCycleEffortSavesAndSwitchResetsIt(t *testing.T) {
 func TestUnlistedSavedEffortFallsBackToDefault(t *testing.T) {
 	root := t.TempDir()
 	paths := config.Paths{ConfigFile: filepath.Join(root, "config.json"), Sessions: filepath.Join(root, "sessions")}
-	cfg := config.Default()
-	cfg.Models[0].ModelID = "gpt"
+	cfg := configured("gpt")
 	cfg.Models[0].ReasoningEfforts = []string{"low", "high"}
 	cfg.ReasoningEffort = "max"
 	runtime, err := New(cfg, paths, t.TempDir(), "test")
@@ -358,8 +367,7 @@ func TestCycleEffortReadsDerivedModelLevelsFromCatalog(t *testing.T) {
 func TestCycleEffortWithoutLevelsReportsIt(t *testing.T) {
 	root := t.TempDir()
 	paths := config.Paths{ConfigFile: filepath.Join(root, "config.json"), Sessions: filepath.Join(root, "sessions")}
-	cfg := config.Default()
-	cfg.Models[0].ModelID = "gpt"
+	cfg := configured("gpt")
 	runtime, err := New(cfg, paths, t.TempDir(), "test")
 	if err != nil {
 		t.Fatal(err)
@@ -615,8 +623,7 @@ func TestSessionPreviewReadsTailWithoutSwitching(t *testing.T) {
 	dir := t.TempDir()
 	paths := config.Paths{Sessions: filepath.Join(dir, "sessions"), ConfigFile: filepath.Join(dir, "config.json")}
 	cwd := t.TempDir()
-	cfg := config.Default()
-	cfg.Models[0].ModelID = "gpt-4o"
+	cfg := configured("gpt-4o")
 	runtime, err := New(cfg, paths, cwd, "test")
 	if err != nil {
 		t.Fatal(err)
@@ -653,8 +660,7 @@ func TestResumeReportsPersistedContextUsage(t *testing.T) {
 	dir := t.TempDir()
 	paths := config.Paths{Sessions: filepath.Join(dir, "sessions"), ConfigFile: filepath.Join(dir, "config.json")}
 	cwd := t.TempDir()
-	cfg := config.Default()
-	cfg.Models[0].ModelID = "gpt-4o"
+	cfg := configured("gpt-4o")
 	runtime, err := New(cfg, paths, cwd, "test")
 	if err != nil {
 		t.Fatal(err)

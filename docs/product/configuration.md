@@ -5,6 +5,20 @@ kon creates `config.json` on first launch. The default location is
 `%APPDATA%\kon\config.json` on Windows. The file is created with owner-only
 permissions because it contains literal API keys.
 
+The generated file configures no model:
+
+```json
+{
+  "default_model": "",
+  "models": [],
+  "compaction": {"reserve_tokens": 16384, "keep_recent_tokens": 20000},
+  "instructions": ""
+}
+```
+
+kon still opens the prompt, but asks you to run `/login <provider>` and pick
+a model with `/model`, or to add a profile under `models` as described below.
+
 Each model profile is standalone: it needs a distinct `name`, the provider's
 model ID in `model`, and its own connection fields. `default_model` names the
 profile used for new sessions. `type` is the wire format kon speaks: `openai`,
@@ -136,6 +150,51 @@ Like `default_model`, the selected level is saved as the top-level
 `reasoning_effort` and restored on the next launch. Switching models resets it
 to `default`. A saved level the model does not list is ignored, so the model
 starts on `default` instead of failing.
+
+## Schema reference
+
+Unknown fields are rejected, so a typo fails loudly instead of being ignored.
+Names and IDs that kon owns (`name`, `id`, `catalog_provider`, and each
+reasoning effort) use only letters, digits, `.`, `_`, and `-`.
+
+Top level:
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `default_model` | string | `""` | Model used for new sessions: an explicit profile `name`, or a derived `<provider-id>/<model-id>`. Empty means no model is configured yet. `/model` rewrites it. |
+| `reasoning_effort` | string | omitted | Effort last selected with Shift+Tab. Ignored when the model does not list it. |
+| `providers` | array | omitted | Reusable connections; see below. |
+| `models` | array | `[]` | Explicit model profiles; see below. |
+| `compaction.reserve_tokens` | integer | `16384` | Tokens kept free for the next reply. Must be positive. |
+| `compaction.keep_recent_tokens` | integer | `20000` | Recent context kept verbatim when older history is summarized. Must be positive. |
+| `instructions` | string | `""` | Text appended to the system prompt of new sessions. |
+| `context_files` | boolean | `true` | Load `AGENTS.md` and `CLAUDE.md` files; see [Project instructions](#project-instructions). |
+
+Each entry in `providers`:
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `id` | string | yes | Unique connection ID and the prefix of its derived model names. |
+| `type` | string | yes | Wire format: `openai`, `openrouter`, `ollama`, or `openai-compatible`. |
+| `catalog_provider` | string | no | models.dev provider key, when `id` differs from it. |
+| `base_url` | string | for `openai-compatible` | API root. Other types default to their public endpoint. |
+| `api_key` | string | no | Sent as a bearer token. |
+| `headers` | object | no | Extra HTTP headers, which may override kon's own. |
+
+Each entry in `models`:
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `name` | string | yes | Unique profile name used by `default_model` and `/model`. |
+| `type` | string | no | Wire format, as for providers. Defaults to `openai-compatible`. |
+| `model` | string | to run | The provider's model ID, sent as written. |
+| `base_url` | string | for `openai-compatible` | API root. `openai` defaults to `https://api.openai.com/v1`, `openrouter` to `https://openrouter.ai/api/v1`, and `ollama` to `http://localhost:11434/v1`. |
+| `api_key` | string | no | Sent as a bearer token. |
+| `headers` | object | no | Extra HTTP headers, which may override kon's own. |
+| `context_window_tokens` | integer | no | Context limit. `0` means unknown; otherwise it must exceed both compaction budgets combined. |
+| `vision` | boolean | no | Accepts image input. |
+| `reasoning` | boolean | no | Produces reasoning. |
+| `reasoning_efforts` | array of strings | no | Effort levels in Shift+Tab order, without duplicates. |
 
 ## Model catalog
 

@@ -15,6 +15,10 @@ import (
 	"github.com/hizkifw/kon/internal/typedid"
 )
 
+// testModel is a placeholder profile; the fake provider never reads its
+// connection fields.
+var testModel = config.Model{Name: "default", Type: "openai-compatible", BaseURL: "https://api.openai.com/v1"}
+
 type fakeProvider struct {
 	completeCalls int
 	streamCalls   int
@@ -47,7 +51,7 @@ func TestRunnerCompactsOlderTurnsBeforeRequest(t *testing.T) {
 	}
 	fake := &fakeProvider{}
 	cfg := config.Default()
-	model := cfg.Models[0]
+	model := testModel
 	model.ContextWindowTokens = 500
 	cfg.Compaction.ReserveTokens = 100
 	cfg.Compaction.KeepRecentTokens = 100
@@ -94,7 +98,7 @@ func TestNewSeedsUsageFromPersistedAssistantMessages(t *testing.T) {
 	}
 	defer reopened.Close()
 	cfg := config.Default()
-	runner := New(cfg.Models[0], cfg.Compaction, &fakeProvider{}, reopened, tools.New(t.TempDir(), false))
+	runner := New(testModel, cfg.Compaction, &fakeProvider{}, reopened, tools.New(t.TempDir(), false))
 	tokens, ok := runner.ContextUsage()
 	if !ok || tokens != 940 {
 		t.Fatalf("ContextUsage = (%d, %v), want (940, true)", tokens, ok)
@@ -111,7 +115,7 @@ func TestContextUsageUnknownBeforeFirstReport(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := config.Default()
-	runner := New(cfg.Models[0], cfg.Compaction, &fakeProvider{}, store, tools.New(t.TempDir(), false))
+	runner := New(testModel, cfg.Compaction, &fakeProvider{}, store, tools.New(t.TempDir(), false))
 	if tokens, ok := runner.ContextUsage(); ok {
 		t.Fatalf("ContextUsage = (%d, true), want unknown", tokens)
 	}
@@ -327,7 +331,7 @@ func TestCompactForcesCompactionBelowThreshold(t *testing.T) {
 	cfg := config.Default()
 	// A window large enough that automatic compaction would not trigger, so a
 	// successful compaction can only come from the manual force path.
-	model := cfg.Models[0]
+	model := testModel
 	model.ContextWindowTokens = 1_000_000
 	cfg.Compaction.ReserveTokens = 16_384
 	cfg.Compaction.KeepRecentTokens = 100
@@ -373,7 +377,7 @@ func TestCompactWithoutHistoryReportsNothingToCompact(t *testing.T) {
 	defer store.Close()
 	fake := &fakeProvider{}
 	cfg := config.Default()
-	runner := New(cfg.Models[0], cfg.Compaction, fake, store, tools.New(t.TempDir(), false))
+	runner := New(testModel, cfg.Compaction, fake, store, tools.New(t.TempDir(), false))
 	if err := runner.Compact(context.Background(), func(Event) {}); !errors.Is(err, ErrNothingToCompact) {
 		t.Fatalf("Compact error = %v, want ErrNothingToCompact", err)
 	}
@@ -400,7 +404,7 @@ func TestCompactFallsBackToIsolatedSummaryWhenLiveContextWouldOverflow(t *testin
 	// context, so its usage must not replace the estimated count.
 	provider := &recordingProvider{usage: &session.Usage{PromptTokens: 99_999}}
 	cfg := config.Default()
-	model := cfg.Models[0]
+	model := testModel
 	// A tiny window with a large reserve forces the isolated fallback once usage
 	// plus the reserve no longer fits.
 	model.ContextWindowTokens = 200
@@ -445,7 +449,7 @@ func TestCompactReportsMeasuredContextFromLiveSummaryRequest(t *testing.T) {
 	}
 	provider := &recordingProvider{usage: &session.Usage{PromptTokens: 12_345, CompletionTokens: 7}}
 	cfg := config.Default()
-	model := cfg.Models[0]
+	model := testModel
 	model.ContextWindowTokens = 1_000_000
 	cfg.Compaction.KeepRecentTokens = 100
 	runner := New(model, cfg.Compaction, provider, store, tools.New(t.TempDir(), false))
@@ -488,7 +492,7 @@ func TestCompactUsesPreviousSummaryWithoutReSummarizingIt(t *testing.T) {
 
 	provider := &recordingProvider{}
 	cfg := config.Default()
-	model := cfg.Models[0]
+	model := testModel
 	model.ContextWindowTokens = 1_000_000
 	cfg.Compaction.KeepRecentTokens = 1
 	runner := New(model, cfg.Compaction, provider, store, tools.New(t.TempDir(), false))

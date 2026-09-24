@@ -98,12 +98,11 @@ func (m Model) WireType() string {
 	return m.Type
 }
 
+// Default configures no model: a first launch waits for /login or /model
+// rather than shipping a placeholder profile that cannot run.
 func Default() Config {
 	return Config{
-		DefaultModel: "default",
-		Models: []Model{{
-			Name: "default", Type: "openai-compatible", BaseURL: "https://api.openai.com/v1",
-		}},
+		Models:     []Model{},
 		Compaction: Compaction{ReserveTokens: 16_384, KeepRecentTokens: 20_000},
 	}
 }
@@ -215,12 +214,6 @@ func ensureFile(path string) error {
 }
 
 func (c Config) Validate() error {
-	if strings.TrimSpace(c.DefaultModel) == "" {
-		return errors.New("default_model must not be empty")
-	}
-	if len(c.Models) == 0 && len(c.Providers) == 0 {
-		return errors.New("configure at least one model or provider")
-	}
 	if c.Compaction.ReserveTokens <= 0 || c.Compaction.KeepRecentTokens <= 0 {
 		return errors.New("compaction token budgets must be positive")
 	}
@@ -273,7 +266,9 @@ func (c Config) Validate() error {
 			return fmt.Errorf("model %q context window must exceed both compaction budgets", model.Name)
 		}
 	}
-	if !seen[c.DefaultModel] && !c.DerivedModel(c.DefaultModel) {
+	// An empty default_model is the unconfigured first-run state; the runtime
+	// reports it instead of refusing to start.
+	if c.DefaultModel != "" && !seen[c.DefaultModel] && !c.DerivedModel(c.DefaultModel) {
 		return fmt.Errorf("default_model %q does not name a configured model", c.DefaultModel)
 	}
 	return nil
@@ -380,6 +375,10 @@ func (c Config) ResolveModel(name string) (Model, bool) {
 }
 
 func (m Model) Ready() error {
+	if m.Name == "" {
+		// The UI appends the config path, so this reads as a complete hint.
+		return errors.New("no model configured; run /login, or add a model")
+	}
 	if strings.TrimSpace(m.ModelID) == "" {
 		return fmt.Errorf("configure model %q", m.Name)
 	}

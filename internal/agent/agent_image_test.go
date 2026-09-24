@@ -64,7 +64,7 @@ func TestImageResultDoesNotForceCompaction(t *testing.T) {
 	defer store.Close()
 	fake := &toolCallingProvider{toolName: "read", arguments: `{"path":"shot.png"}`}
 	cfg := config.Default()
-	model := cfg.Models[0]
+	model := testModel
 	model.Vision = true
 	model.ContextWindowTokens = 100_000
 	cfg.Compaction.ReserveTokens = 16_384
@@ -111,7 +111,7 @@ func TestRunPersistsImagePartsFromRead(t *testing.T) {
 	defer store.Close()
 	fake := &toolCallingProvider{toolName: "read", arguments: `{"path":"shot.png"}`}
 	cfg := config.Default()
-	model := cfg.Models[0]
+	model := testModel
 	model.Vision = true
 	runner := New(model, cfg.Compaction, fake, store, tools.New(dir, true))
 	if err := runner.Run(context.Background(), "look at shot.png", func(Event) {}); err != nil {
