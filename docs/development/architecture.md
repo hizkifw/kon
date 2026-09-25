@@ -256,14 +256,24 @@ When the context plus the reserve no longer fits the window, the request is
 instead built in isolation from only the history being dropped, so emergency
 overflow recovery still works.
 
-Provider prompt usage is preferred when it covers the current context. Otherwise
-kon estimates serialized text and tool-schema bytes at four bytes per token and
-marks the result approximate. Exact tokenization is model-specific and is not a
+Provider-reported usage is the base for every size decision. The runner
+remembers which assistant message last reported usage; the context through that
+message is taken from the report, images included, and only messages after it
+(tool results, the new prompt) are estimated on top. A result the store
+synthesized for an unanswered call is estimated too, never treated as measured.
+A compaction discards the measurement, since it described a context that no
+longer exists. Without one, kon estimates serialized text and tool-schema bytes
+at four bytes per token. Either way a figure with any estimated part is marked
+approximate. Exact tokenization is model-specific and is not a
 sensible dependency for a provider-neutral harness. A cache-preserving summary
 request carries the whole live context, so its reported prompt usage, less an
 estimate of the trailing summary request, replaces an approximate count as the
 compaction's recorded size. The isolated fallback measures only a serialized
-transcript and keeps the estimate.
+transcript and keeps the estimate. A summary that stops at its token limit is
+refused before anything is written, so the turns it would replace are kept.
+
+Only the automatic threshold needs a known context window. `/compact`, and the
+single retry after a provider reports a context overflow, compact without one.
 
 Token counts are `tokens.Count` values from configuration through sessions,
 providers, and the terminal. The type serializes as a plain integer and owns

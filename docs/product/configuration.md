@@ -119,8 +119,8 @@ directory for later offline use.
 
 Set `context_window_tokens` to the model's actual context limit. kon uses it
 to show context usage and to compact before the window fills. A value of `0`
-means unknown and disables proactive compaction; in that case kon can still
-summarize after a provider overflow error. The numbers above are examples.
+means unknown and disables proactive compaction; in that case kon still
+summarizes after a provider overflow error, and `/compact` still works. The numbers above are examples.
 
 Set `"vision": true` for a model that accepts image input. The `read` tool
 then attaches PNG, JPEG, GIF, and WebP files up to 5 MB as image content.

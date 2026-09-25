@@ -1,9 +1,12 @@
 package app
 
 import (
+	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 
+	"github.com/hizkifw/kon/internal/agent"
 	"github.com/hizkifw/kon/internal/config"
 	"github.com/hizkifw/kon/internal/session"
 	"github.com/hizkifw/kon/internal/typedid"
@@ -121,5 +124,24 @@ func TestDescribeSelectionNamesARemovedModel(t *testing.T) {
 	}
 	if got := runtime.DescribeSelection(session.ModelSelection{Name: "review"}); got.Name != "review" || got.ExternalID != "gpt-5" {
 		t.Fatalf("DescribeSelection(review) = %#v", got)
+	}
+}
+
+func TestCompactResolvesTheDerivedModelFirst(t *testing.T) {
+	cfg := config.Default()
+	cfg.Providers = []config.Provider{{ID: "fireworks-ai", Type: "openai-compatible", BaseURL: "https://api.fireworks.ai/inference/v1"}}
+	cfg.DefaultModel = "fireworks-ai/accounts/fireworks/models/deepseek-v4p1-flash"
+	runtime, err := New(cfg, resumePaths(t), t.TempDir(), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+	// A fresh session has nothing to fold; what matters is that /compact saw
+	// the catalog's context window rather than none.
+	if err := runtime.Compact(context.Background(), func(agent.Event) {}); !errors.Is(err, agent.ErrNothingToCompact) {
+		t.Fatalf("Compact = %v", err)
+	}
+	if window := runtime.State().Active.ContextWindow; window <= 0 {
+		t.Fatalf("context window = %d after /compact, want the catalog's", window)
 	}
 }

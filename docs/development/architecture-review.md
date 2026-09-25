@@ -200,31 +200,27 @@ move to the agent.
 
 ### 13. Use reported usage for compaction decisions
 
-- [ ] Reported prompt tokens plus an estimate of messages since
-- [ ] Fix `/compact` messages for short sessions and missing context windows
-- [ ] Check the summary's finish reason
+- [x] Reported prompt tokens plus an estimate of messages since
+- [x] Fix `/compact` messages for short sessions and missing context windows
+- [x] Check the summary's finish reason
 
-`Runner.usageFor` (`internal/agent/agent.go:114`) trusts provider usage only
-when the projected message count equals the count at the time it was reported
-(`:117`). Every tool-loop iteration has appended tool results by then, so the
-pre-request threshold check runs on a pure bytes/4 estimate that ignores
-images. Conversely, the count stamped after an assistant tool-call message
-already includes the repaired placeholder results, so the real results can be
-mistaken for measured usage. Use the reported prompt tokens plus an estimate
-of only the newer messages.
+The runner now records the entry ID of the assistant message that reported
+usage, not a projected message count. `usageFor` takes the report for
+everything through that message and estimates only what follows, so tool-loop
+iterations keep the measurement and a synthesized placeholder result is never
+mistaken for measured usage. A compaction clears it, and `seedUsage` ignores
+reports from before the latest compaction.
 
-Related:
+Forcing `/compact` on a short session now reports "nothing to compact"; the
+"too large" error is kept for a single turn with no safe boundary. A forced
+compaction no longer needs a context window, and `Runtime.Compact` resolves a
+derived model first. That also makes the overflow retry work without a known
+window, as the product docs claimed, and the formerly unreachable `!compacted`
+branch now reports that nothing older is left to compact.
 
-- Forcing `/compact` on a short session reports "active turn is too large to
-  compact safely" (`agent.go:366`); with no context window it reports "nothing
-  to compact" (`:343`). `Runtime.Compact` never resolves the active model, so a
-  catalog-derived profile has no window until its first `Run`.
-- The `!compacted` branch of the overflow retry (`agent.go:232`) is
-  unreachable.
-- The summary request ignores `finish_reason`, so a summary cut off at its
-  token limit is persisted and older turns are dropped for good. With a
-  reasoning effort set, reasoning can consume the whole summary budget and fail
-  the turn with "empty assistant message".
+A summary that finishes at its token limit, or whose reasoning spends the
+whole budget (`provider.ErrOutputLimit`), is refused before anything is
+written, with an error that points at the reasoning effort.
 
 ### 14. Move login and connection mapping out of the wire-backend package
 

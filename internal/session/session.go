@@ -77,6 +77,9 @@ const (
 
 type FinishReason string
 
+// FinishLength is the finish reason of a response cut off at its token limit.
+const FinishLength FinishReason = "length"
+
 type ToolFunction struct {
 	Name      string          `json:"name"`
 	Arguments json.RawMessage `json:"arguments"`

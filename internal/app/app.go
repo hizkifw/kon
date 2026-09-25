@@ -271,6 +271,12 @@ func (r *Runtime) Compact(ctx context.Context, emit func(agent.Event)) error {
 		r.mu.Unlock()
 		return fmt.Errorf("%w: %v in %s", ErrNotReady, problem, r.paths.ConfigFile)
 	}
+	// A derived model learns its context window from the catalog, which
+	// compaction needs as much as a run does.
+	if err := r.resolveActive(); err != nil {
+		r.mu.Unlock()
+		return err
+	}
 	runner := r.runner
 	if runner == nil {
 		r.mu.Unlock()

@@ -16,6 +16,7 @@ import (
 	"github.com/hizkifw/kon/internal/session"
 	"github.com/hizkifw/kon/internal/tokens"
 	"github.com/hizkifw/kon/internal/tools"
+	"github.com/hizkifw/kon/internal/typedid"
 )
 
 type Provider interface {
@@ -57,13 +58,17 @@ type Event struct {
 }
 
 type Runner struct {
-	contextWindow    tokens.Count
-	compaction       config.Compaction
-	provider         Provider
-	session          *session.Store
-	tools            *tools.Executor
-	lastUsage        *session.Usage
-	lastUsageEntries int
+	contextWindow tokens.Count
+	compaction    config.Compaction
+	provider      Provider
+	session       *session.Store
+	tools         *tools.Executor
+	// measured is the provider-reported size of the context through the
+	// assistant message measuredAt: the prompt that produced it plus its
+	// completion. Messages after measuredAt are estimated on top. A zero
+	// measuredAt means no measurement applies, as after a compaction.
+	measured   tokens.Count
+	measuredAt typedid.EntryID
 }
 
 func New(model config.Model, compaction config.Compaction, provider Provider, store *session.Store, executor *tools.Executor) *Runner {
@@ -72,55 +77,71 @@ func New(model config.Model, compaction config.Compaction, provider Provider, st
 	return r
 }
 
-// seedUsage restores the most recent provider-reported usage from persisted
-// assistant messages so a resumed session can reuse it for the context indicator
-// and the compaction threshold instead of falling back to a byte estimate. The
-// count recorded is the number of projected messages up to and including the
-// assistant that reported it, matching how Run stamps lastUsageEntries.
+// seedUsage restores the newest provider-reported usage so a resumed session
+// can reuse it for the context indicator and the compaction threshold. Usage
+// reported before the latest compaction measured a context that no longer
+// exists, so only an assistant message after it counts.
 func (r *Runner) seedUsage() {
-	items, err := r.session.Context()
-	if err != nil {
-		return
-	}
-	for i, item := range items {
-		if item.Message.Role != session.RoleAssistant || item.Message.Usage == nil {
-			continue
+	for _, entry := range r.session.ActivePath() {
+		switch {
+		case entry.Type == session.EntryTypeCompaction:
+			r.measured, r.measuredAt = 0, typedid.EntryID{}
+		case entry.Message != nil && entry.Message.Role == session.RoleAssistant && entry.Message.Usage != nil:
+			r.measure(entry.ID, *entry.Message.Usage)
 		}
-		usage := *item.Message.Usage
-		r.lastUsage = &usage
-		r.lastUsageEntries = i + 1
 	}
+}
+
+// measure records usage reported for the assistant message id.
+func (r *Runner) measure(id typedid.EntryID, usage session.Usage) {
+	r.measured, r.measuredAt = usage.PromptTokens+usage.CompletionTokens, id
 }
 
 // ContextUsage reports the last provider-reported context size in tokens, so a
 // resumed session can reuse it instead of falling back to an unknown value. The
-// second result is false when no reported usage still covers the current
-// context, which is the case for a fresh session before its first turn.
+// second result is false unless that measurement covers the whole current
+// context, which is not the case for a fresh session before its first turn.
 func (r *Runner) ContextUsage() (tokens.Count, bool) {
 	items, err := r.session.Context()
 	if err != nil {
 		return 0, false
 	}
-	if r.lastUsage == nil || r.lastUsageEntries != len(items) {
+	if at := r.measuredIndex(items); at < 0 || at != len(items)-1 {
 		return 0, false
 	}
-	return r.lastUsage.PromptTokens + r.lastUsage.CompletionTokens, true
+	return r.measured, true
 }
 
-// usageFor prefers provider-reported usage when it still covers the current
-// context, measured by the projected message count, and otherwise estimates
-// serialized bytes.
-func (r *Runner) usageFor(items []session.ContextMessage) (tokens.Count, bool) {
-	used := estimateContext(items, r.tools.Definitions())
-	estimated := true
-	if r.lastUsage != nil && r.lastUsageEntries == len(items) {
-		reported := r.lastUsage.PromptTokens + r.lastUsage.CompletionTokens
-		if reported >= used {
-			used = reported
-			estimated = false
+// measuredIndex is the position of the measured assistant message in items,
+// or -1 when it is absent or no measurement applies.
+func (r *Runner) measuredIndex(items []session.ContextMessage) int {
+	if r.measuredAt.IsZero() {
+		return -1
+	}
+	for i := len(items) - 1; i >= 0; i-- {
+		if items[i].EntryID == r.measuredAt {
+			return i
 		}
 	}
-	return used, estimated
+	return -1
+}
+
+// usageFor sizes the context for compaction decisions. The provider's report
+// covers everything through the measured assistant message, images included,
+// so only the messages after it are estimated. Those are usually tool results
+// or the new prompt; a result the store synthesized for an unanswered call is
+// estimated like any other. Without a measurement the whole context and the
+// tool roster are estimated. estimated is true whenever any part is a guess.
+func (r *Runner) usageFor(items []session.ContextMessage) (used tokens.Count, estimated bool) {
+	at := r.measuredIndex(items)
+	if at < 0 {
+		return estimateContext(items, r.tools.Definitions()), true
+	}
+	newer := items[at+1:]
+	if len(newer) == 0 {
+		return r.measured, false
+	}
+	return r.measured + estimateContext(newer, nil), true
 }
 
 // Interrupt escalates cancellation of the tool call in flight. The UI sends
@@ -221,14 +242,16 @@ func (r *Runner) run(ctx context.Context, prompt string, emit func(Event)) error
 			}
 			emit(Event{Kind: EventText, Text: event.Text})
 		})
-		if err != nil && provider.IsContextOverflow(err) && !overflowRetried && r.contextWindow > 0 {
+		// Overflow is retried once after a forced compaction, which needs no
+		// known context window: the server has just said the context is full.
+		if err != nil && provider.IsContextOverflow(err) && !overflowRetried {
 			overflowRetried = true
 			compacted, compactErr := r.compactIfNeeded(ctx, true, emit)
 			if compactErr != nil {
 				return fmt.Errorf("provider context overflow; compaction failed: %w", compactErr)
 			}
 			if !compacted {
-				return fmt.Errorf("provider context overflow: no safe compaction boundary")
+				return fmt.Errorf("provider context overflow, and nothing older is left to compact")
 			}
 			continue
 		}
@@ -244,17 +267,14 @@ func (r *Runner) run(ctx context.Context, prompt string, emit func(Event)) error
 			}
 			return err
 		}
-		if _, err := r.session.AppendMessage(assistant); err != nil {
+		assistantID, err := r.session.AppendMessage(assistant)
+		if err != nil {
 			return err
 		}
 		emit(Event{Kind: EventAssistantDone})
 		if assistant.Usage != nil {
-			copy := *assistant.Usage
-			r.lastUsage = &copy
-			if current, contextErr := r.session.Context(); contextErr == nil {
-				r.lastUsageEntries = len(current)
-			}
-			emit(Event{Kind: EventUsage, Tokens: assistant.Usage.PromptTokens + assistant.Usage.CompletionTokens})
+			r.measure(assistantID, *assistant.Usage)
+			emit(Event{Kind: EventUsage, Tokens: r.measured})
 		}
 		calls := assistant.ToolCalls()
 		if len(calls) == 0 {
@@ -328,8 +348,8 @@ func (r *Runner) messages() ([]session.Message, error) {
 
 // Compact forces a compaction of the current context regardless of the
 // configured threshold, appending a summary entry. It is the manual /compact
-// path. When the conversation is too short or too large to split safely it
-// returns ErrNothingToCompact.
+// path. When everything since the last summary still fits in the kept window
+// it returns ErrNothingToCompact.
 func (r *Runner) Compact(ctx context.Context, emit func(Event)) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -344,9 +364,13 @@ func (r *Runner) Compact(ctx context.Context, emit func(Event)) error {
 	return nil
 }
 
+// compactIfNeeded compacts when the context is over its threshold, or always
+// when force is set. Only the threshold needs a known context window: a forced
+// compaction, from /compact or after a provider overflow, runs without one.
+// It returns false with no error when nothing is old enough to fold away.
 func (r *Runner) compactIfNeeded(ctx context.Context, force bool, emit func(Event)) (bool, error) {
 	window := r.contextWindow
-	if window == 0 {
+	if window == 0 && !force {
 		return false, nil
 	}
 	items, err := r.session.Context()
@@ -354,22 +378,31 @@ func (r *Runner) compactIfNeeded(ctx context.Context, force bool, emit func(Even
 		return false, err
 	}
 	used, estimated := r.usageFor(items)
-	threshold := window - r.compaction.ReserveTokens
-	if !force && used <= threshold {
+	if !force && used <= window-r.compaction.ReserveTokens {
 		return false, nil
 	}
 
-	cut := selectCut(items, r.compaction.KeepRecentTokens)
-	if cut <= 1 || cut >= len(items) || items[cut].EntryID.IsZero() || items[cut].Summary {
-		return false, errors.New("active turn is too large to compact safely")
-	}
 	historyStart := 1
 	var previous string
 	if len(items) > 1 && items[1].Summary {
 		previous = projectedSummary(items[1].Message.Text())
 		historyStart = 2
 	}
+	cut := selectCut(items, r.compaction.KeepRecentTokens)
+	if cut <= 1 || cut >= len(items) || items[cut].EntryID.IsZero() || items[cut].Summary {
+		if estimateContext(items[min(historyStart, len(items)):], nil) < r.compaction.KeepRecentTokens {
+			// Everything since the last summary fits in the kept window, so
+			// there is nothing older to fold away.
+			return false, nil
+		}
+		return false, errors.New("active turn is too large to compact safely")
+	}
 	response, live, err := r.summarize(ctx, items, historyStart, cut, used, previous)
+	// A summary cut off at its limit would be persisted and the turns it
+	// replaces dropped for good, so it is refused before anything is written.
+	if errors.Is(err, provider.ErrOutputLimit) || (err == nil && response.Finish == session.FinishLength) {
+		return false, fmt.Errorf("compaction summary reached its %d-token limit, so older turns were kept; a lower reasoning effort leaves more of that budget for the summary", r.summaryBudget())
+	}
 	if err != nil {
 		return false, err
 	}
@@ -390,12 +423,14 @@ func (r *Runner) compactIfNeeded(ctx context.Context, force bool, emit func(Even
 	if _, err := r.session.AppendCompaction(summary, items[cut].EntryID, used, estimated, response.Usage); err != nil {
 		return false, err
 	}
-	r.lastUsage = nil
-	r.lastUsageEntries = 0
+	r.measured, r.measuredAt = 0, typedid.EntryID{}
 	emit(Event{Kind: EventCompacted, Text: summary, Tokens: used, Estimated: estimated})
 	emit(Event{Kind: EventUsage, Tokens: -1})
 	return true, nil
 }
+
+// summaryBudget caps a compaction summary's output tokens.
+func (r *Runner) summaryBudget() tokens.Count { return min(4096, r.compaction.ReserveTokens/2) }
 
 // CompactSummaryRequest is appended as the trailing user message of a
 // cache-preserving compaction request. Instructions live here rather than in a
@@ -419,7 +454,7 @@ const isolatedSummaryPrompt = `You are a context summarization assistant. Summar
 // has already reached the window; the isolated form is used then, and as a
 // fallback if the provider still rejects the larger request as too long.
 func (r *Runner) summarize(ctx context.Context, items []session.ContextMessage, historyStart, cut int, used tokens.Count, previous string) (session.Message, bool, error) {
-	maxSummary := min(4096, r.compaction.ReserveTokens/2)
+	maxSummary := r.summaryBudget()
 	if r.contextWindow <= 0 || used < r.contextWindow {
 		request := make([]session.Message, 0, len(items)+1)
 		for _, item := range items {
