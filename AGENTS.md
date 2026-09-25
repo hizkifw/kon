@@ -17,6 +17,8 @@ make check        # formatting, vet, and shuffled unit tests — the pre-commit 
 make test-race    # race detector; separate because it needs CGO and is slower
 make build        # build bin/kon
 make smoke        # build and verify the CLI entry point
+make bench        # Go benchmarks for the hot paths
+make loadtest     # CPU and memory of bin/kon under load (TUI=1 adds TUI runs)
 make tag          # have kon tag the next release (BUMP=patch|minor|major)
 make commit       # have kon review, check, and commit the changes
 ```

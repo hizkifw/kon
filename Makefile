@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help deps run fmt fmt-check vet build test test-race check smoke release tag commit clean catalog-update
+.PHONY: help deps run fmt fmt-check vet build test test-race check smoke bench loadtest release tag commit clean catalog-update
 
 VERSION ?= dev
 BUMP ?= patch
@@ -15,6 +15,8 @@ help:
 	  '  make test-race  run the race detector' \
 	  '  make build      build bin/kon' \
 	  '  make smoke      build and check CLI startup' \
+	  '  make bench      run the Go benchmarks' \
+	  '  make loadtest   measure bin/kon CPU and memory under load (TUI=1 adds TUI scenarios)' \
 	  '  make catalog-update  refresh the bundled models.dev snapshot' \
 	  '  make release VERSION=v0.1.0' \
 	  '  make tag [BUMP=patch|minor|major] [MODEL=name]  have kon tag the next release' \
@@ -27,10 +29,10 @@ run:
 	go run ./cmd/kon
 
 fmt:
-	gofmt -w cmd internal docs/product
+	gofmt -w cmd internal docs/product scripts
 
 fmt-check:
-	test -z "$$(gofmt -l cmd internal docs/product)"
+	test -z "$$(gofmt -l cmd internal docs/product scripts)"
 
 vet:
 	go vet ./...
@@ -49,6 +51,12 @@ check: fmt-check vet test
 
 smoke: build
 	bin/kon --version
+
+bench:
+	go test -run '^$$' -bench . -benchmem ./...
+
+loadtest: build
+	go run ./scripts/loadtest $(if $(TUI),-tui)
 
 catalog-update:
 	go generate ./internal/catalog

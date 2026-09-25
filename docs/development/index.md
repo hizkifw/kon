@@ -11,11 +11,15 @@ make fmt
 make check
 make test-race
 make smoke
+make bench
+make loadtest
 ```
 
 `make check` is the normal pre-commit gate. Tests shuffle package test order.
 The race target is separate because it requires CGO and is slower. `make smoke`
 builds the normal development binary and verifies its metadata entry point.
+`make bench` and `make loadtest` measure performance; see
+[benchmarking.md](benchmarking.md).
 
 To exercise the full first-run TUI without touching real state, set temporary
 roots before launching:

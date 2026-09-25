@@ -817,6 +817,7 @@ type chatStreamState struct {
 	Response
 	callParts map[int]int
 	options   chatOptions
+	text      strings.Builder
 }
 
 // result is the assembled response with its reasoning metadata attached. Every
@@ -844,7 +845,7 @@ func applyChatChunk(state *chatStreamState, payload string, emit func(Event)) er
 			continue
 		}
 		if text := choice.Delta.Content; text != "" {
-			appendStreamText(&state.Parts, session.PartText, text)
+			state.appendText(session.PartText, text)
 			if emit != nil {
 				emit(Event{Text: text})
 			}
@@ -853,7 +854,7 @@ func applyChatChunk(state *chatStreamState, payload string, emit func(Event)) er
 			if state.options.ReasoningField == "" {
 				state.options.ReasoningField = field
 			}
-			appendStreamText(&state.Parts, session.PartReasoning, reasoning)
+			state.appendText(session.PartReasoning, reasoning)
 			if emit != nil {
 				emit(Event{Text: reasoning, Thinking: true})
 			}
@@ -874,12 +875,13 @@ func applyChatChunk(state *chatStreamState, payload string, emit func(Event)) er
 	return nil
 }
 
-func appendStreamText(parts *[]session.Part, kind, text string) {
-	if n := len(*parts); n > 0 && (*parts)[n-1].Type == kind {
-		(*parts)[n-1].Text += text
-		return
+func (state *chatStreamState) appendText(kind, text string) {
+	if n := len(state.Parts); n == 0 || state.Parts[n-1].Type != kind {
+		state.text.Reset()
+		state.Parts = append(state.Parts, session.Part{Type: kind})
 	}
-	*parts = append(*parts, session.Part{Type: kind, Text: text})
+	state.text.WriteString(text)
+	state.Parts[len(state.Parts)-1].Text = state.text.String()
 }
 
 // applyChatToolCallDelta folds one streamed tool-call delta into the response.
