@@ -123,3 +123,23 @@ func TestScrollViewBottomPadding(t *testing.T) {
 		t.Fatalf("short view lines = %d, want 4", len(got))
 	}
 }
+
+func TestScrollViewHeightChangeKeepsBottomEdge(t *testing.T) {
+	s := scrollViewWith(100, 10)
+	s.GotoBottom()
+	s.SetHeight(6)
+	if !s.AtBottom() {
+		t.Fatalf("shrinking at the bottom left offset %d, want the bottom", s.YOffset())
+	}
+	s.SetHeight(15)
+	if !s.AtBottom() {
+		t.Fatalf("growing at the bottom left offset %d, want the bottom", s.YOffset())
+	}
+
+	s.SetYOffset(40)
+	below := s.LinesBelow()
+	s.SetHeight(8)
+	if s.LinesBelow() != below {
+		t.Fatalf("lines below = %d after shrinking, want %d", s.LinesBelow(), below)
+	}
+}

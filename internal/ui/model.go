@@ -191,9 +191,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var commands []tea.Cmd
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
+		// Anchor the bottom edge across the resize, so a reader at the bottom
+		// keeps the last line in view. A width change rewraps the transcript,
+		// which makes the anchor approximate away from the bottom.
+		below := m.viewport.LinesBelow()
 		m.width, m.height = msg.Width, msg.Height
 		m.resize()
 		m.refreshTranscript(false)
+		m.viewport.SetLinesBelow(below)
 		m.anchorStartAtBottom()
 		return m, nil
 	case tea.FocusMsg:

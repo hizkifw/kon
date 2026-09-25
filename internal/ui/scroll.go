@@ -23,11 +23,30 @@ func newScrollView() scrollView {
 	return scrollView{mouseDelta: 3}
 }
 
-func (s *scrollView) SetWidth(w int)  { s.width = w }
-func (s *scrollView) SetHeight(h int) { s.height = h }
-func (s scrollView) Width() int       { return s.width }
-func (s scrollView) Height() int      { return s.height }
-func (s scrollView) YOffset() int     { return s.yOffset }
+func (s *scrollView) SetWidth(w int) { s.width = w }
+func (s scrollView) Width() int      { return s.width }
+func (s scrollView) Height() int     { return s.height }
+func (s scrollView) YOffset() int    { return s.yOffset }
+
+// SetHeight keeps the bottom edge in place rather than the top: the lines below
+// the window stay below it. A reader at the bottom stays there when the window
+// or the prompt grows, instead of losing the last lines under the input.
+func (s *scrollView) SetHeight(h int) {
+	below := s.LinesBelow()
+	s.height = h
+	s.SetLinesBelow(below)
+}
+
+// LinesBelow is the number of scrollable lines past the bottom edge of the
+// window; zero means the view is at the bottom.
+func (s scrollView) LinesBelow() int {
+	return max(0, s.extent()-s.yOffset-s.height)
+}
+
+// SetLinesBelow scrolls so that n scrollable lines remain past the bottom edge.
+func (s *scrollView) SetLinesBelow(n int) {
+	s.SetYOffset(s.extent() - s.height - n)
+}
 
 // SetContentLines installs the display lines. The slice aliases the caller's
 // cache and must not be mutated by the viewport; it is only read.

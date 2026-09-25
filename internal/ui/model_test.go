@@ -1648,6 +1648,26 @@ func TestResumedSessionStartsAtBottom(t *testing.T) {
 	}
 }
 
+func TestWindowResizeKeepsBottomLineVisible(t *testing.T) {
+	entries := []session.Entry{{Message: &session.Message{Role: session.RoleSystem, Parts: []session.Part{{Type: session.PartText, Text: "system"}}}}}
+	for i := 0; i < 40; i++ {
+		entries = append(entries, session.Entry{Message: &session.Message{Role: session.RoleUser, Parts: []session.Part{{Type: session.PartText, Text: strings.Repeat("line ", 20) + "tail"}}}})
+	}
+	runtime := &fakeRuntime{state: app.State{Phase: app.PhaseReady}, entries: entries}
+	var m tea.Model = New(context.Background(), "/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	for _, size := range []tea.WindowSizeMsg{{Width: 120, Height: 12}, {Width: 50, Height: 12}, {Width: 160, Height: 40}} {
+		m, _ = m.Update(size)
+		got := m.(Model)
+		if !got.viewport.AtBottom() {
+			t.Fatalf("resize to %dx%d left offset %d, not the bottom", size.Width, size.Height, got.viewport.YOffset())
+		}
+		if !strings.Contains(got.viewport.View(), "tail") {
+			t.Fatalf("resize to %dx%d hid the last transcript line", size.Width, size.Height)
+		}
+	}
+}
+
 func TestFreshSessionDoesNotForceBottom(t *testing.T) {
 	m := newTestModel(t)
 	if m.startAtBottom {
