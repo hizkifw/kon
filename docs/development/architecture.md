@@ -315,7 +315,13 @@ the compact `12.4k`/`1.0m` rendering, so every displayed figure matches.
   sends while a run is in flight goes through an `agent.Inbox` the runner
   drains before each provider request, appended as one user message at the end
   of the context so the cached prefix is untouched. Steering the runner never
-  read, and the UI-owned queue, are dispatched by the UI when the run ends. Ctrl+C never interrupts;
+  read, and the UI-owned queue, are dispatched by the UI when the run ends.
+- Background shell commands are supervised by one `tools.Jobs` per open
+  session, which the app runtime creates with the store's first runner and
+  closes, killing every job, before the store closes. Job state is plain files
+  under `<session.jsonl>.jobs/`, so the agent inspects jobs with ordinary
+  commands. An exit notice reaches the UI through `Runtime.Notices`; the UI
+  pushes it into the inbox during a run or starts a run with it when idle. Ctrl+C never interrupts;
   it clears the input, or hints at Ctrl+D to exit when the input is empty.
 
 ## Dependency policy

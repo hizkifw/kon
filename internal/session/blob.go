@@ -28,6 +28,10 @@ func validImageHash(hash string) bool {
 
 func (s *Store) blobDir() string { return s.path + ".blobs" }
 
+// JobsDir is where the session's background jobs keep their files. The
+// session only names it; internal/tools owns what goes inside.
+func (s *Store) JobsDir() string { return s.path + ".jobs" }
+
 // SaveImage writes an image before its session entry can refer to it. Equal
 // bytes share one file within a session, and the JSONL keeps only the hash.
 func (s *Store) SaveImage(data []byte, mime string) (Part, error) {

@@ -47,7 +47,9 @@ type fakeRuntime struct {
 	missed      []session.Entry
 	takeOverErr error
 	// runs counts Run calls, which arrive on the run's goroutine.
-	runs atomic.Int32
+	runs    atomic.Int32
+	notices chan string
+	jobs    int
 }
 
 func (f *fakeRuntime) Models() []app.Model { return f.models }
@@ -57,7 +59,17 @@ func (f *fakeRuntime) Run(context.Context, string, *agent.Inbox, func(agent.Even
 	return nil
 }
 func (f *fakeRuntime) Compact(context.Context, func(agent.Event)) error { return nil }
-func (f *fakeRuntime) NewSession() error                                { return nil }
+
+// Notices is closed unless a test opens it, so draining Init's commands ends.
+func (f *fakeRuntime) Notices() <-chan string {
+	if f.notices == nil {
+		f.notices = make(chan string)
+		close(f.notices)
+	}
+	return f.notices
+}
+func (f *fakeRuntime) RunningJobs() int  { return f.jobs }
+func (f *fakeRuntime) NewSession() error { return nil }
 func (f *fakeRuntime) Login(_ context.Context, provider config.Provider) (int, bool, error) {
 	f.loginProvider = provider
 	return 0, true, nil

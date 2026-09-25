@@ -13,14 +13,16 @@ import (
 type Executor struct {
 	cwd      string
 	vision   bool
+	jobs     *Jobs
 	registry *Registry
 }
 
 // New returns an Executor with the default (built-in) tools registered,
 // rooted at cwd. vision reports whether the active model accepts image
-// content and gates whether tools attach images to their results.
-func New(cwd string, vision bool) *Executor {
-	return &Executor{cwd: cwd, vision: vision, registry: defaultRegistry()}
+// content and gates whether tools attach images to their results. jobs runs
+// background shell commands and may be nil.
+func New(cwd string, vision bool, jobs *Jobs) *Executor {
+	return &Executor{cwd: cwd, vision: vision, jobs: jobs, registry: defaultRegistry()}
 }
 
 // Interrupt escalates cancellation of the tool the agent is currently running.
@@ -43,7 +45,7 @@ func (e *Executor) Execute(ctx context.Context, name string, arguments json.RawM
 	if !ok {
 		return Result{Content: fmt.Sprintf("error: unknown tool %q", name)}, true
 	}
-	result, err := tool.Run(ctx, Env{cwd: e.cwd, vision: e.vision, report: report}, arguments)
+	result, err := tool.Run(ctx, Env{cwd: e.cwd, vision: e.vision, report: report, jobs: e.jobs}, arguments)
 	if err != nil {
 		return Result{Content: "error: " + err.Error()}, true
 	}

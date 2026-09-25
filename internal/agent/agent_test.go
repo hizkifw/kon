@@ -53,7 +53,7 @@ func TestRunnerCompactsOlderTurnsBeforeRequest(t *testing.T) {
 	limits.ContextWindow = 500
 	limits.ReserveTokens = 100
 	limits.KeepRecentTokens = 100
-	runner := New(limits, fake, store, tools.New(t.TempDir(), false))
+	runner := New(limits, fake, store, tools.New(t.TempDir(), false, nil))
 	if err := runner.Run(context.Background(), "new work", nil, func(Event) {}); err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func TestNewSeedsUsageFromPersistedAssistantMessages(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer reopened.Close()
-	runner := New(testLimits, &fakeProvider{}, reopened, tools.New(t.TempDir(), false))
+	runner := New(testLimits, &fakeProvider{}, reopened, tools.New(t.TempDir(), false, nil))
 	tokens, ok := runner.ContextUsage()
 	if !ok || tokens != 940 {
 		t.Fatalf("ContextUsage = (%d, %v), want (940, true)", tokens, ok)
@@ -111,7 +111,7 @@ func TestContextUsageUnknownBeforeFirstReport(t *testing.T) {
 	if _, err := store.AppendMessage(session.Message{Role: session.RoleUser, Parts: []session.Part{{Type: session.PartText, Text: "hi"}}}); err != nil {
 		t.Fatal(err)
 	}
-	runner := New(testLimits, &fakeProvider{}, store, tools.New(t.TempDir(), false))
+	runner := New(testLimits, &fakeProvider{}, store, tools.New(t.TempDir(), false, nil))
 	if tokens, ok := runner.ContextUsage(); ok {
 		t.Fatalf("ContextUsage = (%d, true), want unknown", tokens)
 	}
@@ -148,7 +148,7 @@ func TestRunnerPersistsPartialTurnOnInterruptedStream(t *testing.T) {
 	}
 	defer store.Close()
 	fake := &interruptingProvider{}
-	runner := New(Limits{}, fake, store, tools.New(t.TempDir(), false))
+	runner := New(Limits{}, fake, store, tools.New(t.TempDir(), false, nil))
 	err = runner.Run(context.Background(), "hello", nil, func(Event) {})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Run error = %v, want context.Canceled", err)
@@ -189,7 +189,7 @@ func TestRunnerBracketsTurnWithMarkers(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer store.Close()
-			runner := New(Limits{}, c.provider, store, tools.New(t.TempDir(), false))
+			runner := New(Limits{}, c.provider, store, tools.New(t.TempDir(), false, nil))
 			_ = runner.Run(context.Background(), "hello", nil, func(Event) {})
 			path := store.ActivePath()
 			// The root system message leads, then the turn.
@@ -231,7 +231,7 @@ func TestRunnerPersistsInterruptedResultsForRemainingToolCalls(t *testing.T) {
 	defer store.Close()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	runner := New(Limits{}, toolCallProvider{}, store, tools.New(t.TempDir(), false))
+	runner := New(Limits{}, toolCallProvider{}, store, tools.New(t.TempDir(), false, nil))
 	if err := runner.Run(ctx, "hello", nil, func(Event) {}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("Run error = %v, want context.Canceled", err)
 	}
@@ -278,7 +278,7 @@ func TestRunnerEmitsThinkingBeforeText(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	runner := New(Limits{}, reasoningProvider{}, store, tools.New(t.TempDir(), false))
+	runner := New(Limits{}, reasoningProvider{}, store, tools.New(t.TempDir(), false, nil))
 	var kinds []EventKind
 	if err := runner.Run(context.Background(), "hello", nil, func(event Event) { kinds = append(kinds, event.Kind) }); err != nil {
 		t.Fatal(err)
@@ -330,7 +330,7 @@ func TestCompactForcesCompactionBelowThreshold(t *testing.T) {
 	limits.ContextWindow = 1_000_000
 	limits.ReserveTokens = 16_384
 	limits.KeepRecentTokens = 100
-	runner := New(limits, fake, store, tools.New(t.TempDir(), false))
+	runner := New(limits, fake, store, tools.New(t.TempDir(), false, nil))
 	var compacted []Event
 	if err := runner.Compact(context.Background(), func(event Event) { compacted = append(compacted, event) }); err != nil {
 		t.Fatal(err)
@@ -371,7 +371,7 @@ func TestCompactWithoutHistoryReportsNothingToCompact(t *testing.T) {
 	}
 	defer store.Close()
 	fake := &fakeProvider{}
-	runner := New(testLimits, fake, store, tools.New(t.TempDir(), false))
+	runner := New(testLimits, fake, store, tools.New(t.TempDir(), false, nil))
 	if err := runner.Compact(context.Background(), func(Event) {}); !errors.Is(err, ErrNothingToCompact) {
 		t.Fatalf("Compact error = %v, want ErrNothingToCompact", err)
 	}
@@ -403,7 +403,7 @@ func TestCompactFallsBackToIsolatedSummaryWhenLiveContextWouldOverflow(t *testin
 	limits.ContextWindow = 200
 	limits.ReserveTokens = 150
 	limits.KeepRecentTokens = 1
-	runner := New(limits, provider, store, tools.New(t.TempDir(), false))
+	runner := New(limits, provider, store, tools.New(t.TempDir(), false, nil))
 	var events []Event
 	if err := runner.Compact(context.Background(), func(event Event) { events = append(events, event) }); err != nil {
 		t.Fatal(err)
@@ -444,7 +444,7 @@ func TestCompactReportsMeasuredContextFromLiveSummaryRequest(t *testing.T) {
 	limits := testLimits
 	limits.ContextWindow = 1_000_000
 	limits.KeepRecentTokens = 100
-	runner := New(limits, provider, store, tools.New(t.TempDir(), false))
+	runner := New(limits, provider, store, tools.New(t.TempDir(), false, nil))
 	var events []Event
 	if err := runner.Compact(context.Background(), func(event Event) { events = append(events, event) }); err != nil {
 		t.Fatal(err)
@@ -486,7 +486,7 @@ func TestCompactUsesPreviousSummaryWithoutReSummarizingIt(t *testing.T) {
 	limits := testLimits
 	limits.ContextWindow = 1_000_000
 	limits.KeepRecentTokens = 1
-	runner := New(limits, provider, store, tools.New(t.TempDir(), false))
+	runner := New(limits, provider, store, tools.New(t.TempDir(), false, nil))
 	if err := runner.Compact(context.Background(), func(Event) {}); err != nil {
 		t.Fatal(err)
 	}

@@ -185,3 +185,29 @@ func TestPendingStripKeepsTranscriptHeight(t *testing.T) {
 		t.Fatalf("overflow row missing:\n%s", plain(view))
 	}
 }
+
+func TestNoticeWhileBusyWaitsInInboxOutOfSight(t *testing.T) {
+	m := busyModel(t)
+	updated, _ := m.deliverNotice("[kon notice] Background job 1 exited with code 0")
+	m = updated.(Model)
+	if len(m.steering) != 0 || m.pendingHeight() != 0 {
+		t.Fatalf("a notice shows as steering: %q", m.steering)
+	}
+	updated, _ = m.managePending([]string{"clear"})
+	if taken := updated.(Model).inbox.Take(); len(taken) != 1 || !strings.HasPrefix(taken[0], "[kon notice]") {
+		t.Fatalf("clear dropped the notice: inbox = %q", taken)
+	}
+}
+
+func TestNoticeWhileIdleStartsARun(t *testing.T) {
+	m := newTestModel(t)
+	m.runtime.(*fakeRuntime).jobs = 1
+	updated, _ := m.deliverNotice("[kon notice] Background job 1 exited with code 1")
+	m = updated.(Model)
+	if !m.busy || !strings.Contains(plain(m.viewport.View()), "Background job 1 exited") {
+		t.Fatalf("idle notice did not start a run: busy = %v", m.busy)
+	}
+	if view := plain(m.View().Content); !strings.Contains(view, "⚙ 1") {
+		t.Fatalf("running jobs missing from the status line:\n%s", view)
+	}
+}

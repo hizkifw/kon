@@ -50,7 +50,7 @@ func runSteered(t *testing.T, p *steeringProvider) []Event {
 	defer store.Close()
 	p.inbox = &Inbox{}
 	var events []Event
-	runner := New(Limits{}, p, store, tools.New(t.TempDir(), false))
+	runner := New(Limits{}, p, store, tools.New(t.TempDir(), false, nil))
 	if err := runner.Run(context.Background(), "task", p.inbox, func(e Event) { events = append(events, e) }); err != nil {
 		t.Fatal(err)
 	}

@@ -46,7 +46,7 @@ func TestUsageAddsNewerMessagesToTheReportedSize(t *testing.T) {
 	store := newUsageStore(t)
 	toolTurn(t, store, 50_000)
 	appendMessage(t, store, session.ToolResultMessage("call-1", "read", strings.Repeat("x", 4000)))
-	runner := New(testLimits, &fakeProvider{}, store, tools.New(t.TempDir(), false))
+	runner := New(testLimits, &fakeProvider{}, store, tools.New(t.TempDir(), false, nil))
 
 	items, _ := store.Context()
 	used, estimated := runner.usageFor(items)
@@ -63,7 +63,7 @@ func TestUsageAddsNewerMessagesToTheReportedSize(t *testing.T) {
 func TestUsageDoesNotCountASynthesizedResultAsMeasured(t *testing.T) {
 	store := newUsageStore(t)
 	toolTurn(t, store, 50_000)
-	runner := New(testLimits, &fakeProvider{}, store, tools.New(t.TempDir(), false))
+	runner := New(testLimits, &fakeProvider{}, store, tools.New(t.TempDir(), false, nil))
 
 	// The projection repairs the unanswered call with a placeholder result,
 	// which the provider never measured.
@@ -93,7 +93,7 @@ func TestSeedUsageIgnoresReportsFromBeforeACompaction(t *testing.T) {
 	if _, err := store.AppendCompaction("summary", kept, 90_000, false, nil); err != nil {
 		t.Fatal(err)
 	}
-	runner := New(testLimits, &fakeProvider{}, store, tools.New(t.TempDir(), false))
+	runner := New(testLimits, &fakeProvider{}, store, tools.New(t.TempDir(), false, nil))
 	items, _ := store.Context()
 	if used, estimated := runner.usageFor(items); !estimated || used >= 90_000 {
 		t.Fatalf("usageFor = (%d, %v); the pre-compaction report measured a context that is gone", used, estimated)
@@ -150,7 +150,7 @@ func TestCompactRunsWithoutAContextWindow(t *testing.T) {
 	store := newUsageStore(t)
 	longSession(t, store)
 	fake := &scriptedProvider{summary: session.TextMessage(session.RoleAssistant, "summary")}
-	runner := New(smallKeep(), fake, store, tools.New(t.TempDir(), false))
+	runner := New(smallKeep(), fake, store, tools.New(t.TempDir(), false, nil))
 	if err := runner.Compact(context.Background(), func(Event) {}); err != nil {
 		t.Fatal(err)
 	}
@@ -166,7 +166,7 @@ func TestCompactOnAShortSessionHasNothingToCompact(t *testing.T) {
 	limits := testLimits
 	limits.ContextWindow = 100_000
 	fake := &scriptedProvider{}
-	runner := New(limits, fake, store, tools.New(t.TempDir(), false))
+	runner := New(limits, fake, store, tools.New(t.TempDir(), false, nil))
 	if err := runner.Compact(context.Background(), func(Event) {}); !errors.Is(err, ErrNothingToCompact) {
 		t.Fatalf("Compact = %v, want ErrNothingToCompact", err)
 	}
@@ -182,7 +182,7 @@ func TestTruncatedSummaryIsNotPersisted(t *testing.T) {
 	} {
 		store := newUsageStore(t)
 		longSession(t, store)
-		runner := New(smallKeep(), fake, store, tools.New(t.TempDir(), false))
+		runner := New(smallKeep(), fake, store, tools.New(t.TempDir(), false, nil))
 		err := runner.Compact(context.Background(), func(Event) {})
 		if err == nil || !strings.Contains(err.Error(), "token limit") {
 			t.Fatalf("%s: Compact = %v, want a token-limit error", name, err)
@@ -197,7 +197,7 @@ func TestOverflowCompactsWithoutAContextWindow(t *testing.T) {
 	store := newUsageStore(t)
 	longSession(t, store)
 	fake := &scriptedProvider{summary: session.TextMessage(session.RoleAssistant, "summary"), overflowOnce: true}
-	runner := New(smallKeep(), fake, store, tools.New(t.TempDir(), false))
+	runner := New(smallKeep(), fake, store, tools.New(t.TempDir(), false, nil))
 	if err := runner.Run(context.Background(), "next", nil, func(Event) {}); err != nil {
 		t.Fatal(err)
 	}

@@ -51,6 +51,10 @@ type Runtime interface {
 	// DescribeTool resolves a persisted tool call's transcript display through
 	// the tool that owns it, so replay matches live rendering.
 	DescribeTool(name string, args json.RawMessage, result string, failed bool, details json.RawMessage) tools.Display
+	// Notices delivers kon's notices for the agent, such as a background job
+	// exiting; RunningJobs counts the live session's running jobs.
+	Notices() <-chan string
+	RunningJobs() int
 	// ContextUsage reports the last provider-reported context size and whether it
 	// is known, so a resumed session can show it instead of an unknown value.
 	ContextUsage() (tokens.Count, bool)
@@ -96,6 +100,9 @@ type Model struct {
 	// queued holds prompts (Tab while a run is in flight) that each start
 	// their own run once the one before finishes cleanly.
 	queued []string
+	// jobs is the number of background jobs running, as of the last event
+	// that could have changed it.
+	jobs int
 	// timer times the user turn currently in flight, nil while idle. It starts
 	// on submit and freezes into a blockElapsed when the run ends.
 	timer *turnTimer
@@ -205,7 +212,7 @@ func (m Model) Init() tea.Cmd {
 	commands := []tea.Cmd{m.input.Focus(), func() tea.Msg {
 		runtime.LoadCatalog()
 		return catalogLoadedMsg{}
-	}}
+	}, waitNotice(runtime.Notices())}
 	if m.follow != nil {
 		commands = append(commands, followTick(m.followEpoch))
 	}
@@ -263,6 +270,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, timerTick(msg.epoch)
 	case runDoneMsg:
 		m.busy, m.runCancel, m.runEvents, m.interruptPresses = false, nil, nil, 0
+		m.jobs = m.runtime.RunningJobs()
 		m.syncRuntimeState()
 		// An interrupted stream never received its done event, so finalize the
 		// live stream here to freeze the partial answer and reasoning that were
@@ -284,6 +292,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.finishTimer()
 		m.refreshTranscript(true)
 		return m.dispatchPending(msg.err)
+	case noticeMsg:
+		updated, cmd := m.deliverNotice(msg.text)
+		return updated, tea.Batch(cmd, waitNotice(m.runtime.Notices()))
 	case loginDoneMsg:
 		return m.finishLogin(msg)
 	case catalogLoadedMsg:

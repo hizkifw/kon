@@ -39,6 +39,7 @@ func (m *Model) applyAgentEvent(event agent.Event) bool {
 		m.status = "running " + event.Tool + "…"
 	case agent.EventToolDone:
 		m.status = ""
+		m.jobs = m.runtime.RunningJobs()
 		m.transcript.add(m.toolResultBlock(event))
 	case agent.EventCompacted:
 		m.transcript.add(block{kind: blockContext, text: compactedLabel(event.Tokens, event.Estimated)})

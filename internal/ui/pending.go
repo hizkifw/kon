@@ -93,6 +93,34 @@ func (m Model) dispatchPending(err error) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// noticeMsg carries a notice from kon, such as a background job exiting, that
+// the agent should hear.
+type noticeMsg struct{ text string }
+
+// waitNotice waits for the runtime's next notice. It is re-armed after each
+// one, and stops once the runtime closes the channel.
+func waitNotice(notices <-chan string) tea.Cmd {
+	return func() tea.Msg {
+		text, ok := <-notices
+		if !ok {
+			return nil
+		}
+		return noticeMsg{text: text}
+	}
+}
+
+// deliverNotice passes a notice to the agent: at its next request while a run
+// is in flight, or by starting a run when idle, so a job finishing after the
+// agent's turn ended still gets its attention.
+func (m Model) deliverNotice(text string) (tea.Model, tea.Cmd) {
+	m.jobs = m.runtime.RunningJobs()
+	if m.busy || !m.canSend() {
+		m.inbox.PushNotice(text)
+		return m, nil
+	}
+	return m.send(text)
+}
+
 // syncSteering refreshes the mirror of the inbox and re-lays-out the frame,
 // since the pending strip may have changed height.
 func (m *Model) syncSteering() {
@@ -185,7 +213,7 @@ func (m Model) managePending(args []string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if args[0] == "clear" {
-		dropped := len(m.inbox.Take()) + len(m.queued)
+		dropped := m.inbox.WithdrawAll() + len(m.queued)
 		m.queued = nil
 		m.input.Reset()
 		m.syncSteering()

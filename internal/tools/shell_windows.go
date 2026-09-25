@@ -6,9 +6,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 )
+
+// killHint is the command that stops a background job and its child
+// processes.
+func killHint(pid int) string { return "taskkill /T /F /PID " + strconv.Itoa(pid) }
 
 const ctrlBreakEvent = 1
 

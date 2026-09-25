@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"image/color"
 	"os"
 	"strings"
@@ -77,7 +78,11 @@ func (m Model) View() tea.View {
 	if m.active.ContextWindow > 0 {
 		ctx += "/" + m.active.ContextWindow.String()
 	}
-	status := " " + abbreviateHome(m.cwd) + " · " + ctx + " · " + m.status
+	status := " " + abbreviateHome(m.cwd) + " · " + ctx
+	if m.jobs > 0 {
+		status += fmt.Sprintf(" · ⚙ %d", m.jobs)
+	}
+	status += " · " + m.status
 	sections := []string{headerStyle.Render(fitLine(header, m.width)), m.viewport.View()}
 	if pending := m.pendingView(); pending != "" {
 		sections = append(sections, pending)

@@ -6,8 +6,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"syscall"
 )
+
+// killHint is the command that stops a background job and everything it
+// spawned: the job leads its own process group.
+func killHint(pid int) string { return "kill -- -" + strconv.Itoa(pid) }
 
 // configureProcessGroup runs the command in its own process group, so an
 // interrupt reaches the shell and everything it spawned instead of being

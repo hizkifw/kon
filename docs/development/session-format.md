@@ -82,6 +82,14 @@ base64 image data. Equal bytes in one session share a blob. The provider
 verifies and loads blobs when it builds a vision request; text-only results
 carry no image part.
 
+Background shell jobs keep their files in `<session.jsonl>.jobs/<id>/`, with
+IDs counting up from 1 per session: `cmd` (the command), `pid` (the process,
+which leads its own process group on Unix), `output` (combined output, capped
+at 16 MiB), and `exit`, written when the job ends. `exit` holds the exit code,
+or a reason such as `killed: kon exited` or `lost: …` for a job whose kon
+exited without recording it. None of these are referenced from the JSONL; the
+shell tool result that started a job records `details.job`.
+
 An assistant message's `provider_options` holds metadata the backend that
 wrote it needs to send the reply back as it arrived. For chat completions that is
 `reasoning_field`, the field its reasoning streamed in (`reasoning_content`,
@@ -91,7 +99,8 @@ Reasoning is replayed only to the model that wrote it.
 
 Tool results may include `is_error: true` and a tool-owned `details` object.
 Shell details record `exit_code`, `duration`, and `output_bytes` (the byte
-length of output before the model-facing status marker). Text reads record
+length of output before the model-facing status marker), or `job` alone for a
+command started in the background. Text reads record
 `line_count` and, for an empty file, `empty_file`. The transcript uses these
 details to replay the tool's display without parsing its model-facing text.
 

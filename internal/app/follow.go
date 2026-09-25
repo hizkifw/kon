@@ -60,7 +60,7 @@ func (r *Runtime) TakeOver() ([]session.Entry, error) {
 	// read ends exactly where the store begins.
 	missed, err := r.view.Poll()
 	if err != nil {
-		_ = target.store.Close()
+		_ = r.closeStore(target.store)
 		return nil, err
 	}
 	r.install(target)

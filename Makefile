@@ -71,8 +71,9 @@ tag:
 	  "Tag the next $(BUMP) release of kon, following the Releases section of AGENTS.md. Do not push the tag."
 
 # kon reviews the changes, runs the checks, and commits them.
+# The guard and the run share one shell, so a clean tree really stops here.
 commit:
-	@test -n "$$(git status --porcelain)" || { echo "nothing to commit"; exit 0; }
+	@if [ -z "$$(git status --porcelain)" ]; then echo "nothing to commit"; exit 0; fi; \
 	go run ./cmd/kon run $(if $(MODEL),--model $(MODEL)) \
 	  "Review the uncommitted changes, run make check, and if it passes commit the changes. Write the commit message in the style of recent commits. Do not push."
 

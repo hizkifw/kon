@@ -66,7 +66,7 @@ func TestImageResultDoesNotForceCompaction(t *testing.T) {
 	limits.ContextWindow = 100_000
 	limits.ReserveTokens = 16_384
 	limits.KeepRecentTokens = 20_000
-	runner := New(limits, fake, store, tools.New(dir, true))
+	runner := New(limits, fake, store, tools.New(dir, true, nil))
 	if err := runner.Run(context.Background(), "look at shot.png", nil, func(Event) {}); err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ func TestRunPersistsImagePartsFromRead(t *testing.T) {
 	defer store.Close()
 	fake := &toolCallingProvider{toolName: "read", arguments: `{"path":"shot.png"}`}
 	limits := testLimits
-	runner := New(limits, fake, store, tools.New(dir, true))
+	runner := New(limits, fake, store, tools.New(dir, true, nil))
 	if err := runner.Run(context.Background(), "look at shot.png", nil, func(Event) {}); err != nil {
 		t.Fatal(err)
 	}

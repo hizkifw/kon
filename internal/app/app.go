@@ -90,6 +90,12 @@ type Runtime struct {
 	phase      Phase
 	runCancel  context.CancelFunc
 	runDone    chan struct{}
+	// jobs supervises each open store's background commands. A store gets its
+	// supervisor with its first runner and loses it, killing whatever still
+	// runs, when the store closes. notices carries their exit notices to the
+	// frontend.
+	jobs    map[*session.Store]*tools.Jobs
+	notices chan string
 
 	// pinned keeps the active model across a resume instead of restoring the
 	// session's recorded one, and effort, when set, replaces the saved
@@ -175,7 +181,8 @@ func Start(cfg config.Config, paths config.Paths, cwd, version string, opts Opti
 		}
 		name = opts.Model
 	}
-	r := &Runtime{config: cfg, paths: paths, cwd: cwd, providerModels: loadProviderModels(paths.ProviderModels), pinned: opts.Model != "", effort: opts.Effort}
+	r := &Runtime{config: cfg, paths: paths, cwd: cwd, providerModels: loadProviderModels(paths.ProviderModels), pinned: opts.Model != "", effort: opts.Effort,
+		jobs: map[*session.Store]*tools.Jobs{}, notices: make(chan string, 64)}
 	r.createSession = func() (*session.Store, error) {
 		prompt, err := r.systemPrompt()
 		if err != nil {
@@ -246,7 +253,54 @@ func (r *Runtime) buildRunner(profile modelSpec, store *session.Store) (*agent.R
 	if err != nil {
 		return nil, err
 	}
-	return agent.New(profile.limits(r.config.Compaction), client, store, tools.New(r.cwd, profile.Vision)), nil
+	return agent.New(profile.limits(r.config.Compaction), client, store, tools.New(r.cwd, profile.Vision, r.jobsFor(store))), nil
+}
+
+// jobsFor returns the store's job supervisor, starting it on first use. Every
+// runner built for a store shares it, so a model switch keeps its jobs.
+func (r *Runtime) jobsFor(store *session.Store) *tools.Jobs {
+	if jobs, ok := r.jobs[store]; ok {
+		return jobs
+	}
+	if r.jobs == nil {
+		r.jobs = map[*session.Store]*tools.Jobs{}
+	}
+	notices := r.notices
+	jobs := tools.NewJobs(store.JobsDir(), store.ID().String(), func(notice string) {
+		// A frontend that is not listening, like kon run, must not stall the
+		// job's goroutine; the job's files still record how it ended.
+		select {
+		case notices <- notice:
+		default:
+		}
+	})
+	r.jobs[store] = jobs
+	return jobs
+}
+
+// closeStore stops the store's jobs and then closes it.
+func (r *Runtime) closeStore(store *session.Store) error {
+	if jobs, ok := r.jobs[store]; ok {
+		jobs.Close()
+		delete(r.jobs, store)
+	}
+	return store.Close()
+}
+
+// Notices delivers a notice whenever a background job exits on its own. The
+// agent should hear about it: the frontend passes it on as steering while a
+// run is in flight, or starts a run with it when idle.
+func (r *Runtime) Notices() <-chan string { return r.notices }
+
+// RunningJobs reports how many of the live session's background jobs are
+// still running.
+func (r *Runtime) RunningJobs() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.store == nil {
+		return 0
+	}
+	return r.jobs[r.store].Running()
 }
 
 // recordModel appends the model change that names profile as the model now
@@ -297,7 +351,7 @@ func (r *Runtime) swap(o opened) {
 	previous := r.store
 	r.install(o)
 	if previous != nil {
-		r.cleanupErr = errors.Join(r.cleanupErr, previous.Close())
+		r.cleanupErr = errors.Join(r.cleanupErr, r.closeStore(previous))
 	}
 }
 
@@ -572,7 +626,7 @@ func (r *Runtime) Close() error {
 	if r.store == nil {
 		return nil
 	}
-	err := errors.Join(r.cleanupErr, r.store.Close())
+	err := errors.Join(r.cleanupErr, r.closeStore(r.store))
 	r.store, r.runner = nil, nil
 	return err
 }
@@ -611,7 +665,7 @@ func (r *Runtime) prepareSession(profile modelSpec) (opened, error) {
 	}
 	runner, err := r.createRunner(profile, store)
 	if err != nil {
-		_ = store.Close()
+		_ = r.closeStore(store)
 		return opened{}, err
 	}
 	return opened{store: store, runner: runner, profile: profile}, nil
@@ -646,7 +700,7 @@ func (r *Runtime) openStore(path string) (opened, error) {
 	}
 	runner, err := build(profile, store)
 	if err != nil {
-		_ = store.Close()
+		_ = r.closeStore(store)
 		return opened{}, err
 	}
 	return opened{store: store, runner: runner, profile: profile}, nil

@@ -190,9 +190,29 @@ Tool calls run serially in the directory where kon was started:
 - `edit` replaces exactly one occurrence and fails on zero or multiple matches.
 - `shell` runs a command through your configured `$SHELL`, falling back to
   `/bin/sh` when it is unset or missing. On Windows it uses Git Bash when
-  available, then PowerShell, then `cmd.exe`. Every command carries a
+  available, then PowerShell, then `cmd.exe`. A foreground command carries a
   model-specified timeout, capped at 600 seconds, and the tool description tells
   the model which interpreter it is.
+
+### Background jobs
+
+For servers, watchers, and long builds, the model can start a shell command as
+a background job. The call returns at once and the job keeps running. The
+status bar shows `⚙ N` while jobs run, and when a job exits kon tells the
+agent, quoting the job's last lines of output: at its next step if it is
+working, or by starting a turn if it is idle.
+
+Each job is a directory of plain files beside the session, at
+`<session>.jsonl.jobs/<id>/`: `cmd`, `pid`, `output` (combined stdout and
+stderr, capped at 16 MiB), and `exit` once it has finished. Every shell
+command, foreground or background, gets `KON_JOBS` (that directory) and
+`KON_SESSION` (the session ID) in its environment, so the agent can list jobs
+with `ls $KON_JOBS` and read or stop them with ordinary commands.
+
+Jobs belong to the kon that started them. Quitting kon, `/new`, and `/resume`
+kill every job still running, and its `exit` file records why. A job whose kon
+crashed is marked lost the next time the session opens. `kon run` supports
+background jobs too, but they end when it exits.
 
 There is no sandbox or confirmation prompt, and shell commands inherit your
 environment. Run kon with the same care you would give any coding agent.

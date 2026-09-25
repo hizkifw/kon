@@ -71,6 +71,9 @@ type Env struct {
 	// (tool calls run fine without a transcript). It must not block; calls
 	// happen from the tool's own goroutine.
 	report func(Display)
+	// jobs supervises the session's background commands; nil where there is
+	// no session to keep them in.
+	jobs *Jobs
 }
 
 // Report publishes one display snapshot for the running call, if a transcript

@@ -547,7 +547,7 @@ func TestCloseCancelsAndWaitsForActiveRun(t *testing.T) {
 	provider := &blockingProvider{started: make(chan struct{})}
 	runtime := &Runtime{
 		active: profile, store: store, phase: PhaseReady,
-		runner: agent.New(profile.limits(config.Default().Compaction), provider, store, tools.New(t.TempDir(), false)),
+		runner: agent.New(profile.limits(config.Default().Compaction), provider, store, tools.New(t.TempDir(), false, nil)),
 	}
 	runDone := make(chan error, 1)
 	go func() { runDone <- runtime.Run(context.Background(), "work", nil, func(agent.Event) {}) }()
@@ -569,7 +569,7 @@ func TestCloseRefusesOperationsWhileTheRunWindsDown(t *testing.T) {
 	provider := &windingProvider{started: make(chan struct{}), cancelled: make(chan struct{}), release: make(chan struct{})}
 	runtime := &Runtime{
 		active: profile, store: store, phase: PhaseReady,
-		runner: agent.New(profile.limits(config.Default().Compaction), provider, store, tools.New(t.TempDir(), false)),
+		runner: agent.New(profile.limits(config.Default().Compaction), provider, store, tools.New(t.TempDir(), false, nil)),
 	}
 	runDone := make(chan error, 1)
 	go func() { runDone <- runtime.Run(context.Background(), "work", nil, func(agent.Event) {}) }()

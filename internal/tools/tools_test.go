@@ -15,7 +15,7 @@ import (
 
 func TestWriteEditRead(t *testing.T) {
 	dir := t.TempDir()
-	executor := New(dir, false)
+	executor := New(dir, false, nil)
 	result, failed := executor.Execute(context.Background(), "write", raw(map[string]any{"path": "note.txt", "content": "alpha\nbeta\n"}), nil)
 	if failed || !strings.Contains(result.Content, "wrote") {
 		t.Fatalf("write = %q, failed=%v", result.Content, failed)
@@ -39,7 +39,7 @@ func TestEditRejectsAmbiguousAndUnknownArguments(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "x"), []byte("same same"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	executor := New(dir, false)
+	executor := New(dir, false, nil)
 	if _, failed := executor.Execute(context.Background(), "edit", raw(map[string]any{"path": "x", "old_text": "same", "new_text": "x"}), nil); !failed {
 		t.Fatal("ambiguous edit succeeded")
 	}
@@ -53,7 +53,7 @@ func TestShellCapturesExitCode(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		command = "echo hello"
 	}
-	result, failed := New(t.TempDir(), false).Execute(context.Background(), "shell", raw(map[string]any{"command": command, "timeout": 10}), nil)
+	result, failed := New(t.TempDir(), false, nil).Execute(context.Background(), "shell", raw(map[string]any{"command": command, "timeout": 10}), nil)
 	if failed || !strings.Contains(result.Content, "hello") || !strings.Contains(result.Content, "exit code: 0") {
 		t.Fatalf("shell = %q, failed=%v", result.Content, failed)
 	}
@@ -73,7 +73,7 @@ func TestShellDescriptionNamesResolvedInterpreter(t *testing.T) {
 }
 
 func TestShellRequiresTimeout(t *testing.T) {
-	executor := New(t.TempDir(), false)
+	executor := New(t.TempDir(), false, nil)
 	cases := map[string]json.RawMessage{
 		"missing":   json.RawMessage(`{"command":"true"}`),
 		"zero":      raw(map[string]any{"command": "true", "timeout": 0}),
@@ -96,7 +96,7 @@ func TestShellTimesOutWithPartialOutput(t *testing.T) {
 	if runtime.GOOS == "windows" && shellName() == "cmd.exe" {
 		command = "echo | set /p=before& timeout /t 5 >nul"
 	}
-	result, failed := New(t.TempDir(), false).Execute(context.Background(), "shell", raw(map[string]any{"command": command, "timeout": 1}), nil)
+	result, failed := New(t.TempDir(), false, nil).Execute(context.Background(), "shell", raw(map[string]any{"command": command, "timeout": 1}), nil)
 	if !failed {
 		t.Fatal("timed-out command reported success")
 	}
@@ -117,7 +117,7 @@ func TestShellCancelInterruptsCommand(t *testing.T) {
 		t.Skip("test relies on POSIX signal delivery")
 	}
 	dir := t.TempDir()
-	executor := New(dir, false)
+	executor := New(dir, false, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var failed bool
@@ -157,7 +157,7 @@ func TestShellKillsCommandThatIgnoresInterrupt(t *testing.T) {
 	grace := shellInterruptGrace
 	shellInterruptGrace = 300 * time.Millisecond
 	defer func() { shellInterruptGrace = grace }()
-	executor := New(t.TempDir(), false)
+	executor := New(t.TempDir(), false, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan struct{})
@@ -185,7 +185,7 @@ func TestKillEscalationForceKillsRunningCommand(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("test relies on POSIX signal delivery")
 	}
-	executor := New(t.TempDir(), false)
+	executor := New(t.TempDir(), false, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	if executor.Interrupt(2) {
@@ -214,7 +214,7 @@ func TestShellReportsTickingProgressWhileRunning(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("test relies on POSIX shell timing")
 	}
-	executor := New(t.TempDir(), false)
+	executor := New(t.TempDir(), false, nil)
 	var mu sync.Mutex
 	var statuses []string
 	report := func(d Display) {
@@ -259,7 +259,7 @@ func TestShellReturnsWhenGrandchildHoldsOutput(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("test relies on POSIX signal delivery")
 	}
-	executor := New(t.TempDir(), false)
+	executor := New(t.TempDir(), false, nil)
 	start := time.Now()
 	// The backgrounded sleep inherits the output descriptor and ignores
 	// SIGINT; it must not stall the result or lose the exit status.

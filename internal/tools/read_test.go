@@ -25,7 +25,7 @@ func TestReadImageAttachesForVision(t *testing.T) {
 	if err := os.WriteFile(path, pngBytes, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	executor := New(dir, true)
+	executor := New(dir, true, nil)
 	result, failed := executor.Execute(context.Background(), "read", raw(map[string]any{"path": "shot.png"}), nil)
 	if failed {
 		t.Fatalf("image read failed: %s", result.Content)
@@ -44,7 +44,7 @@ func TestReadImageWithoutVisionExplains(t *testing.T) {
 	if err := os.WriteFile(path, pngBytes, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	result, failed := New(dir, false).Execute(context.Background(), "read", raw(map[string]any{"path": "shot.png"}), nil)
+	result, failed := New(dir, false, nil).Execute(context.Background(), "read", raw(map[string]any{"path": "shot.png"}), nil)
 	if failed {
 		t.Fatalf("non-vision read failed: %s", result.Content)
 	}
@@ -68,7 +68,7 @@ func TestReadImageRejectsSpoofedExtension(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "notes.png"), big, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	result, failed := New(dir, true).Execute(context.Background(), "read", raw(map[string]any{"path": "notes.png"}), nil)
+	result, failed := New(dir, true, nil).Execute(context.Background(), "read", raw(map[string]any{"path": "notes.png"}), nil)
 	if !failed || !strings.Contains(result.Content, "larger than 1048576") {
 		t.Fatalf("oversize text under an image extension = %q, failed=%v", result.Content, failed)
 	}
@@ -83,7 +83,7 @@ func TestReadImageRoutesByContentNotExtension(t *testing.T) {
 		if err := os.WriteFile(path, pngBytes, 0o644); err != nil {
 			t.Fatal(err)
 		}
-		result, failed := New(dir, true).Execute(context.Background(), "read", raw(map[string]any{"path": name}), nil)
+		result, failed := New(dir, true, nil).Execute(context.Background(), "read", raw(map[string]any{"path": name}), nil)
 		if failed || len(result.Images) != 1 {
 			t.Fatalf("read %s = %q, failed=%v", name, result.Content, failed)
 		}
@@ -98,7 +98,7 @@ func TestReadUnsendableImageFormatExplains(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "shot.bmp"), big, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	result, failed := New(dir, true).Execute(context.Background(), "read", raw(map[string]any{"path": "shot.bmp"}), nil)
+	result, failed := New(dir, true, nil).Execute(context.Background(), "read", raw(map[string]any{"path": "shot.bmp"}), nil)
 	if !failed || !strings.Contains(result.Content, "BMP") || !strings.Contains(result.Content, "convert") {
 		t.Fatalf("BMP read = %q, failed=%v", result.Content, failed)
 	}
@@ -112,7 +112,7 @@ func TestReadImageRejectsOversize(t *testing.T) {
 	if err := os.WriteFile(path, big, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	result, failed := New(dir, true).Execute(context.Background(), "read", raw(map[string]any{"path": "big.png"}), nil)
+	result, failed := New(dir, true, nil).Execute(context.Background(), "read", raw(map[string]any{"path": "big.png"}), nil)
 	if !failed || !strings.Contains(result.Content, "larger than") {
 		t.Fatalf("oversize image = %q, failed=%v", result.Content, failed)
 	}
@@ -131,7 +131,7 @@ func TestReadTextFileWithImageExtensionReadsAsText(t *testing.T) {
 	if err := os.WriteFile(path, []byte("just text in a png name\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	result, failed := New(dir, false).Execute(context.Background(), "read", raw(map[string]any{"path": "notes.png"}), nil)
+	result, failed := New(dir, false, nil).Execute(context.Background(), "read", raw(map[string]any{"path": "notes.png"}), nil)
 	if failed || !strings.Contains(result.Content, "just text") {
 		t.Fatalf("text read = %q, failed=%v", result.Content, failed)
 	}
@@ -161,7 +161,7 @@ func TestReadRejectsOversizeFromStatWithoutLoading(t *testing.T) {
 	var before, after runtime.MemStats
 	runtime.GC()
 	runtime.ReadMemStats(&before)
-	result, failed := New(dir, true).Execute(context.Background(), "read", raw(map[string]any{"path": "big.txt"}), nil)
+	result, failed := New(dir, true, nil).Execute(context.Background(), "read", raw(map[string]any{"path": "big.txt"}), nil)
 	runtime.ReadMemStats(&after)
 	if !failed || !strings.Contains(result.Content, "larger than") {
 		t.Fatalf("oversize read = %q, failed=%v", result.Content, failed)
@@ -177,7 +177,7 @@ func TestReadRejectsOversizeFromStatWithoutLoading(t *testing.T) {
 	if err := os.WriteFile(bmp, append([]byte("BM"), make([]byte, 6*1024*1024)...), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	result, failed = New(dir, true).Execute(context.Background(), "read", raw(map[string]any{"path": "huge.bmp"}), nil)
+	result, failed = New(dir, true, nil).Execute(context.Background(), "read", raw(map[string]any{"path": "huge.bmp"}), nil)
 	if !failed || !strings.Contains(result.Content, "BMP") {
 		t.Fatalf("oversize BMP read = %q, failed=%v", result.Content, failed)
 	}
@@ -189,7 +189,7 @@ func TestReadBinaryNonImageIsRejected(t *testing.T) {
 	if err := os.WriteFile(path, []byte{0x00, 0x01, 0x02}, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	result, failed := New(dir, true).Execute(context.Background(), "read", raw(map[string]any{"path": "data.bin"}), nil)
+	result, failed := New(dir, true, nil).Execute(context.Background(), "read", raw(map[string]any{"path": "data.bin"}), nil)
 	if !failed || !strings.Contains(result.Content, "not UTF-8 text") {
 		t.Fatalf("binary read = %q, failed=%v", result.Content, failed)
 	}
