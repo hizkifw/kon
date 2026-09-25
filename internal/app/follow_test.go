@@ -49,7 +49,7 @@ func TestResumingAnOpenSessionFollowsIt(t *testing.T) {
 		t.Fatal("follower does not show the followed session")
 	}
 	for name, err := range map[string]error{
-		"run":     follower.Run(context.Background(), "hi", func(agent.Event) {}),
+		"run":     follower.Run(context.Background(), "hi", nil, func(agent.Event) {}),
 		"compact": follower.Compact(context.Background(), func(agent.Event) {}),
 		"switch":  follower.SwitchModel("fast"),
 	} {

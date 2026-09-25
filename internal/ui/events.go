@@ -46,6 +46,10 @@ func (m *Model) applyAgentEvent(event agent.Event) bool {
 	case agent.EventUsage:
 		m.contextTokens = event.Tokens
 		m.contextApprox = event.Estimated
+	case agent.EventSteered:
+		m.transcript.add(block{kind: blockUser, text: sanitize(event.Text)})
+		m.syncSteering()
+		m.status = "steered"
 	}
 	return false
 }

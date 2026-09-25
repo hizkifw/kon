@@ -284,6 +284,18 @@ func defaultRegistry() *registry {
 			return m.compact()
 		},
 	})
+	registry.register(slashCommand{
+		name:    "queue",
+		summary: "edit or drop pending steer and queued messages",
+		arguments: []argument{{
+			name:     "item",
+			optional: true,
+			complete: completePending,
+		}},
+		run: func(m Model, args []string) (tea.Model, tea.Cmd) {
+			return m.managePending(args)
+		},
+	})
 	return registry
 }
 

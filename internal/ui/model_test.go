@@ -52,7 +52,7 @@ type fakeRuntime struct {
 
 func (f *fakeRuntime) Models() []app.Model { return f.models }
 func (f *fakeRuntime) State() app.State    { return f.state }
-func (f *fakeRuntime) Run(context.Context, string, func(agent.Event)) error {
+func (f *fakeRuntime) Run(context.Context, string, *agent.Inbox, func(agent.Event)) error {
 	f.runs.Add(1)
 	return nil
 }
@@ -627,7 +627,7 @@ func TestModelPickerShowsDisplayNameAndKeepsQualifiedValue(t *testing.T) {
 func TestRegistryCompletesAllCommandsOnBareSlash(t *testing.T) {
 	m := newTestModel(t)
 	got := m.commands.completion(m, "/")
-	if len(got) != 5 || got[0].Value != "/new" || got[1].Value != "/model" || got[2].Value != "/login" || got[3].Value != "/resume" || got[4].Value != "/compact" {
+	if len(got) != 6 || got[0].Value != "/new" || got[1].Value != "/model" || got[2].Value != "/login" || got[3].Value != "/resume" || got[4].Value != "/compact" || got[5].Value != "/queue" {
 		t.Fatalf("bare slash completion = %#v", got)
 	}
 }
@@ -739,7 +739,7 @@ func TestMenuPopupAppearsOnLeadingSlashAndClears(t *testing.T) {
 	m := newTestModel(t)
 	typed, _ := m.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
 	m = typed.(Model)
-	if !m.menu.open() || len(m.menu.items) != 5 {
+	if !m.menu.open() || len(m.menu.items) != 6 {
 		t.Fatalf("popup did not open on slash: %#v", m.menu)
 	}
 	// Typing ordinary text mid-prompt closes the popup and offers nothing.

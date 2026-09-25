@@ -20,7 +20,7 @@ import (
 
 // Runtime is the part of app.Runtime a headless run drives.
 type Runtime interface {
-	Run(ctx context.Context, prompt string, emit func(agent.Event)) error
+	Run(ctx context.Context, prompt string, inbox *agent.Inbox, emit func(agent.Event)) error
 	SessionID() typedid.SessionID
 	State() app.State
 }
@@ -60,7 +60,8 @@ func Run(ctx context.Context, runtime Runtime, prompt string, out Output) error 
 		return fmt.Errorf("unknown format %q", out.Format)
 	}
 	start := time.Now()
-	err := runtime.Run(ctx, prompt, w.event)
+	// Nobody can steer a headless run, so it has no inbox.
+	err := runtime.Run(ctx, prompt, nil, w.event)
 	if finishErr := w.finish(runtime.SessionID(), err, time.Since(start)); finishErr != nil && err == nil {
 		err = finishErr
 	}

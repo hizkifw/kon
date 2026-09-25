@@ -54,7 +54,7 @@ func TestRunnerCompactsOlderTurnsBeforeRequest(t *testing.T) {
 	limits.ReserveTokens = 100
 	limits.KeepRecentTokens = 100
 	runner := New(limits, fake, store, tools.New(t.TempDir(), false))
-	if err := runner.Run(context.Background(), "new work", func(Event) {}); err != nil {
+	if err := runner.Run(context.Background(), "new work", nil, func(Event) {}); err != nil {
 		t.Fatal(err)
 	}
 	if fake.completeCalls == 0 || fake.streamCalls != 1 {
@@ -149,7 +149,7 @@ func TestRunnerPersistsPartialTurnOnInterruptedStream(t *testing.T) {
 	defer store.Close()
 	fake := &interruptingProvider{}
 	runner := New(Limits{}, fake, store, tools.New(t.TempDir(), false))
-	err = runner.Run(context.Background(), "hello", func(Event) {})
+	err = runner.Run(context.Background(), "hello", nil, func(Event) {})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Run error = %v, want context.Canceled", err)
 	}
@@ -190,7 +190,7 @@ func TestRunnerBracketsTurnWithMarkers(t *testing.T) {
 			}
 			defer store.Close()
 			runner := New(Limits{}, c.provider, store, tools.New(t.TempDir(), false))
-			_ = runner.Run(context.Background(), "hello", func(Event) {})
+			_ = runner.Run(context.Background(), "hello", nil, func(Event) {})
 			path := store.ActivePath()
 			// The root system message leads, then the turn.
 			if len(path) < 4 || path[1].Type != session.EntryTypeTurnStart || path[2].Message == nil || path[2].Message.Role != session.RoleUser {
@@ -232,7 +232,7 @@ func TestRunnerPersistsInterruptedResultsForRemainingToolCalls(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	runner := New(Limits{}, toolCallProvider{}, store, tools.New(t.TempDir(), false))
-	if err := runner.Run(ctx, "hello", func(Event) {}); !errors.Is(err, context.Canceled) {
+	if err := runner.Run(ctx, "hello", nil, func(Event) {}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("Run error = %v, want context.Canceled", err)
 	}
 	// The durable log must hold the result; projection would synthesize it from
@@ -280,7 +280,7 @@ func TestRunnerEmitsThinkingBeforeText(t *testing.T) {
 	defer store.Close()
 	runner := New(Limits{}, reasoningProvider{}, store, tools.New(t.TempDir(), false))
 	var kinds []EventKind
-	if err := runner.Run(context.Background(), "hello", func(event Event) { kinds = append(kinds, event.Kind) }); err != nil {
+	if err := runner.Run(context.Background(), "hello", nil, func(event Event) { kinds = append(kinds, event.Kind) }); err != nil {
 		t.Fatal(err)
 	}
 	want := []EventKind{EventThinking, EventText, EventAssistantDone}

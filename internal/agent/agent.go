@@ -39,6 +39,9 @@ const (
 	EventToolDone
 	EventCompacted
 	EventUsage
+	// EventSteered reports steering messages the runner has just added to the
+	// conversation; Text is the user message as sent.
+	EventSteered
 )
 
 type Event struct {
@@ -218,10 +221,12 @@ func renderContextFiles(files []contextfiles.File) string {
 }
 
 // Run appends prompt before any network work, then drives tool calls to a final
-// response. The turn is bracketed by start and end entries so a replay can show
+// response. Messages pushed to inbox while it runs are delivered before the
+// next request, and a final response with steering still pending does not end
+// the run. The turn is bracketed by start and end entries so a replay can show
 // its duration; the end is written however the turn returns, including on
 // cancellation, so only a process that dies mid-turn leaves a start unmatched.
-func (r *Runner) Run(ctx context.Context, prompt string, emit func(Event)) (err error) {
+func (r *Runner) Run(ctx context.Context, prompt string, inbox *Inbox, emit func(Event)) (err error) {
 	start := time.Now()
 	if _, err := r.session.AppendTurnStart(); err != nil {
 		return err
@@ -231,10 +236,10 @@ func (r *Runner) Run(ctx context.Context, prompt string, emit func(Event)) (err 
 			err = endErr
 		}
 	}()
-	return r.run(ctx, prompt, emit)
+	return r.run(ctx, prompt, inbox, emit)
 }
 
-func (r *Runner) run(ctx context.Context, prompt string, emit func(Event)) error {
+func (r *Runner) run(ctx context.Context, prompt string, inbox *Inbox, emit func(Event)) error {
 	if _, err := r.session.AppendMessage(session.TextMessage(session.RoleUser, prompt)); err != nil {
 		return err
 	}
@@ -294,6 +299,15 @@ func (r *Runner) run(ctx context.Context, prompt string, emit func(Event)) error
 		}
 		calls := assistant.ToolCalls()
 		if len(calls) == 0 {
+			// Steering that arrived during the final response is the user's
+			// next word on the same task, so the run continues with it.
+			steered, err := r.deliver(inbox, emit)
+			if err != nil {
+				return err
+			}
+			if steered {
+				continue
+			}
 			_, compactErr := r.compactIfNeeded(ctx, false, emit)
 			return compactErr
 		}
@@ -333,7 +347,27 @@ func (r *Runner) run(ctx context.Context, prompt string, emit func(Event)) error
 				return ctx.Err()
 			}
 		}
+		if _, err := r.deliver(inbox, emit); err != nil {
+			return err
+		}
 	}
+}
+
+// deliver appends every pending steering message as one user message after
+// the newest entry, so the conversation only grows at its end and the cached
+// prefix survives. Stacked messages are joined rather than sent as separate
+// user messages: some chat templates reject two user messages in a row.
+func (r *Runner) deliver(inbox *Inbox, emit func(Event)) (bool, error) {
+	pending := inbox.Take()
+	if len(pending) == 0 {
+		return false, nil
+	}
+	text := strings.Join(pending, "\n\n")
+	if _, err := r.session.AppendMessage(session.TextMessage(session.RoleUser, text)); err != nil {
+		return false, err
+	}
+	emit(Event{Kind: EventSteered, Text: text})
+	return true, nil
 }
 
 // appendInterruptedToolResults closes the assistant's tool-call batch when a

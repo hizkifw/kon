@@ -25,7 +25,7 @@ const streamFrameInterval = 50 * time.Millisecond
 type Runtime interface {
 	Models() []app.Model
 	State() app.State
-	Run(context.Context, string, func(agent.Event)) error
+	Run(context.Context, string, *agent.Inbox, func(agent.Event)) error
 	Compact(context.Context, func(agent.Event)) error
 	SwitchModel(string) error
 	// CycleEffort advances the active model's reasoning effort and returns the
@@ -87,6 +87,15 @@ type Model struct {
 	// (interrupting a running command), the second kills it.
 	interruptPresses int
 	flushPending     bool
+	// inbox carries steering (Enter while a run is in flight) to the runner,
+	// which drains it before its next request. steering mirrors what it held
+	// when last synced, so the pending strip and the layout agree within a
+	// frame even while the runner drains it concurrently.
+	inbox    *agent.Inbox
+	steering []string
+	// queued holds prompts (Tab while a run is in flight) that each start
+	// their own run once the one before finishes cleanly.
+	queued []string
 	// timer times the user turn currently in flight, nil while idle. It starts
 	// on submit and freezes into a blockElapsed when the run ends.
 	timer *turnTimer
@@ -163,7 +172,7 @@ func New(ctx context.Context, cwd, configPath string, runtime Runtime, historySt
 	}
 	model := Model{
 		ctx: ctx, viewport: vp, input: input, history: newPromptHistory(historyStore, entries),
-		runtime: runtime, commands: defaultRegistry(),
+		runtime: runtime, commands: defaultRegistry(), inbox: &agent.Inbox{},
 		active: state.Active, cwd: cwd, configPath: configPath,
 		transcript: transcript{cwd: cwd, banner: welcomeBanner},
 		status:     status, contextTokens: -1, terminalFocused: true,
@@ -274,7 +283,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// appending any error first keeps it below everything it timed.
 		m.finishTimer()
 		m.refreshTranscript(true)
-		return m, nil
+		return m.dispatchPending(msg.err)
 	case loginDoneMsg:
 		return m.finishLogin(msg)
 	case catalogLoadedMsg:
@@ -433,6 +442,10 @@ func (m Model) handleKey(key string) (tea.Model, tea.Cmd, bool) {
 		updated, cmd := m.submit()
 		return updated, cmd, true
 	case "tab":
+		if !m.menu.open() && m.canQueue() {
+			updated, cmd := m.enqueue()
+			return updated, cmd, true
+		}
 		return m.completeMenu()
 	case "shift+tab":
 		if m.menu.open() {
@@ -456,6 +469,9 @@ func (m Model) handleKey(key string) (tea.Model, tea.Cmd, bool) {
 			m.runCancel()
 			if m.interruptPresses == 1 {
 				m.status = "interrupting… press Esc again to kill the command"
+				if len(m.steering) > 0 {
+					m.status = "interrupting to send your steer now…"
+				}
 				return m, nil, true
 			}
 			if m.runtime.Interrupt(m.interruptPresses) {
@@ -620,6 +636,11 @@ func replaceToken(input, value string) string {
 func (m Model) submit() (tea.Model, tea.Cmd) {
 	text := strings.TrimSpace(m.input.Value())
 	if text == "" {
+		// Enter on an empty prompt resumes a queue that an interrupted or
+		// failed run left held.
+		if !m.busy && len(m.queued) > 0 {
+			return m.sendQueued()
+		}
 		return m, nil
 	}
 	// Submitting commits: drop any highlighted preview so the live transcript
@@ -634,23 +655,36 @@ func (m Model) submit() (tea.Model, tea.Cmd) {
 		return command.run(m)
 	}
 	if m.busy {
-		m.status = "agent is busy; Esc interrupts"
-		return m, nil
+		return m.steer(text)
 	}
-	if !m.takeOver() {
-		return m, nil
-	}
-	state := m.runtime.State()
-	if !state.Ready() {
-		m.status = state.Problem.Error() + " in " + m.configPath
+	if !m.canSend() {
 		return m, nil
 	}
 	if err := m.history.append(m.cwd, text); err != nil {
 		m.status = "error: " + err.Error()
 		return m, nil
 	}
-	m.transcript.add(block{kind: blockUser, text: sanitize(text)})
 	m.input.Reset()
+	return m.send(text)
+}
+
+// canSend reports whether a prompt can start a run now, explaining in the
+// status line when it cannot.
+func (m *Model) canSend() bool {
+	if !m.takeOver() {
+		return false
+	}
+	if state := m.runtime.State(); !state.Ready() {
+		m.status = state.Problem.Error() + " in " + m.configPath
+		return false
+	}
+	return true
+}
+
+// send starts a run for text, which the caller has already recorded in the
+// prompt history and taken out of the input.
+func (m Model) send(text string) (tea.Model, tea.Cmd) {
+	m.transcript.add(block{kind: blockUser, text: sanitize(text)})
 	m.resize()
 	// Start the timer before the first refresh so the indicator appears with
 	// the prompt rather than a frame later.
@@ -659,8 +693,9 @@ func (m Model) submit() (tea.Model, tea.Cmd) {
 	// Submitting is the user's own action: always show the new prompt, even
 	// if they were scrolled up reading the transcript.
 	m.viewport.GotoBottom()
+	inbox := m.inbox
 	updated, cmd := m.startRun("thinking…", func(ctx context.Context, emit func(agent.Event)) error {
-		return m.runtime.Run(ctx, text, emit)
+		return m.runtime.Run(ctx, text, inbox, emit)
 	})
 	return updated, tea.Batch(cmd, timerTick(m.timerEpoch))
 }

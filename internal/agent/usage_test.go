@@ -198,7 +198,7 @@ func TestOverflowCompactsWithoutAContextWindow(t *testing.T) {
 	longSession(t, store)
 	fake := &scriptedProvider{summary: session.TextMessage(session.RoleAssistant, "summary"), overflowOnce: true}
 	runner := New(smallKeep(), fake, store, tools.New(t.TempDir(), false))
-	if err := runner.Run(context.Background(), "next", func(Event) {}); err != nil {
+	if err := runner.Run(context.Background(), "next", nil, func(Event) {}); err != nil {
 		t.Fatal(err)
 	}
 	if !hasCompaction(store) || fake.streams != 2 {

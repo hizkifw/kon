@@ -67,7 +67,7 @@ func TestImageResultDoesNotForceCompaction(t *testing.T) {
 	limits.ReserveTokens = 16_384
 	limits.KeepRecentTokens = 20_000
 	runner := New(limits, fake, store, tools.New(dir, true))
-	if err := runner.Run(context.Background(), "look at shot.png", func(Event) {}); err != nil {
+	if err := runner.Run(context.Background(), "look at shot.png", nil, func(Event) {}); err != nil {
 		t.Fatal(err)
 	}
 	// The run must go straight to the final answer: no compaction summary
@@ -109,7 +109,7 @@ func TestRunPersistsImagePartsFromRead(t *testing.T) {
 	fake := &toolCallingProvider{toolName: "read", arguments: `{"path":"shot.png"}`}
 	limits := testLimits
 	runner := New(limits, fake, store, tools.New(dir, true))
-	if err := runner.Run(context.Background(), "look at shot.png", func(Event) {}); err != nil {
+	if err := runner.Run(context.Background(), "look at shot.png", nil, func(Event) {}); err != nil {
 		t.Fatal(err)
 	}
 	items, err := store.Context()

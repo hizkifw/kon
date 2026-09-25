@@ -44,9 +44,33 @@ Type `/` at the start of the prompt to see the available commands.
 | `/login <provider>` | Connect and check a supported provider |
 | `/resume [id]` | List sessions for this directory, or switch to one |
 | `/compact` | Summarize older context now |
+| `/queue [item\|clear]` | Pick a pending steer or queued message to pull back for editing, or drop them all |
 
 `/clear` is a hidden alias for `/new`: typing it works, and completing it fills
 in `/new`.
+
+## Steering and queueing
+
+While kon is working you can keep typing:
+
+- **Enter steers.** The message waits above the status line as `↳ steer`
+  and reaches the agent the next time kon calls the model: after the running
+  tool finishes, or, if the agent was writing its final answer, right after
+  it, and the turn continues. Several steers sent before then arrive together
+  as one message.
+- **Tab queues.** The message waits as `⏵ queue` and is sent as its own
+  prompt once the current turn finishes. Queued messages go one per turn, in
+  order.
+- **Esc with a steer pending** interrupts the turn and sends the steer at
+  once.
+
+An interrupted or failed turn holds the queue instead of sending the next
+message, so you can decide first; Enter on an empty prompt sends the next one.
+A steer a failed turn never delivered moves to the front of the queue.
+
+`/queue` lists everything pending. Choosing a message takes it back into the
+prompt, which cancels it; edit it and send it again with Enter to steer or Tab
+to queue. `/queue clear` drops everything pending.
 
 These are in-app commands. For the command-line surface, run `kon --help` to see
 the available subcommands; `kon <command> --help` prints the flags for one.
@@ -134,13 +158,14 @@ directory's permissions rather than running kon as root.
 
 | Key | Action |
 | --- | --- |
-| Enter | Submit the prompt, or accept the selected suggestion |
+| Enter | Submit the prompt, or accept the selected suggestion; while kon works, steer it; on an empty prompt, send the next held queued message |
 | Shift+Enter / Ctrl+Enter | Insert a newline |
 | Enter after a trailing `\` | Continue on a new line instead of submitting |
 | Tab / Shift+Tab | Fill in the selected suggestion |
+| Tab | Queue the prompt while kon works, when there is no suggestion to fill in |
 | Shift+Tab | Cycle the model's reasoning effort when no suggestion popup is open |
 | Up/Down | Recall prompts, or move the suggestion selection |
-| Esc | Dismiss the popup, or interrupt the running turn (press again to kill the command) |
+| Esc | Dismiss the popup, or interrupt the running turn and send any pending steer (press again to kill the command) |
 | Page Up/Page Down | Scroll the transcript |
 | Mouse wheel | Scroll the transcript |
 | Ctrl+C | Clear the input, or hint at Ctrl+D when it is empty |

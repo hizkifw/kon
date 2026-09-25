@@ -550,7 +550,7 @@ func TestCloseCancelsAndWaitsForActiveRun(t *testing.T) {
 		runner: agent.New(profile.limits(config.Default().Compaction), provider, store, tools.New(t.TempDir(), false)),
 	}
 	runDone := make(chan error, 1)
-	go func() { runDone <- runtime.Run(context.Background(), "work", func(agent.Event) {}) }()
+	go func() { runDone <- runtime.Run(context.Background(), "work", nil, func(agent.Event) {}) }()
 	<-provider.started
 	if err := runtime.Close(); err != nil {
 		t.Fatal(err)
@@ -572,12 +572,12 @@ func TestCloseRefusesOperationsWhileTheRunWindsDown(t *testing.T) {
 		runner: agent.New(profile.limits(config.Default().Compaction), provider, store, tools.New(t.TempDir(), false)),
 	}
 	runDone := make(chan error, 1)
-	go func() { runDone <- runtime.Run(context.Background(), "work", func(agent.Event) {}) }()
+	go func() { runDone <- runtime.Run(context.Background(), "work", nil, func(agent.Event) {}) }()
 	<-provider.started
 	closeDone := make(chan error, 1)
 	go func() { closeDone <- runtime.Close() }()
 	<-provider.cancelled
-	if err := runtime.Run(context.Background(), "again", func(agent.Event) {}); !errors.Is(err, ErrClosed) {
+	if err := runtime.Run(context.Background(), "again", nil, func(agent.Event) {}); !errors.Is(err, ErrClosed) {
 		t.Fatalf("run during close = %v, want ErrClosed", err)
 	}
 	if err := runtime.NewSession(); !errors.Is(err, ErrClosed) {

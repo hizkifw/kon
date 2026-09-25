@@ -25,10 +25,11 @@ func (m *Model) resize() {
 	}
 	// DynamicHeight sizes the input to its visual rows, but the transcript
 	// must keep at least one row, so the cap shrinks for small windows.
-	inputHeight := min(maxInputLines, max(1, m.height-4-m.menu.height()), max(1, m.input.Height()))
+	panels := m.menu.height() + m.pendingHeight()
+	inputHeight := min(maxInputLines, max(1, m.height-4-panels), max(1, m.input.Height()))
 	m.input.SetHeight(inputHeight)
 	m.viewport.SetWidth(max(1, m.width))
-	m.viewport.SetHeight(max(1, m.height-inputHeight-2-m.menu.height()))
+	m.viewport.SetHeight(max(1, m.height-inputHeight-2-panels))
 }
 
 // refreshTranscript updates the viewport contents. When toBottom is set, the
@@ -77,7 +78,11 @@ func (m Model) View() tea.View {
 		ctx += "/" + m.active.ContextWindow.String()
 	}
 	status := " " + abbreviateHome(m.cwd) + " · " + ctx + " · " + m.status
-	sections := []string{headerStyle.Render(fitLine(header, m.width)), m.viewport.View(), statusStyle.Render(fitLine(status, m.width))}
+	sections := []string{headerStyle.Render(fitLine(header, m.width)), m.viewport.View()}
+	if pending := m.pendingView(); pending != "" {
+		sections = append(sections, pending)
+	}
+	sections = append(sections, statusStyle.Render(fitLine(status, m.width)))
 	if menu := m.menu.render(m.width); menu != "" {
 		sections = append(sections, menu)
 	}
@@ -85,6 +90,9 @@ func (m Model) View() tea.View {
 	for _, section := range sections {
 		inputTop += strings.Count(section, "\n") + 1
 	}
+	// View works on a copy, so the placeholder can follow the run state
+	// without every transition having to remember to update it.
+	m.input.Placeholder = m.placeholder()
 	input := m.input.View()
 	if m.login != nil {
 		input = m.login.input.View()

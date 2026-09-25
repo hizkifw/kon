@@ -19,7 +19,7 @@ type scriptedRuntime struct {
 	err    error
 }
 
-func (r *scriptedRuntime) Run(_ context.Context, _ string, emit func(agent.Event)) error {
+func (r *scriptedRuntime) Run(_ context.Context, _ string, _ *agent.Inbox, emit func(agent.Event)) error {
 	for _, event := range r.events {
 		emit(event)
 	}

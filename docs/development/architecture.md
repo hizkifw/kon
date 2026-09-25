@@ -311,7 +311,11 @@ the compact `12.4k`/`1.0m` rendering, so every displayed figure matches.
   and report their wall-clock time with the exit status. A timed-out or
   cancelled command's captured output is preserved in the tool result.
 - Esc interrupts the active request or command through a shared context. A
-  second press force-kills the command's process group. Ctrl+C never interrupts;
+  second press force-kills the command's process group. Steering the user
+  sends while a run is in flight goes through an `agent.Inbox` the runner
+  drains before each provider request, appended as one user message at the end
+  of the context so the cached prefix is untouched. Steering the runner never
+  read, and the UI-owned queue, are dispatched by the UI when the run ends. Ctrl+C never interrupts;
   it clears the input, or hints at Ctrl+D to exit when the input is empty.
 
 ## Dependency policy

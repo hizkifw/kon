@@ -332,9 +332,11 @@ func (r *Runtime) State() State {
 	return State{Active: r.describeActive(), Phase: r.phase, Problem: r.problem}
 }
 
-func (r *Runtime) Run(ctx context.Context, prompt string, emit func(agent.Event)) error {
+// Run sends prompt and drives the agent to a final response. inbox carries
+// steering the user sends while it runs; it may be nil.
+func (r *Runtime) Run(ctx context.Context, prompt string, inbox *agent.Inbox, emit func(agent.Event)) error {
 	return r.operate(ctx, func(ctx context.Context, runner *agent.Runner) error {
-		return runner.Run(ctx, prompt, emit)
+		return runner.Run(ctx, prompt, inbox, emit)
 	})
 }
 
