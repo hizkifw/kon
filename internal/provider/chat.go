@@ -532,8 +532,8 @@ func (m *chatModel) send(ctx context.Context, body []byte, accept string) (*http
 	request.Header.Set("User-Agent", buildinfo.UserAgent())
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", accept)
-	if m.apiKey != "" {
-		request.Header.Set("Authorization", "Bearer "+m.apiKey)
+	for key, value := range m.spec.AuthHeaders(m.apiKey) {
+		request.Header.Set(key, value)
 	}
 	for key, value := range m.headers {
 		request.Header.Set(key, value)

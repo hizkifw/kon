@@ -22,12 +22,14 @@ a model with `/model`, or to add a profile under `models` as described below.
 Each model profile is standalone: it needs a distinct `name`, the provider's
 model ID in `model`, and its own connection fields. `default_model` names the
 profile used for new sessions. `type` is the wire format kon speaks: `openai`,
-`openrouter`, `ollama`, or `openai-compatible`, which is the default when
-`type` is omitted. `openai-compatible` accepts any endpoint speaking OpenAI
-Chat Completions and requires `base_url`. A wire format says how kon talks to
-a server, not which service it is: many services share `openai-compatible`,
-and all four formats are dialects of Chat Completions that differ in their
-default endpoint and how they encode reasoning. For example:
+`openrouter`, `ollama`, `anthropic`, or `openai-compatible`, which is the
+default when `type` is omitted. `openai-compatible` accepts any endpoint
+speaking OpenAI Chat Completions and requires `base_url`. A wire format says
+how kon talks to a server, not which service it is: many services share
+`openai-compatible`. The first four formats are dialects of Chat Completions
+that differ in their default endpoint and how they encode reasoning;
+`anthropic` is Anthropic's Messages API, which Anthropic-compatible services
+such as MiniMax also speak. For example:
 
 ```json
 {
@@ -180,10 +182,10 @@ Each entry in `providers`:
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
 | `id` | string | yes | Unique connection ID and the prefix of its derived model names. |
-| `type` | string | yes | Wire format: `openai`, `openrouter`, `ollama`, or `openai-compatible`. |
+| `type` | string | yes | Wire format: `openai`, `openrouter`, `ollama`, `anthropic`, or `openai-compatible`. |
 | `catalog_provider` | string | no | models.dev provider key, when `id` differs from it. |
 | `base_url` | string | for `openai-compatible` | API root. Other types default to their public endpoint. |
-| `api_key` | string | no | Sent as a bearer token. |
+| `api_key` | string | no | Sent as a bearer token, or as `x-api-key` for `anthropic`. |
 | `headers` | object | no | Extra HTTP headers, which may override kon's own. |
 
 Each entry in `models`:
@@ -193,8 +195,8 @@ Each entry in `models`:
 | `name` | string | yes | Unique profile name used by `default_model` and `/model`. |
 | `type` | string | no | Wire format, as for providers. Defaults to `openai-compatible`. |
 | `model` | string | to run | The provider's model ID, sent as written. |
-| `base_url` | string | for `openai-compatible` | API root. `openai` defaults to `https://api.openai.com/v1`, `openrouter` to `https://openrouter.ai/api/v1`, and `ollama` to `http://localhost:11434/v1`. |
-| `api_key` | string | no | Sent as a bearer token. |
+| `base_url` | string | for `openai-compatible` | API root. `openai` defaults to `https://api.openai.com/v1`, `openrouter` to `https://openrouter.ai/api/v1`, `ollama` to `http://localhost:11434/v1`, and `anthropic` to `https://api.anthropic.com/v1`. |
+| `api_key` | string | no | Sent as a bearer token, or as `x-api-key` for `anthropic`. |
 | `headers` | object | no | Extra HTTP headers, which may override kon's own. |
 | `context_window_tokens` | integer | no | Context limit. `0` means unknown; otherwise it must exceed both compaction budgets combined. |
 | `vision` | boolean | no | Accepts image input. |

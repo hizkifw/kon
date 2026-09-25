@@ -192,9 +192,21 @@ catalog or contact models.dev.
 
 Two concepts are kept apart. A wire format (the config `type`) is how kon
 talks to a server; `internal/provider/wire` lists every format with its
-default base URL, API path, reasoning-effort encoding, default reasoning
-field, and whether model listing is optional. Config validation, the chat
-backend, and login discovery all read that one table. A provider is the
+protocol, default base URL, API path, auth headers, reasoning-effort encoding,
+default reasoning field, and whether model listing is optional. Config
+validation, both backends, and login discovery all read that one table. The
+protocol picks the backend: `chat.go` for OpenAI Chat Completions and its
+dialects, `messages.go` for Anthropic's Messages API.
+
+The Messages backend replays thinking blocks unchanged with the signature
+stored in each reasoning part's `provider_options`, and marks two prompt cache
+breakpoints: the end of the byte-stable system prompt, which covers the tool
+roster too, and the last block of the conversation. It learns three facts from
+rejected requests and keeps them for the model's lifetime: a lower output
+limit, a model that needs budgeted rather than adaptive thinking, and
+thinking blocks whose recorded conversation changed. The last happens after a
+compaction keeps recent turns verbatim behind a new summary; kon then sends
+the thinking-binding beta so the server drops those blocks instead of failing. A provider is the
 service on the other end, identified by a connection's `id` and models.dev
 `catalog_provider`. Service quirks key on that identity instead of the format:
 OpenRouter's key check, Azure's deployment names, and what `/login` asks for
@@ -327,8 +339,8 @@ the compact `12.4k`/`1.0m` rendering, so every displayed figure matches.
 ## Dependency policy
 
 Direct dependencies are Bubble Tea, Bubbles, and Lip Gloss. The provider layer
-uses only the Go standard library: chat completions request bodies and SSE
-streams are parsed in-tree so token accounting and streaming stay exact and
+uses only the Go standard library: Chat Completions and Messages request
+bodies and SSE streams are parsed in-tree so token accounting and streaming stay exact and
 inspected. JSON, typed-ID generation, files, subprocesses, and release
 cross-compilation also use the Go standard library. Dependencies are pinned in
 `go.mod` and authenticated by `go.sum`.

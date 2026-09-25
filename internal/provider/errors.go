@@ -38,6 +38,7 @@ var overflowMarkers = []string{
 	"prompt is too long",
 	"too many tokens",
 	"reduce the length",
+	"exceed context limit",
 }
 
 // contextOverflow reports whether this error is a request-size rejection.

@@ -56,6 +56,7 @@ var catalogWire = map[string]wire.Format{
 	"@ai-sdk/openai":              wire.OpenAI,
 	"@openrouter/ai-sdk-provider": wire.OpenRouter,
 	"@ai-sdk/openai-compatible":   wire.OpenAICompatible,
+	"@ai-sdk/anthropic":           wire.Anthropic,
 }
 
 // CatalogEntry maps a models.dev provider to a login entry. A catalog URL

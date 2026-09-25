@@ -17,20 +17,38 @@ import (
 // Format is a wire format, spelled as the config's "type" value.
 type Format string
 
-// Every format below is a dialect of OpenAI chat completions. They differ in
-// defaults and in how reasoning is encoded, not in protocol.
+// Most formats below are dialects of OpenAI chat completions, differing in
+// defaults and in how reasoning is encoded. Anthropic is its own protocol.
 const (
 	OpenAI           Format = "openai"
 	OpenAICompatible Format = "openai-compatible"
 	OpenRouter       Format = "openrouter"
 	Ollama           Format = "ollama"
+	Anthropic        Format = "anthropic"
 )
+
+// Protocol is the request and response shape a format uses; each has its own
+// backend in internal/provider.
+type Protocol string
+
+const (
+	// ChatCompletions is OpenAI's POST /chat/completions.
+	ChatCompletions Protocol = "chat_completions"
+	// Messages is Anthropic's POST /messages.
+	Messages Protocol = "messages"
+)
+
+// anthropicVersion is the Messages API version kon is written against. It is
+// sent on every request, as the API requires.
+const anthropicVersion = "2023-06-01"
 
 // Default is the format of a model profile that names none.
 const Default = OpenAICompatible
 
 // Spec is what a wire format implies for requests to any server speaking it.
 type Spec struct {
+	// Protocol selects the backend; the zero value is ChatCompletions.
+	Protocol Protocol
 	// DefaultBaseURL is the API root used when a connection names none. Empty
 	// means the format has no canonical server, so a base URL is required.
 	DefaultBaseURL string
@@ -53,6 +71,27 @@ var specs = map[Format]Spec{
 	OpenAICompatible: {ReasoningField: "reasoning_content", ListingOptional: true},
 	OpenRouter:       {DefaultBaseURL: "https://openrouter.ai/api/v1", NestedEffort: true, ReasoningField: "reasoning"},
 	Ollama:           {DefaultBaseURL: "http://localhost:11434", APIPath: "/v1", ReasoningField: "reasoning_content"},
+	// Anthropic-compatible services do not all list models; a bad key still
+	// fails the listing with 401 rather than 404.
+	Anthropic: {Protocol: Messages, DefaultBaseURL: "https://api.anthropic.com/v1", ListingOptional: true},
+}
+
+// AuthHeaders are the headers that carry an API key, and any the protocol
+// requires on every request. A chat completions server takes a bearer token;
+// the Messages API takes x-api-key and a version.
+func (s Spec) AuthHeaders(apiKey string) map[string]string {
+	headers := map[string]string{}
+	if s.Protocol == Messages {
+		headers["anthropic-version"] = anthropicVersion
+		if apiKey != "" {
+			headers["x-api-key"] = apiKey
+		}
+		return headers
+	}
+	if apiKey != "" {
+		headers["Authorization"] = "Bearer " + apiKey
+	}
+	return headers
 }
 
 // Lookup returns the spec for a format kon implements.

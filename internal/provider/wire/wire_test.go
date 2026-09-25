@@ -15,6 +15,7 @@ func TestBaseURLAppliesDefaultsAndAPIPath(t *testing.T) {
 		{Ollama, "http://gpu:11434/", "http://gpu:11434/v1"},
 		{Ollama, "http://gpu:11434/v1", "http://gpu:11434/v1"},
 		{OpenAICompatible, "http://localhost:8080/v1", "http://localhost:8080/v1"},
+		{Anthropic, "", "https://api.anthropic.com/v1"},
 	} {
 		spec, ok := Lookup(test.format)
 		if !ok {
@@ -41,7 +42,21 @@ func TestDefaultIsImplemented(t *testing.T) {
 	if _, ok := Lookup(Default); !ok {
 		t.Fatalf("default format %q is not in the table", Default)
 	}
-	if _, ok := Lookup("anthropic"); ok {
+	if _, ok := Lookup("gemini"); ok {
 		t.Fatal("an unimplemented format was found")
+	}
+}
+
+func TestAuthHeadersFollowProtocol(t *testing.T) {
+	chat, _ := Lookup(OpenAI)
+	if got := chat.AuthHeaders("k"); len(got) != 1 || got["Authorization"] != "Bearer k" {
+		t.Fatalf("chat headers = %v", got)
+	}
+	if got := chat.AuthHeaders(""); len(got) != 0 {
+		t.Fatalf("keyless chat headers = %v", got)
+	}
+	messages, _ := Lookup(Anthropic)
+	if got := messages.AuthHeaders("k"); got["x-api-key"] != "k" || got["anthropic-version"] == "" || got["Authorization"] != "" {
+		t.Fatalf("messages headers = %v", got)
 	}
 }

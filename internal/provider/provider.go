@@ -2,8 +2,8 @@
 // (internal/session) is the single source of truth: a backend implements
 // Model to map it onto one wire protocol, and Client turns the neutral result
 // back into durable messages. The wire formats kon accepts, and what each
-// implies, are listed in the wire subpackage; all of them are dialects of
-// OpenAI chat completions, implemented in chat.go.
+// implies, are listed in the wire subpackage. OpenAI chat completions and its
+// dialects are implemented in chat.go, Anthropic's Messages API in messages.go.
 //
 // Which service a connection reaches, and how /login sets one up, belongs to
 // internal/login; this package only learns how to talk to it, through Spec.
@@ -60,13 +60,15 @@ func New(spec Spec, readImage func(string) ([]byte, error)) (*Client, error) {
 	return &Client{model: model, modelID: typedid.ExternalModelID(spec.ModelID)}, nil
 }
 
-// newModel builds the backend for a spec's wire format. Every format in the
-// wire table is a chat completions dialect, so one backend serves them all; a
-// format with another protocol would choose its backend here.
+// newModel builds the backend for a spec's wire format: the Messages API for
+// Anthropic, and chat completions for every other format in the wire table.
 func newModel(spec Spec, readImage func(string) ([]byte, error)) (Model, error) {
 	dialect, ok := wire.Lookup(spec.Format)
 	if !ok {
 		return nil, fmt.Errorf("unsupported wire format %q", spec.Format)
+	}
+	if dialect.Protocol == wire.Messages {
+		return newMessagesModel(spec, dialect, readImage)
 	}
 	return newChatModel(spec, dialect, readImage)
 }
