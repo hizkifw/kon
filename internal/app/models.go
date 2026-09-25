@@ -85,9 +85,15 @@ func (r *Runtime) LoadCatalog() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	// A running turn owns the runner; Run resolves the model before its next
-	// request instead.
-	if r.phase == PhaseReady {
+	// request instead. A followed session has no runner, but its header still
+	// names the model by its catalog entry.
+	switch r.phase {
+	case PhaseReady:
 		_ = r.resolveActive()
+	case PhaseFollowing:
+		if profile, ok := r.resolvedSpec(r.active.Name); ok {
+			r.active = profile
+		}
 	}
 }
 
@@ -118,6 +124,9 @@ func (r *Runtime) CycleEffort() (string, error) {
 	defer r.mu.Unlock()
 	if err := r.mutable(); err != nil {
 		return "", err
+	}
+	if r.phase == PhaseFollowing {
+		return "", ErrReadOnly
 	}
 	if r.phase == PhaseNeedsConfiguration || r.runner == nil {
 		return "", ErrNotReady

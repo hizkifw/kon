@@ -97,35 +97,58 @@ func (m *Model) applyHistory(entries []session.Entry) {
 // renders into a scratch transcript via the same path as a real resume, so the
 // preview looks exactly like the session would once opened.
 func (m *Model) applyHistoryTo(t *transcript, entries []session.Entry) {
+	var r replayState
+	m.replay(t, &r, entries)
+	r.finish(t)
+}
+
+// replayState is what replay carries from one entry to the next. A followed
+// session is replayed in batches as its writer appends, so the state outlives
+// a single call.
+type replayState struct {
 	// callArgs maps a tool call ID to its persisted arguments so a tool
 	// result resolves its display from the same arguments the call was made
 	// with.
-	callArgs := make(map[typedid.ToolCallID]json.RawMessage)
-	// A turn start opens a turn and its turn end closes it with the duration
-	// the runner measured, which is shown as the same "Worked for …" marker a
-	// live turn leaves behind. A start still open when the next one begins, or
-	// when the history ends, belongs to a process that died mid-turn.
-	open := false
-	// The first model selection on the path is the one the session started
-	// on, which the header already names. Each later one that picks a
-	// different model is a switch, shown the way a live switch was.
-	var selected *session.ModelSelection
-	stopped := func() {
-		if open {
-			t.add(block{kind: blockElapsed, text: stoppedLabel})
-		}
-		open = false
+	callArgs map[typedid.ToolCallID]json.RawMessage
+	// open marks a turn start without its end yet. The end closes it with the
+	// duration the runner measured, which is shown as the same "Worked for …"
+	// marker a live turn leaves behind.
+	open bool
+	// selected is the latest model selection on the path. The first one is
+	// the model the session started on, which the header already names. Each
+	// later one that picks a different model is a switch, shown the way a live
+	// switch was.
+	selected *session.ModelSelection
+}
+
+// finish closes a replay. A turn still open at the end of the history belongs
+// to a process that died mid-turn.
+func (r *replayState) finish(t *transcript) {
+	if r.open {
+		t.add(block{kind: blockElapsed, text: stoppedLabel})
+	}
+	r.open = false
+}
+
+// replay adds entries to the transcript, continuing from r. It leaves a turn
+// open at the end, which only finish may call stopped: a followed session's
+// last turn may still be running in its writer.
+func (m *Model) replay(t *transcript, r *replayState, entries []session.Entry) {
+	if r.callArgs == nil {
+		r.callArgs = make(map[typedid.ToolCallID]json.RawMessage)
 	}
 	for _, entry := range entries {
 		switch entry.Type {
 		case session.EntryTypeTurnStart:
-			stopped()
-			open = true
+			// A start that opens while another is still open follows a
+			// process that died mid-turn.
+			r.finish(t)
+			r.open = true
 			continue
 		case session.EntryTypeTurnEnd:
 			// An end is shown even without its start, which a preview's window
 			// can cut off: the duration it carries needs nothing else.
-			open = false
+			r.open = false
 			t.add(block{kind: blockElapsed, text: workedLabel(entry.TurnDuration())})
 			continue
 		case session.EntryTypeModelChange:
@@ -133,10 +156,10 @@ func (m *Model) applyHistoryTo(t *transcript, entries []session.Entry) {
 				continue
 			}
 			selection := *entry.Model
-			if selected != nil && (selection.Name != selected.Name || selection.ExternalID != selected.ExternalID) {
+			if r.selected != nil && (selection.Name != r.selected.Name || selection.ExternalID != r.selected.ExternalID) {
 				t.add(block{kind: blockModel, text: modelChangedText(m.runtime.DescribeSelection(selection)), model: &selection})
 			}
-			selected = &selection
+			r.selected = &selection
 			continue
 		case session.EntryTypeCompaction:
 			// A compaction entry has no message; it is echoed as the same
@@ -163,7 +186,7 @@ func (m *Model) applyHistoryTo(t *transcript, entries []session.Entry) {
 						t.add(block{kind: blockAssistant, text: sanitize(part.Text)})
 					}
 				case session.PartToolCall:
-					callArgs[part.ToolCallID] = part.ToolInput
+					r.callArgs[part.ToolCallID] = part.ToolInput
 					t.add(m.toolBlock(part.ToolName, sanitize(string(part.ToolInput))))
 				}
 			}
@@ -172,11 +195,10 @@ func (m *Model) applyHistoryTo(t *transcript, entries []session.Entry) {
 			// persisted content and the call's arguments, so a resumed
 			// transcript renders exactly like the live one did.
 			id, name := entry.Message.ToolResult()
-			display := m.runtime.DescribeTool(name, callArgs[id], sanitize(entry.Message.Text()), entry.Message.IsError, entry.Message.Details)
+			display := m.runtime.DescribeTool(name, r.callArgs[id], sanitize(entry.Message.Text()), entry.Message.IsError, entry.Message.Details)
 			t.add(block{kind: blockResult, name: name, display: display})
 		}
 	}
-	stopped()
 }
 
 // compactedLabel is the transcript marker for a compaction. It is built in one

@@ -41,6 +41,10 @@ type Runtime interface {
 	Sessions() ([]session.Summary, error)
 	SessionID() typedid.SessionID
 	SessionHistory() []session.Entry
+	// Follow reads what another kon has appended to a session this one
+	// follows read-only; TakeOver makes this kon its writer once it is free.
+	Follow() (app.Followed, error)
+	TakeOver() ([]session.Entry, error)
 	// SessionPreview returns the last maxTurns user turns of the session at
 	// path for a read-only preview without opening it for append.
 	SessionPreview(path string, maxTurns int) ([]session.Entry, error)
@@ -111,6 +115,13 @@ type Model struct {
 	preview       *transcript
 	previewKey    string
 	previewReturn previewReturn
+	// follow carries replay across batches while the session is open in
+	// another kon and shown read-only, nil otherwise. followEpoch drops ticks
+	// from a follow that has ended, and followStatus is the follow state last
+	// shown in the status line.
+	follow       *replayState
+	followEpoch  int
+	followStatus string
 }
 
 // previewReturn snapshots the live transcript's scroll position so closing a
@@ -147,7 +158,7 @@ func New(ctx context.Context, cwd, configPath string, runtime Runtime, historySt
 	// An unconfigured launch explains itself in the transcript below, so the
 	// status stays a short pointer rather than repeating the whole problem.
 	status := "ready"
-	if !state.Ready() {
+	if !state.Ready() && !state.Following() {
 		status = "needs configuration"
 	}
 	model := Model{
@@ -160,14 +171,15 @@ func New(ctx context.Context, cwd, configPath string, runtime Runtime, historySt
 	// A resumed session opens with its conversation already in the transcript.
 	// The viewport has no size until the first resize, so defer the scroll to
 	// the bottom to that first sized frame.
-	if history := runtime.SessionHistory(); len(history) > 0 {
-		model.applyHistory(history)
+	if len(runtime.SessionHistory()) > 0 {
+		// A followed session's first read is scheduled by Init.
+		_ = model.loadSession()
 		model.startAtBottom = true
 		model.seedContextUsage()
 	}
 	// An unconfigured launch introduces itself as an assistant turn so a first
 	// run reads as a conversation instead of a bare error state.
-	if !state.Ready() {
+	if !state.Ready() && !state.Following() {
 		model.transcript.add(block{kind: blockAssistant, text: welcomeMessage(configPath)})
 	}
 	return model
@@ -181,10 +193,14 @@ type catalogLoadedMsg struct{}
 // for it.
 func (m Model) Init() tea.Cmd {
 	runtime := m.runtime
-	return tea.Batch(m.input.Focus(), func() tea.Msg {
+	commands := []tea.Cmd{m.input.Focus(), func() tea.Msg {
 		runtime.LoadCatalog()
 		return catalogLoadedMsg{}
-	})
+	}}
+	if m.follow != nil {
+		commands = append(commands, followTick(m.followEpoch))
+	}
+	return tea.Batch(commands...)
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -219,6 +235,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.flushPending = false
 		m.refreshTranscript(true)
 		return m, nil
+	case followTickMsg:
+		if m.follow == nil || msg.epoch != m.followEpoch {
+			return m, nil
+		}
+		return m, m.pollFollowed(msg.epoch)
+	case followedMsg:
+		return m, m.applyFollowed(msg)
 	case timerTickMsg:
 		// Drop a tick whose turn has ended (or been superseded): without the
 		// epoch check a tick left in flight at run end would reschedule itself
@@ -612,6 +635,9 @@ func (m Model) submit() (tea.Model, tea.Cmd) {
 	}
 	if m.busy {
 		m.status = "agent is busy; Esc interrupts"
+		return m, nil
+	}
+	if !m.takeOver() {
 		return m, nil
 	}
 	state := m.runtime.State()

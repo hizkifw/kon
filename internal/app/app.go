@@ -29,6 +29,9 @@ var (
 	ErrClosed   = errors.New("app is closed")
 	ErrNotReady = errors.New("model is not configured")
 	ErrNoEffort = errors.New("model has no reasoning effort levels")
+	// ErrReadOnly refuses a change to a session followed while another kon
+	// has it open; see TakeOver.
+	ErrReadOnly = errors.New("session is read-only while it is open in another session")
 )
 
 type Model struct {
@@ -52,7 +55,10 @@ const (
 	PhaseNeedsConfiguration Phase = "needs_configuration"
 	PhaseReady              Phase = "ready"
 	PhaseRunning            Phase = "running"
-	PhaseClosed             Phase = "closed"
+	// PhaseFollowing shows a session another kon has open, read-only, until
+	// TakeOver makes this runtime its writer.
+	PhaseFollowing Phase = "following"
+	PhaseClosed    Phase = "closed"
 )
 
 type State struct {
@@ -61,7 +67,8 @@ type State struct {
 	Problem error
 }
 
-func (s State) Ready() bool { return s.Phase == PhaseReady }
+func (s State) Ready() bool     { return s.Phase == PhaseReady }
+func (s State) Following() bool { return s.Phase == PhaseFollowing }
 
 type Runtime struct {
 	mu sync.Mutex
@@ -73,8 +80,10 @@ type Runtime struct {
 	catalog        atomic.Pointer[catalog.Service]
 	providerModels map[string][]string
 
-	active     modelSpec
-	store      *session.Store
+	active modelSpec
+	store  *session.Store
+	// view replaces store while following a session another kon has open.
+	view       *session.View
 	runner     *agent.Runner
 	problem    error
 	cleanupErr error
@@ -203,8 +212,11 @@ func (r *Runtime) recordModel(profile modelSpec, store *session.Store) error {
 
 // opened is a session ready to install: its store, the model that will answer
 // in it, and that model's runner, or the problem that keeps it from running.
+// A session another kon has open is opened as a view instead, with no store or
+// runner.
 type opened struct {
 	store   *session.Store
+	view    *session.View
 	runner  *agent.Runner
 	profile modelSpec
 	problem error
@@ -213,11 +225,15 @@ type opened struct {
 // install makes an opened session and its model the live ones. The caller
 // closes any session it replaces; see swap.
 func (r *Runtime) install(o opened) {
-	r.store, r.runner, r.problem = o.store, o.runner, o.problem
+	r.store, r.view, r.runner, r.problem = o.store, o.view, o.runner, o.problem
 	r.active = o.profile
-	r.phase = PhaseReady
-	if o.problem != nil {
+	switch {
+	case o.view != nil:
+		r.phase = PhaseFollowing
+	case o.problem != nil:
 		r.phase = PhaseNeedsConfiguration
+	default:
+		r.phase = PhaseReady
 	}
 }
 
@@ -293,6 +309,9 @@ func (r *Runtime) operate(ctx context.Context, op func(context.Context, *agent.R
 		problem := r.problem
 		r.mu.Unlock()
 		return fmt.Errorf("%w: %v in %s", ErrNotReady, problem, r.paths.ConfigFile)
+	case PhaseFollowing:
+		r.mu.Unlock()
+		return ErrReadOnly
 	}
 	// Startup leaves catalog metadata to LoadCatalog. A request needs the
 	// model's capabilities and compaction its context window, so resolve them
@@ -346,6 +365,9 @@ func (r *Runtime) SwitchModel(name string) error {
 	if err := r.mutable(); err != nil {
 		return err
 	}
+	if r.phase == PhaseFollowing {
+		return ErrReadOnly
+	}
 	if name == r.active.Name {
 		return nil
 	}
@@ -385,6 +407,9 @@ func (r *Runtime) Sessions() ([]session.Summary, error) {
 func (r *Runtime) SessionID() typedid.SessionID {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.view != nil {
+		return r.view.ID()
+	}
 	if r.store == nil || r.store.Empty() {
 		return typedid.SessionID{}
 	}
@@ -396,6 +421,9 @@ func (r *Runtime) SessionID() typedid.SessionID {
 func (r *Runtime) SessionHistory() []session.Entry {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.view != nil {
+		return r.view.ActivePath()
+	}
 	if r.store == nil {
 		return nil
 	}
@@ -541,18 +569,18 @@ func (r *Runtime) prepareSession(profile modelSpec) (opened, error) {
 // A model change is appended only when the model that will answer differs
 // from the session's last record, so the log always says which model wrote
 // each reply. Restoring the recorded model adds nothing.
+//
+// A session another kon has open is opened as a view to follow instead.
 func (r *Runtime) openStore(path string) (opened, error) {
 	store, err := r.openSession(path)
+	if errors.Is(err, session.ErrInUse) {
+		return r.openView(path)
+	}
 	if err != nil {
 		return opened{}, err
 	}
 	last := lastModelChange(store.ActivePath())
-	profile := r.active
-	if last != nil {
-		if recorded, ok := r.configuredSpec(last.Name); ok {
-			profile = recorded
-		}
-	}
+	profile := r.recordedProfile(last)
 	if problem := profile.Ready(); problem != nil {
 		return opened{store: store, profile: profile, problem: problem}, nil
 	}
@@ -566,6 +594,17 @@ func (r *Runtime) openStore(path string) (opened, error) {
 		return opened{}, err
 	}
 	return opened{store: store, runner: runner, profile: profile}, nil
+}
+
+// recordedProfile is the model a session last recorded, or the current model
+// when the session never recorded one or it no longer resolves.
+func (r *Runtime) recordedProfile(last *session.ModelSelection) modelSpec {
+	if last != nil {
+		if recorded, ok := r.configuredSpec(last.Name); ok {
+			return recorded
+		}
+	}
+	return r.active
 }
 
 // lastModelChange is the newest model selection recorded on a path, or nil.

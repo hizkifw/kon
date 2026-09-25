@@ -25,7 +25,14 @@ lock on `<session.jsonl>.lock`, taken before the session file is created or
 parsed, and released when the session is closed. Each writer appends children
 of its own in-memory leaf. A second writer would silently fork the
 conversation, and trimming a torn tail could cut a record the first writer is
-still appending. Opening a session another process holds fails instead.
+still appending. Opening a session another process holds for writing fails
+with `ErrInUse`.
+
+A follower reads a held session without the lock through `session.View`. It
+never repairs the file, and reads only complete lines, starting after the last
+one it read. A torn tail is read once its newline lands. A follower becomes the
+writer by opening the session normally once the lock is free. Everything
+written before the old writer released the lock is on disk by then.
 
 The lock lives in its own file because Windows locks are mandatory, and they
 would block the read-only previews and listing that run against live sessions.

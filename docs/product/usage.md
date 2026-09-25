@@ -16,9 +16,19 @@ changes `default_model`. `/resume` lists sessions inside the app, and `/resume <
 switches to one. Typing `/resume ` opens a picker. Highlighting a row previews
 its recent turns without switching; `Esc` cancels the preview.
 
-A session can be open in only one kon at a time. The picker marks sessions
-that are open elsewhere, and resuming one reports that it is open in another
-kon.
+A session has one writer at a time. Resuming a session that another kon has
+open, with `--resume` or `/resume`, shows it read-only and follows along: each
+message, tool call, and result appears once the other kon writes it, and the
+status line reads `read-only: open in another session` (with `· working` while
+it is mid-turn). Streamed text and live command output are not shown, because
+only finished messages are written to the session file. The picker marks such
+sessions `open elsewhere`.
+
+Once the other kon quits or leaves the session, the status line says the
+session is free. Sending a prompt, or `/compact`, then continues the session
+here. While the other kon still has it open, the prompt stays in the input and
+nothing is sent. `/model` and effort changes wait until you have taken over;
+`/new` and `/resume` leave the followed session as usual.
 
 Sessions are plain JSONL files under `~/.local/share/kon/sessions/` by default.
 On Windows, kon uses `%LOCALAPPDATA%\kon\sessions\`.

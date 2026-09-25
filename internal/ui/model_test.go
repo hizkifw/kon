@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -40,13 +41,23 @@ type fakeRuntime struct {
 	loginProvider  config.Provider
 	catalogLoads   int
 	efforts        []string
+
+	followed    app.Followed
+	followErr   error
+	missed      []session.Entry
+	takeOverErr error
+	// runs counts Run calls, which arrive on the run's goroutine.
+	runs atomic.Int32
 }
 
-func (f *fakeRuntime) Models() []app.Model                                  { return f.models }
-func (f *fakeRuntime) State() app.State                                     { return f.state }
-func (f *fakeRuntime) Run(context.Context, string, func(agent.Event)) error { return nil }
-func (f *fakeRuntime) Compact(context.Context, func(agent.Event)) error     { return nil }
-func (f *fakeRuntime) NewSession() error                                    { return nil }
+func (f *fakeRuntime) Models() []app.Model { return f.models }
+func (f *fakeRuntime) State() app.State    { return f.state }
+func (f *fakeRuntime) Run(context.Context, string, func(agent.Event)) error {
+	f.runs.Add(1)
+	return nil
+}
+func (f *fakeRuntime) Compact(context.Context, func(agent.Event)) error { return nil }
+func (f *fakeRuntime) NewSession() error                                { return nil }
 func (f *fakeRuntime) Login(_ context.Context, provider config.Provider) (int, bool, error) {
 	f.loginProvider = provider
 	return 0, true, nil
@@ -84,6 +95,14 @@ func (f *fakeRuntime) Resume(id typedid.SessionID) error    { f.id = id; return 
 func (f *fakeRuntime) Sessions() ([]session.Summary, error) { return f.sessions, nil }
 func (f *fakeRuntime) SessionID() typedid.SessionID         { return f.id }
 func (f *fakeRuntime) SessionHistory() []session.Entry      { return f.entries }
+func (f *fakeRuntime) Follow() (app.Followed, error)        { return f.followed, f.followErr }
+func (f *fakeRuntime) TakeOver() ([]session.Entry, error) {
+	if f.takeOverErr != nil {
+		return nil, f.takeOverErr
+	}
+	f.state.Phase = app.PhaseReady
+	return f.missed, nil
+}
 func (f *fakeRuntime) SessionPreview(path string, maxTurns int) ([]session.Entry, error) {
 	f.previewed = path
 	return f.previewEntries, f.previewErr

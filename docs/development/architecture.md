@@ -89,9 +89,13 @@ See [migrations.md](migrations.md) for the upgrade contract and step authoring.
 The app runtime is the sole owner of the live store and runner. A new session is
 fully prepared before it replaces the current one, so creation failures leave
 the current session usable. Its explicit phase distinguishes ready, running,
-configuration-required, and closed states. Resume follows the same rule: the
-target session is opened and validated before the current store is closed, and
-only sessions in the working directory's session folder are eligible.
+configuration-required, following, and closed states. Resume follows the same
+rule: the target session is opened and validated before the current store is
+closed, and only sessions in the working directory's session folder are
+eligible. A session another kon holds is opened as a read-only `session.View`
+in the following phase. The UI polls it off the update loop through
+`Runtime.Follow`, and `Runtime.TakeOver` turns it into a store once the lock is
+free. Every write refuses with `ErrReadOnly` until then.
 
 The UI and runtime communicate through typed events and operations. Typed
 transcript blocks own their rendering, prompt history owns recall state,

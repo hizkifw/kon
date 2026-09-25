@@ -548,6 +548,9 @@ type parsedSession struct {
 	entries      []Entry
 	byID         map[typedid.EntryID]int
 	repairOffset int64 // byte length of the valid prefix, or -1 when the file is intact
+	// size is the byte length of the complete records read, where a follower
+	// resumes reading.
+	size int64
 }
 
 // leafID is the final entry's ID, which is the active leaf in v4.
@@ -587,7 +590,7 @@ func parseSession(path string) (parsedSession, error) {
 		return parsedSession{}, fmt.Errorf("unsupported session version %d", header.Version)
 	}
 
-	result := parsedSession{header: header, byID: make(map[typedid.EntryID]int), repairOffset: -1}
+	result := parsedSession{header: header, byID: make(map[typedid.EntryID]int), repairOffset: -1, size: int64(len(b))}
 	for i := 1; i <= last; i++ {
 		if strings.TrimSpace(lines[i]) == "" {
 			continue
@@ -596,29 +599,39 @@ func parseSession(path string) (parsedSession, error) {
 		if err := json.Unmarshal([]byte(lines[i]), &entry); err != nil {
 			if i == last {
 				result.repairOffset = int64(len(strings.Join(lines[:i], "\n")) + 1)
+				result.size = result.repairOffset
 				break
 			}
 			return parsedSession{}, fmt.Errorf("parse session line %d: %w", i+1, err)
 		}
-		entry.Raw = append(json.RawMessage(nil), lines[i]...)
-		if entry.ID.IsZero() || entry.Type == "" {
-			return parsedSession{}, fmt.Errorf("invalid session entry on line %d", i+1)
-		}
-		if err := entry.validate(); err != nil {
-			return parsedSession{}, fmt.Errorf("invalid session entry on line %d: %w", i+1, err)
-		}
-		if _, exists := result.byID[entry.ID]; exists {
-			return parsedSession{}, fmt.Errorf("duplicate session entry id %q", entry.ID)
-		}
-		if entry.ParentID != nil {
-			if _, exists := result.byID[*entry.ParentID]; !exists {
-				return parsedSession{}, fmt.Errorf("entry %q has missing parent %q", entry.ID, *entry.ParentID)
-			}
+		if err := checkEntry(&entry, lines[i], result.byID); err != nil {
+			return parsedSession{}, fmt.Errorf("session line %d: %w", i+1, err)
 		}
 		result.byID[entry.ID] = len(result.entries)
 		result.entries = append(result.entries, entry)
 	}
 	return result, nil
+}
+
+// checkEntry validates a decoded entry against the entries before it and keeps
+// its raw line.
+func checkEntry(entry *Entry, line string, byID map[typedid.EntryID]int) error {
+	entry.Raw = append(json.RawMessage(nil), line...)
+	if entry.ID.IsZero() || entry.Type == "" {
+		return errors.New("invalid session entry")
+	}
+	if err := entry.validate(); err != nil {
+		return fmt.Errorf("invalid session entry: %w", err)
+	}
+	if _, exists := byID[entry.ID]; exists {
+		return fmt.Errorf("duplicate session entry id %q", entry.ID)
+	}
+	if entry.ParentID != nil {
+		if _, exists := byID[*entry.ParentID]; !exists {
+			return fmt.Errorf("entry %q has missing parent %q", entry.ID, *entry.ParentID)
+		}
+	}
+	return nil
 }
 
 // ValidateFile checks a session without opening it for append or changing it.
@@ -1192,22 +1205,28 @@ func (entry Entry) validate() error {
 }
 
 func (s *Store) activePathLocked() ([]Entry, error) {
-	if s.leafID == nil {
+	return activePath(s.entries, s.byID, s.leafID)
+}
+
+// activePath follows parent links from leaf back to the root and returns the
+// path in conversation order.
+func activePath(entries []Entry, byID map[typedid.EntryID]int, leaf *typedid.EntryID) ([]Entry, error) {
+	if leaf == nil {
 		return nil, nil
 	}
 	var reverse []Entry
-	current := *s.leafID
+	current := *leaf
 	seen := make(map[typedid.EntryID]bool)
 	for {
 		if seen[current] {
 			return nil, errors.New("cycle in session parent links")
 		}
 		seen[current] = true
-		idx, ok := s.byID[current]
+		idx, ok := byID[current]
 		if !ok {
 			return nil, fmt.Errorf("missing session entry %q", current)
 		}
-		entry := s.entries[idx]
+		entry := entries[idx]
 		reverse = append(reverse, entry)
 		if entry.ParentID == nil {
 			break

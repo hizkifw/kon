@@ -330,6 +330,8 @@ func (m Model) newSession() (tea.Model, tea.Cmd) {
 	}
 	m.transcript.reset()
 	m.contextTokens = -1
+	m.follow = nil
+	m.followEpoch++
 	m.input.Reset()
 	m.history.resetPosition()
 	m.syncRuntimeState()
@@ -399,6 +401,9 @@ func (m Model) cycleEffort() (tea.Model, tea.Cmd) {
 func (m Model) compact() (tea.Model, tea.Cmd) {
 	if m.busy {
 		m.status = "agent is busy; Esc interrupts"
+		return m, nil
+	}
+	if !m.takeOver() {
 		return m, nil
 	}
 	state := m.runtime.State()
@@ -497,15 +502,15 @@ func (m Model) resume(args []string) (tea.Model, tea.Cmd) {
 	}
 	m.transcript.reset()
 	m.contextTokens = -1
-	m.applyHistory(m.runtime.SessionHistory())
+	m.status = "resumed " + id.String()
+	follow := m.loadSession()
 	m.seedContextUsage()
 	m.input.Reset()
 	m.history.resetPosition()
 	m.syncRuntimeState()
-	m.status = "resumed " + id.String()
 	m.refreshTranscript(true)
 	m.viewport.GotoBottom()
-	return m, nil
+	return m, follow
 }
 
 // listSessions renders the resumable sessions for this workspace.
