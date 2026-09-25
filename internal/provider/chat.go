@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/hizkifw/kon/internal/buildinfo"
-	"github.com/hizkifw/kon/internal/config"
 	"github.com/hizkifw/kon/internal/provider/wire"
 	"github.com/hizkifw/kon/internal/session"
 	"github.com/hizkifw/kon/internal/tokens"
@@ -56,28 +55,28 @@ const completeTimeout = 10 * time.Minute
 // placeholders instead of image parts. A session keeps images read by an
 // earlier model, and a /model switch must not send them to one that rejects
 // them.
-func imageReader(profile config.Model, readImage func(string) ([]byte, error)) func(string) ([]byte, error) {
-	if !profile.Vision {
+func imageReader(model Spec, readImage func(string) ([]byte, error)) func(string) ([]byte, error) {
+	if !model.Vision {
 		return nil
 	}
 	return readImage
 }
 
-func newChatModel(profile config.Model, spec wire.Spec, readImage func(string) ([]byte, error)) (*chatModel, error) {
-	baseURL, err := spec.BaseURL(profile.BaseURL)
+func newChatModel(model Spec, spec wire.Spec, readImage func(string) ([]byte, error)) (*chatModel, error) {
+	baseURL, err := spec.BaseURL(model.BaseURL)
 	if err != nil {
-		return nil, fmt.Errorf("model %q: %w", profile.Name, err)
+		return nil, fmt.Errorf("model %q: %w", model.Name, err)
 	}
 	return &chatModel{
 		client:    &http.Client{},
 		baseURL:   baseURL,
-		apiKey:    profile.APIKey,
-		headers:   profile.Headers,
-		model:     profile.ModelID,
+		apiKey:    model.APIKey,
+		headers:   model.Headers,
+		model:     model.ModelID,
 		spec:      spec,
-		effort:    profile.ReasoningEffort,
-		reasoning: profile.Reasoning,
-		readImage: imageReader(profile, readImage),
+		effort:    model.ReasoningEffort,
+		reasoning: model.Reasoning,
+		readImage: imageReader(model, readImage),
 	}, nil
 }
 
@@ -377,7 +376,7 @@ func (options chatOptions) encode() json.RawMessage {
 	return raw
 }
 
-func toChatTools(tools []Tool) []chatTool {
+func toChatTools(tools []session.ToolDefinition) []chatTool {
 	if len(tools) == 0 {
 		return nil
 	}
@@ -390,7 +389,7 @@ func toChatTools(tools []Tool) []chatTool {
 
 // Stream runs one streamed generation and forwards text and reasoning deltas
 // through emit as they arrive.
-func (m *chatModel) Stream(ctx context.Context, messages []session.Message, tools []Tool, emit func(Event)) (Response, error) {
+func (m *chatModel) Stream(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, emit func(Event)) (Response, error) {
 	wireMessages, err := toChatMessages(messages, m.replay(), m.readImage)
 	if err != nil {
 		return Response{}, err
@@ -442,7 +441,7 @@ func (m *chatModel) stream(ctx context.Context, payload chatRequest, emit func(E
 // with tool_choice "none": the request matches the streaming turn's tool roster
 // so it can reuse the provider's cached prefix, while the summary itself can
 // never become a tool call.
-func (m *chatModel) Complete(ctx context.Context, messages []session.Message, tools []Tool, maxTokens tokens.Count) (Response, error) {
+func (m *chatModel) Complete(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, maxTokens tokens.Count) (Response, error) {
 	wireMessages, err := toChatMessages(messages, m.replay(), m.readImage)
 	if err != nil {
 		return Response{}, err

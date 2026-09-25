@@ -74,9 +74,6 @@ type Model struct {
 	// the order Shift+Tab cycles through them. Empty means kon never sends an
 	// effort, so servers that reject the parameter keep working.
 	ReasoningEfforts []string `json:"reasoning_efforts,omitempty"`
-	// ReasoningEffort is the level a resolved profile sends. It is applied from
-	// Config.ReasoningEffort at runtime and is never stored per model.
-	ReasoningEffort string `json:"-"`
 }
 
 type Compaction struct {

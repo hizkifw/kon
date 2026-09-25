@@ -15,9 +15,9 @@ func TestAssistantAssemblesDurableMessage(t *testing.T) {
 	client := &Client{modelID: typedid.ExternalModelID("gpt-4o")}
 	response := Response{
 		Parts: []session.Part{
-			{Type: PartReasoning, Text: "let me look"},
-			{Type: PartText, Text: "checking"},
-			{Type: PartToolCall, ToolCallID: "call-1", ToolName: "read", ToolInput: json.RawMessage(`{"path":"x"}`)},
+			{Type: session.PartReasoning, Text: "let me look"},
+			{Type: session.PartText, Text: "checking"},
+			{Type: session.PartToolCall, ToolCallID: "call-1", ToolName: "read", ToolInput: json.RawMessage(`{"path":"x"}`)},
 		},
 		Finish: "tool_calls",
 		Usage:  &session.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15, CachedTokens: 4},
@@ -36,7 +36,7 @@ func TestAssistantAssemblesDurableMessage(t *testing.T) {
 		t.Fatalf("tool calls = %#v", calls)
 	}
 	// Reasoning is persisted first so a turn replays in generation order.
-	want := []string{PartReasoning, PartText, PartToolCall}
+	want := []string{session.PartReasoning, session.PartText, session.PartToolCall}
 	if len(message.Parts) != len(want) {
 		t.Fatalf("parts = %#v", message.Parts)
 	}
@@ -57,10 +57,10 @@ func TestAssistantKeepsInterleavedPartsAndProviderMetadata(t *testing.T) {
 	client := &Client{modelID: typedid.ExternalModelID("model")}
 	metadata := json.RawMessage(`{"signature":"opaque-value"}`)
 	parts := []session.Part{
-		{Type: PartText, Text: "first"},
-		{Type: PartReasoning, Text: "thought", ProviderOptions: metadata},
-		{Type: PartToolCall, ToolCallID: "call-1", ToolName: "read", ToolInput: json.RawMessage(`{}`)},
-		{Type: PartText, Text: "last"},
+		{Type: session.PartText, Text: "first"},
+		{Type: session.PartReasoning, Text: "thought", ProviderOptions: metadata},
+		{Type: session.PartToolCall, ToolCallID: "call-1", ToolName: "read", ToolInput: json.RawMessage(`{}`)},
+		{Type: session.PartText, Text: "last"},
 	}
 	options := json.RawMessage(`{"reasoning_field":"reasoning"}`)
 	message, err := client.assistant(Response{Parts: parts, ProviderOptions: options})
@@ -70,7 +70,7 @@ func TestAssistantKeepsInterleavedPartsAndProviderMetadata(t *testing.T) {
 	if string(message.ProviderOptions) != string(options) {
 		t.Fatalf("message metadata = %s, want %s", message.ProviderOptions, options)
 	}
-	if message.Text() != "firstlast" || len(message.Parts) != 4 || message.Parts[1].Type != PartReasoning || string(message.Parts[1].ProviderOptions) != string(metadata) || message.Parts[3].Text != "last" {
+	if message.Text() != "firstlast" || len(message.Parts) != 4 || message.Parts[1].Type != session.PartReasoning || string(message.Parts[1].ProviderOptions) != string(metadata) || message.Parts[3].Text != "last" {
 		t.Fatalf("ordered parts changed: %#v", message.Parts)
 	}
 }
@@ -83,7 +83,7 @@ func TestAssistantRejectsEmptyResponse(t *testing.T) {
 	// A completed turn with reasoning but no answer text is still empty from
 	// the wire's point of view and must be rejected; only an interrupted turn
 	// may persist reasoning alone.
-	if _, err := client.assistant(Response{Parts: []session.Part{{Type: PartReasoning, Text: "thinking"}}}); err == nil {
+	if _, err := client.assistant(Response{Parts: []session.Part{{Type: session.PartReasoning, Text: "thinking"}}}); err == nil {
 		t.Fatal("reasoning-only completed response was accepted")
 	}
 }
@@ -92,7 +92,7 @@ func TestAssistantOrPartialPersistsInterruptedTurn(t *testing.T) {
 	client := &Client{modelID: typedid.ExternalModelID("gpt")}
 	cause := errors.New("stream interrupted")
 	options := json.RawMessage(`{"reasoning_field":"reasoning_text"}`)
-	message, err := client.assistantOrPartial(Response{Parts: []session.Part{{Type: PartReasoning, Text: "hm"}, {Type: PartText, Text: "half"}}, Finish: "stop", Usage: &session.Usage{PromptTokens: 5}, ProviderOptions: options}, cause)
+	message, err := client.assistantOrPartial(Response{Parts: []session.Part{{Type: session.PartReasoning, Text: "hm"}, {Type: session.PartText, Text: "half"}}, Finish: "stop", Usage: &session.Usage{PromptTokens: 5}, ProviderOptions: options}, cause)
 	if !errors.Is(err, cause) {
 		t.Fatalf("interruption not surfaced: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestAssistantOrPartialPersistsInterruptedTurn(t *testing.T) {
 	if string(message.ProviderOptions) != string(options) {
 		t.Fatalf("partial dropped reasoning metadata: %s", message.ProviderOptions)
 	}
-	if len(message.Parts) != 2 || message.Parts[0].Type != PartReasoning || message.Parts[1].Type != PartText {
+	if len(message.Parts) != 2 || message.Parts[0].Type != session.PartReasoning || message.Parts[1].Type != session.PartText {
 		t.Fatalf("partial parts = %#v", message.Parts)
 	}
 	if err := message.Validate(); err != nil {
@@ -120,11 +120,11 @@ func TestAssistantOrPartialPersistsInterruptedTurn(t *testing.T) {
 func TestAssistantOrPartialKeepsReasoningOnlyTurn(t *testing.T) {
 	client := &Client{modelID: typedid.ExternalModelID("gpt")}
 	cause := errors.New("interrupted")
-	message, err := client.assistantOrPartial(Response{Parts: []session.Part{{Type: PartReasoning, Text: "still thinking"}}}, cause)
+	message, err := client.assistantOrPartial(Response{Parts: []session.Part{{Type: session.PartReasoning, Text: "still thinking"}}}, cause)
 	if !errors.Is(err, cause) {
 		t.Fatalf("interruption not surfaced: %v", err)
 	}
-	if message.Role != session.RoleAssistant || !message.Interrupted || len(message.Parts) != 1 || message.Parts[0].Type != PartReasoning {
+	if message.Role != session.RoleAssistant || !message.Interrupted || len(message.Parts) != 1 || message.Parts[0].Type != session.PartReasoning {
 		t.Fatalf("reasoning-only partial = %#v", message)
 	}
 	if err := message.Validate(); err != nil {

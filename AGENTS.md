@@ -42,6 +42,7 @@ Each package owns one boundary. Do not reach across them.
 | `internal/agent` | model/tool loop and compaction policy | terminal rendering |
 | `internal/provider` | provider `Model` backends and durable-message conversion | session policy |
 | `internal/provider/wire` | the wire-format table: names, default endpoints, and dialect facts | HTTP, backends, or service quirks |
+| `internal/login` | `/login` choices per service and connection verification | wire backends or config writes |
 | `internal/session` | domain messages and append-only context tree | provider requests |
 | `internal/tools` | tool registry, bounded tool schemas and execution | agent orchestration |
 | `internal/typedid` | identifier construction and parsing | storage or provider policy |

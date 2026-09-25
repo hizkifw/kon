@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hizkifw/kon/internal/provider"
+	"github.com/hizkifw/kon/internal/session"
 )
 
 const (
@@ -80,8 +80,8 @@ type shellDetails struct {
 	OutputBytes int    `json:"output_bytes"`
 }
 
-func (t *shellTool) Definition() provider.Tool {
-	return provider.Tool{
+func (t *shellTool) Definition() session.ToolDefinition {
+	return session.ToolDefinition{
 		Name:        "shell",
 		Description: "Run a shell command in the current working directory, interpreted by " + shellName() + ". Every command must specify a timeout in whole seconds (1-600); the command is killed when the timeout expires.",
 		Parameters:  json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"},"timeout":{"type":"integer","minimum":1,"maximum":600,"description":"maximum wall-clock seconds the command may run"}},"required":["command","timeout"],"additionalProperties":false}`),

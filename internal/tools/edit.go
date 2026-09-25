@@ -8,14 +8,14 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/hizkifw/kon/internal/provider"
+	"github.com/hizkifw/kon/internal/session"
 )
 
 // editTool replaces exactly one occurrence of old_text with new_text.
 type editTool struct{}
 
-func (editTool) Definition() provider.Tool {
-	return provider.Tool{
+func (editTool) Definition() session.ToolDefinition {
+	return session.ToolDefinition{
 		Name:        "edit",
 		Description: "Replace exactly one occurrence of old_text in a text file.",
 		Parameters:  json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"old_text":{"type":"string"},"new_text":{"type":"string"}},"required":["path","old_text","new_text"],"additionalProperties":false}`),

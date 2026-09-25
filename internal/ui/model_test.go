@@ -16,7 +16,7 @@ import (
 	"github.com/hizkifw/kon/internal/catalog"
 	"github.com/hizkifw/kon/internal/config"
 	"github.com/hizkifw/kon/internal/history"
-	"github.com/hizkifw/kon/internal/provider"
+	"github.com/hizkifw/kon/internal/login"
 	"github.com/hizkifw/kon/internal/session"
 	"github.com/hizkifw/kon/internal/tokens"
 	"github.com/hizkifw/kon/internal/tools"
@@ -55,7 +55,7 @@ func (f *fakeRuntime) LoginProviders() []string {
 	return []string{"azure", "fireworks-ai", "ollama", "openai", "openai-compatible", "openrouter"}
 }
 func (f *fakeRuntime) LoginEntry(id string) (app.LoginEntry, bool) {
-	if entry, ok := provider.LocalLoginEntry(id); ok {
+	if entry, ok := login.LocalEntry(id); ok {
 		return entry, true
 	}
 	entries := map[string]catalog.Provider{
@@ -68,7 +68,7 @@ func (f *fakeRuntime) LoginEntry(id string) (app.LoginEntry, bool) {
 	if !ok {
 		return app.LoginEntry{}, false
 	}
-	return provider.CatalogLoginEntry(entry)
+	return login.CatalogEntry(entry)
 }
 func (f *fakeRuntime) DescribeSelection(selection session.ModelSelection) app.Model {
 	for _, model := range f.models {

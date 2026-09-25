@@ -92,6 +92,14 @@ type ToolCall struct {
 	Metadata json.RawMessage    `json:"metadata,omitempty"`
 }
 
+// ToolDefinition is a tool as advertised to the model. It lives here, beside
+// the calls it invites, so the tool registry and the provider backends share
+// it without depending on each other.
+type ToolDefinition struct {
+	Name, Description string
+	Parameters        json.RawMessage
+}
+
 // Part preserves ordered, provider-neutral content needed for exact replay.
 // ProviderOptions is opaque data owned by the backend in internal/provider
 // that wrote it; kon stores it without interpreting it.

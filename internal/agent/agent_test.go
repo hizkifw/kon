@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hizkifw/kon/internal/config"
 	"github.com/hizkifw/kon/internal/contextfiles"
 	"github.com/hizkifw/kon/internal/provider"
 	"github.com/hizkifw/kon/internal/session"
@@ -15,22 +14,22 @@ import (
 	"github.com/hizkifw/kon/internal/typedid"
 )
 
-// testModel is a placeholder profile; the fake provider never reads its
-// connection fields.
-var testModel = config.Model{Name: "default", Type: "openai-compatible", BaseURL: "https://api.openai.com/v1"}
+// testLimits mirrors the default compaction budgets for a model whose context
+// window is unknown.
+var testLimits = Limits{ReserveTokens: 16_384, KeepRecentTokens: 20_000}
 
 type fakeProvider struct {
 	completeCalls int
 	streamCalls   int
 }
 
-func (f *fakeProvider) Stream(_ context.Context, _ []session.Message, _ []provider.Tool, emit func(provider.Event)) (session.Message, error) {
+func (f *fakeProvider) Stream(_ context.Context, _ []session.Message, _ []session.ToolDefinition, emit func(provider.Event)) (session.Message, error) {
 	f.streamCalls++
 	emit(provider.Event{Text: "done"})
 	return session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: "done"}}, Finish: "stop", Usage: &session.Usage{PromptTokens: 100, CompletionTokens: 1, TotalTokens: 101}}, nil
 }
 
-func (f *fakeProvider) Complete(_ context.Context, _ []session.Message, _ []provider.Tool, _ tokens.Count) (session.Message, error) {
+func (f *fakeProvider) Complete(_ context.Context, _ []session.Message, _ []session.ToolDefinition, _ tokens.Count) (session.Message, error) {
 	f.completeCalls++
 	return session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: "summary"}}, Usage: &session.Usage{PromptTokens: 50, CompletionTokens: 5, TotalTokens: 55}}, nil
 }
@@ -50,12 +49,11 @@ func TestRunnerCompactsOlderTurnsBeforeRequest(t *testing.T) {
 		}
 	}
 	fake := &fakeProvider{}
-	cfg := config.Default()
-	model := testModel
-	model.ContextWindowTokens = 500
-	cfg.Compaction.ReserveTokens = 100
-	cfg.Compaction.KeepRecentTokens = 100
-	runner := New(model, cfg.Compaction, fake, store, tools.New(t.TempDir(), false))
+	limits := testLimits
+	limits.ContextWindow = 500
+	limits.ReserveTokens = 100
+	limits.KeepRecentTokens = 100
+	runner := New(limits, fake, store, tools.New(t.TempDir(), false))
 	if err := runner.Run(context.Background(), "new work", func(Event) {}); err != nil {
 		t.Fatal(err)
 	}
@@ -97,8 +95,7 @@ func TestNewSeedsUsageFromPersistedAssistantMessages(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer reopened.Close()
-	cfg := config.Default()
-	runner := New(testModel, cfg.Compaction, &fakeProvider{}, reopened, tools.New(t.TempDir(), false))
+	runner := New(testLimits, &fakeProvider{}, reopened, tools.New(t.TempDir(), false))
 	tokens, ok := runner.ContextUsage()
 	if !ok || tokens != 940 {
 		t.Fatalf("ContextUsage = (%d, %v), want (940, true)", tokens, ok)
@@ -114,8 +111,7 @@ func TestContextUsageUnknownBeforeFirstReport(t *testing.T) {
 	if _, err := store.AppendMessage(session.Message{Role: session.RoleUser, Parts: []session.Part{{Type: session.PartText, Text: "hi"}}}); err != nil {
 		t.Fatal(err)
 	}
-	cfg := config.Default()
-	runner := New(testModel, cfg.Compaction, &fakeProvider{}, store, tools.New(t.TempDir(), false))
+	runner := New(testLimits, &fakeProvider{}, store, tools.New(t.TempDir(), false))
 	if tokens, ok := runner.ContextUsage(); ok {
 		t.Fatalf("ContextUsage = (%d, true), want unknown", tokens)
 	}
@@ -127,7 +123,7 @@ type interruptingProvider struct {
 	calls int
 }
 
-func (p *interruptingProvider) Stream(_ context.Context, _ []session.Message, _ []provider.Tool, emit func(provider.Event)) (session.Message, error) {
+func (p *interruptingProvider) Stream(_ context.Context, _ []session.Message, _ []session.ToolDefinition, emit func(provider.Event)) (session.Message, error) {
 	p.calls++
 	emit(provider.Event{Text: "partial thought", Thinking: true})
 	emit(provider.Event{Text: "half an answer"})
@@ -135,13 +131,13 @@ func (p *interruptingProvider) Stream(_ context.Context, _ []session.Message, _ 
 		Role:        session.RoleAssistant,
 		Interrupted: true,
 		Parts: []session.Part{
-			{Type: provider.PartReasoning, Text: "partial thought"},
-			{Type: provider.PartText, Text: "half an answer"},
+			{Type: session.PartReasoning, Text: "partial thought"},
+			{Type: session.PartText, Text: "half an answer"},
 		},
 	}, context.Canceled
 }
 
-func (p *interruptingProvider) Complete(_ context.Context, _ []session.Message, _ []provider.Tool, _ tokens.Count) (session.Message, error) {
+func (p *interruptingProvider) Complete(_ context.Context, _ []session.Message, _ []session.ToolDefinition, _ tokens.Count) (session.Message, error) {
 	return session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: "summary"}}}, nil
 }
 
@@ -152,7 +148,7 @@ func TestRunnerPersistsPartialTurnOnInterruptedStream(t *testing.T) {
 	}
 	defer store.Close()
 	fake := &interruptingProvider{}
-	runner := New(config.Model{}, config.Compaction{}, fake, store, tools.New(t.TempDir(), false))
+	runner := New(Limits{}, fake, store, tools.New(t.TempDir(), false))
 	err = runner.Run(context.Background(), "hello", func(Event) {})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Run error = %v, want context.Canceled", err)
@@ -165,7 +161,7 @@ func TestRunnerPersistsPartialTurnOnInterruptedStream(t *testing.T) {
 	if last.Role != session.RoleAssistant || !last.Interrupted || last.Text() != "half an answer" {
 		t.Fatalf("partial turn was not persisted: %#v", last)
 	}
-	if len(last.Parts) != 2 || last.Parts[0].Type != provider.PartReasoning {
+	if len(last.Parts) != 2 || last.Parts[0].Type != session.PartReasoning {
 		t.Fatalf("partial reasoning was not persisted: %#v", last.Parts)
 	}
 	// A follow-up turn must see the partial assistant message in its context so
@@ -193,7 +189,7 @@ func TestRunnerBracketsTurnWithMarkers(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer store.Close()
-			runner := New(config.Model{}, config.Compaction{}, c.provider, store, tools.New(t.TempDir(), false))
+			runner := New(Limits{}, c.provider, store, tools.New(t.TempDir(), false))
 			_ = runner.Run(context.Background(), "hello", func(Event) {})
 			path := store.ActivePath()
 			// The root system message leads, then the turn.
@@ -216,14 +212,14 @@ func TestRunnerBracketsTurnWithMarkers(t *testing.T) {
 
 type toolCallProvider struct{}
 
-func (toolCallProvider) Stream(context.Context, []session.Message, []provider.Tool, func(provider.Event)) (session.Message, error) {
+func (toolCallProvider) Stream(context.Context, []session.Message, []session.ToolDefinition, func(provider.Event)) (session.Message, error) {
 	return session.Message{Role: session.RoleAssistant, Parts: []session.Part{
 		{Type: session.PartToolCall, ToolCallID: typedid.ExternalToolCallID("first"), ToolName: "unknown", ToolInput: []byte(`{}`)},
 		{Type: session.PartToolCall, ToolCallID: typedid.ExternalToolCallID("second"), ToolName: "unknown", ToolInput: []byte(`{}`)},
 	}}, nil
 }
 
-func (toolCallProvider) Complete(context.Context, []session.Message, []provider.Tool, tokens.Count) (session.Message, error) {
+func (toolCallProvider) Complete(context.Context, []session.Message, []session.ToolDefinition, tokens.Count) (session.Message, error) {
 	return session.Message{}, nil
 }
 
@@ -235,7 +231,7 @@ func TestRunnerPersistsInterruptedResultsForRemainingToolCalls(t *testing.T) {
 	defer store.Close()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	runner := New(config.Model{}, config.Compaction{}, toolCallProvider{}, store, tools.New(t.TempDir(), false))
+	runner := New(Limits{}, toolCallProvider{}, store, tools.New(t.TempDir(), false))
 	if err := runner.Run(ctx, "hello", func(Event) {}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("Run error = %v, want context.Canceled", err)
 	}
@@ -266,13 +262,13 @@ func containsInterrupted(messages []session.ContextMessage) bool {
 
 type reasoningProvider struct{}
 
-func (reasoningProvider) Stream(_ context.Context, _ []session.Message, _ []provider.Tool, emit func(provider.Event)) (session.Message, error) {
+func (reasoningProvider) Stream(_ context.Context, _ []session.Message, _ []session.ToolDefinition, emit func(provider.Event)) (session.Message, error) {
 	emit(provider.Event{Text: "pondering", Thinking: true})
 	emit(provider.Event{Text: "answer"})
 	return session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: "answer"}}, Finish: "stop"}, nil
 }
 
-func (reasoningProvider) Complete(_ context.Context, _ []session.Message, _ []provider.Tool, _ tokens.Count) (session.Message, error) {
+func (reasoningProvider) Complete(_ context.Context, _ []session.Message, _ []session.ToolDefinition, _ tokens.Count) (session.Message, error) {
 	return session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: "summary"}}}, nil
 }
 
@@ -282,7 +278,7 @@ func TestRunnerEmitsThinkingBeforeText(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	runner := New(config.Model{}, config.Compaction{}, reasoningProvider{}, store, tools.New(t.TempDir(), false))
+	runner := New(Limits{}, reasoningProvider{}, store, tools.New(t.TempDir(), false))
 	var kinds []EventKind
 	if err := runner.Run(context.Background(), "hello", func(event Event) { kinds = append(kinds, event.Kind) }); err != nil {
 		t.Fatal(err)
@@ -328,14 +324,13 @@ func TestCompactForcesCompactionBelowThreshold(t *testing.T) {
 		}
 	}
 	fake := &fakeProvider{}
-	cfg := config.Default()
 	// A window large enough that automatic compaction would not trigger, so a
 	// successful compaction can only come from the manual force path.
-	model := testModel
-	model.ContextWindowTokens = 1_000_000
-	cfg.Compaction.ReserveTokens = 16_384
-	cfg.Compaction.KeepRecentTokens = 100
-	runner := New(model, cfg.Compaction, fake, store, tools.New(t.TempDir(), false))
+	limits := testLimits
+	limits.ContextWindow = 1_000_000
+	limits.ReserveTokens = 16_384
+	limits.KeepRecentTokens = 100
+	runner := New(limits, fake, store, tools.New(t.TempDir(), false))
 	var compacted []Event
 	if err := runner.Compact(context.Background(), func(event Event) { compacted = append(compacted, event) }); err != nil {
 		t.Fatal(err)
@@ -376,8 +371,7 @@ func TestCompactWithoutHistoryReportsNothingToCompact(t *testing.T) {
 	}
 	defer store.Close()
 	fake := &fakeProvider{}
-	cfg := config.Default()
-	runner := New(testModel, cfg.Compaction, fake, store, tools.New(t.TempDir(), false))
+	runner := New(testLimits, fake, store, tools.New(t.TempDir(), false))
 	if err := runner.Compact(context.Background(), func(Event) {}); !errors.Is(err, ErrNothingToCompact) {
 		t.Fatalf("Compact error = %v, want ErrNothingToCompact", err)
 	}
@@ -403,14 +397,13 @@ func TestCompactFallsBackToIsolatedSummaryWhenLiveContextWouldOverflow(t *testin
 	// The isolated request measures a serialized transcript, not the live
 	// context, so its usage must not replace the estimated count.
 	provider := &recordingProvider{usage: &session.Usage{PromptTokens: 99_999}}
-	cfg := config.Default()
-	model := testModel
+	limits := testLimits
 	// A tiny window with a large reserve forces the isolated fallback once usage
 	// plus the reserve no longer fits.
-	model.ContextWindowTokens = 200
-	cfg.Compaction.ReserveTokens = 150
-	cfg.Compaction.KeepRecentTokens = 1
-	runner := New(model, cfg.Compaction, provider, store, tools.New(t.TempDir(), false))
+	limits.ContextWindow = 200
+	limits.ReserveTokens = 150
+	limits.KeepRecentTokens = 1
+	runner := New(limits, provider, store, tools.New(t.TempDir(), false))
 	var events []Event
 	if err := runner.Compact(context.Background(), func(event Event) { events = append(events, event) }); err != nil {
 		t.Fatal(err)
@@ -448,11 +441,10 @@ func TestCompactReportsMeasuredContextFromLiveSummaryRequest(t *testing.T) {
 		}
 	}
 	provider := &recordingProvider{usage: &session.Usage{PromptTokens: 12_345, CompletionTokens: 7}}
-	cfg := config.Default()
-	model := testModel
-	model.ContextWindowTokens = 1_000_000
-	cfg.Compaction.KeepRecentTokens = 100
-	runner := New(model, cfg.Compaction, provider, store, tools.New(t.TempDir(), false))
+	limits := testLimits
+	limits.ContextWindow = 1_000_000
+	limits.KeepRecentTokens = 100
+	runner := New(limits, provider, store, tools.New(t.TempDir(), false))
 	var events []Event
 	if err := runner.Compact(context.Background(), func(event Event) { events = append(events, event) }); err != nil {
 		t.Fatal(err)
@@ -491,11 +483,10 @@ func TestCompactUsesPreviousSummaryWithoutReSummarizingIt(t *testing.T) {
 	}
 
 	provider := &recordingProvider{}
-	cfg := config.Default()
-	model := testModel
-	model.ContextWindowTokens = 1_000_000
-	cfg.Compaction.KeepRecentTokens = 1
-	runner := New(model, cfg.Compaction, provider, store, tools.New(t.TempDir(), false))
+	limits := testLimits
+	limits.ContextWindow = 1_000_000
+	limits.KeepRecentTokens = 1
+	runner := New(limits, provider, store, tools.New(t.TempDir(), false))
 	if err := runner.Compact(context.Background(), func(Event) {}); err != nil {
 		t.Fatal(err)
 	}
@@ -525,16 +516,16 @@ func TestCompactUsesPreviousSummaryWithoutReSummarizingIt(t *testing.T) {
 
 type recordingProvider struct {
 	requests [][]session.Message
-	tools    [][]provider.Tool
+	tools    [][]session.ToolDefinition
 	// usage is what each summary response reports, or nil for none.
 	usage *session.Usage
 }
 
-func (p *recordingProvider) Stream(context.Context, []session.Message, []provider.Tool, func(provider.Event)) (session.Message, error) {
+func (p *recordingProvider) Stream(context.Context, []session.Message, []session.ToolDefinition, func(provider.Event)) (session.Message, error) {
 	return session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: "done"}}}, nil
 }
 
-func (p *recordingProvider) Complete(_ context.Context, messages []session.Message, toolList []provider.Tool, _ tokens.Count) (session.Message, error) {
+func (p *recordingProvider) Complete(_ context.Context, messages []session.Message, toolList []session.ToolDefinition, _ tokens.Count) (session.Message, error) {
 	p.requests = append(p.requests, messages)
 	p.tools = append(p.tools, toolList)
 	return session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: "summary"}}, Usage: p.usage}, nil

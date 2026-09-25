@@ -73,7 +73,7 @@ type Runtime struct {
 	catalog        atomic.Pointer[catalog.Service]
 	providerModels map[string][]string
 
-	active         config.Model
+	active         modelSpec
 	activeResolved bool
 	store          *session.Store
 	runner         *agent.Runner
@@ -85,7 +85,34 @@ type Runtime struct {
 
 	createSession func() (*session.Store, error)
 	openSession   func(string) (*session.Store, error)
-	createRunner  func(config.Model, *session.Store) (*agent.Runner, error)
+	createRunner  func(modelSpec, *session.Store) (*agent.Runner, error)
+}
+
+// modelSpec is a model ready to run: its profile as configured, completed with
+// catalog capabilities for a derived model, and the reasoning effort chosen at
+// runtime. The effort stays out of config.Model because it is never written
+// per model.
+type modelSpec struct {
+	config.Model
+	effort string
+}
+
+// providerSpec is what the backend needs to reach and shape requests for the model.
+func (m modelSpec) providerSpec() provider.Spec {
+	return provider.Spec{
+		Name: m.Name, Format: m.WireFormat(), ModelID: m.ModelID,
+		BaseURL: m.BaseURL, APIKey: m.APIKey, Headers: m.Headers,
+		Vision: m.Vision, Reasoning: m.Reasoning, ReasoningEffort: m.effort,
+	}
+}
+
+// limits sizes the runner's context for the model under compaction's budgets.
+func (m modelSpec) limits(compaction config.Compaction) agent.Limits {
+	return agent.Limits{
+		ContextWindow:    m.ContextWindowTokens,
+		ReserveTokens:    compaction.ReserveTokens,
+		KeepRecentTokens: compaction.KeepRecentTokens,
+	}
 }
 
 func New(cfg config.Config, paths config.Paths, cwd, version string) (*Runtime, error) {
@@ -114,8 +141,8 @@ func start(cfg config.Config, paths config.Paths, cwd, version string, resume bo
 		return session.New(paths.Sessions, cwd, version, prompt)
 	}
 	r.openSession = session.Open
-	r.createRunner = func(profile config.Model, store *session.Store) (*agent.Runner, error) {
-		client, err := provider.New(profile, store.ReadImage)
+	r.createRunner = func(profile modelSpec, store *session.Store) (*agent.Runner, error) {
+		client, err := provider.New(profile.providerSpec(), store.ReadImage)
 		if err != nil {
 			return nil, err
 		}
@@ -130,13 +157,13 @@ func start(cfg config.Config, paths config.Paths, cwd, version string, resume bo
 		if _, err := store.AppendModelChange(selection); err != nil {
 			return nil, err
 		}
-		return agent.New(profile, cfg.Compaction, client, store, tools.New(cwd, profile.Vision)), nil
+		return agent.New(profile.limits(cfg.Compaction), client, store, tools.New(cwd, profile.Vision)), nil
 	}
 
-	profile, _ := cfg.ResolveModel(cfg.DefaultModel)
+	configured, _ := cfg.ResolveModel(cfg.DefaultModel)
 	// A derived model has no levels until its catalog entry resolves, so its
 	// saved effort is applied again by resolveActive.
-	profile = r.withEffort(profile)
+	profile := r.withEffort(configured)
 	r.active = profile
 	_, r.activeResolved = cfg.Model(cfg.DefaultModel)
 
@@ -161,7 +188,7 @@ func start(cfg config.Config, paths config.Paths, cwd, version string, resume bo
 type opened struct {
 	store   *session.Store
 	runner  *agent.Runner
-	profile config.Model
+	profile modelSpec
 	problem error
 }
 
@@ -331,18 +358,19 @@ func (r *Runtime) SwitchModel(name string) error {
 	if err := profile.Ready(); err != nil {
 		return err
 	}
-	runner, err := r.createRunner(profile, r.store)
+	// Effort levels differ between models, so a switch starts on the provider
+	// default.
+	runner, err := r.createRunner(modelSpec{Model: profile}, r.store)
 	if err != nil {
 		return err
 	}
-	// Persist the selection so the next kon launch starts on this model. Effort
-	// levels differ between models, so a switch starts on the provider default.
+	// Persist the selection so the next kon launch starts on this model.
 	r.config.DefaultModel = profile.Name
 	r.config.ReasoningEffort = ""
 	if err := r.config.Save(r.paths.ConfigFile); err != nil {
 		return fmt.Errorf("model switched to %s, but saving config: %w", name, err)
 	}
-	r.active, r.runner, r.problem, r.phase = profile, runner, nil, PhaseReady
+	r.active, r.runner, r.problem, r.phase = modelSpec{Model: profile}, runner, nil, PhaseReady
 	r.activeResolved = true
 	return nil
 }
@@ -502,7 +530,7 @@ func (r *Runtime) systemPrompt() (string, error) {
 	return agent.SystemPrompt(r.cwd, executable, files, r.config.Instructions), nil
 }
 
-func (r *Runtime) prepareSession(profile config.Model) (*session.Store, *agent.Runner, error, error) {
+func (r *Runtime) prepareSession(profile modelSpec) (*session.Store, *agent.Runner, error, error) {
 	store, err := r.createSession()
 	if err != nil {
 		return nil, nil, nil, err
@@ -543,12 +571,12 @@ func (r *Runtime) openStore(path string) (opened, error) {
 	}
 	var runner *agent.Runner
 	if last != nil && last.Name == profile.Name && last.ExternalID.String() == profile.ModelID {
-		client, err := provider.New(profile, store.ReadImage)
+		client, err := provider.New(profile.providerSpec(), store.ReadImage)
 		if err != nil {
 			_ = store.Close()
 			return opened{}, err
 		}
-		runner = agent.New(profile, r.config.Compaction, client, store, tools.New(r.cwd, profile.Vision))
+		runner = agent.New(profile.limits(r.config.Compaction), client, store, tools.New(r.cwd, profile.Vision))
 	} else if runner, err = r.createRunner(profile, store); err != nil {
 		_ = store.Close()
 		return opened{}, err
@@ -576,10 +604,10 @@ func (r *Runtime) mutable() error {
 	return nil
 }
 
-func describe(profile config.Model) Model {
+func describe(profile modelSpec) Model {
 	return Model{
 		Name: profile.Name, WireFormat: string(profile.WireFormat()), ExternalID: profile.ModelID,
 		ContextWindow:    profile.ContextWindowTokens,
-		ReasoningEfforts: slices.Clone(profile.ReasoningEfforts), ReasoningEffort: profile.ReasoningEffort,
+		ReasoningEfforts: slices.Clone(profile.ReasoningEfforts), ReasoningEffort: profile.effort,
 	}
 }

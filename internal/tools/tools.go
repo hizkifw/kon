@@ -12,7 +12,7 @@ import (
 	"io"
 	"path/filepath"
 
-	"github.com/hizkifw/kon/internal/provider"
+	"github.com/hizkifw/kon/internal/session"
 )
 
 // Tool is the common interface every coding tool implements. A tool describes
@@ -23,7 +23,7 @@ import (
 type Tool interface {
 	// Definition is the model-facing schema for the tool: its name, a one-line
 	// description, and its JSON Schema parameters.
-	Definition() provider.Tool
+	Definition() session.ToolDefinition
 	// Run executes one tool call. arguments is the raw JSON object the model
 	// produced. A returned error is reported to the model as a failed tool
 	// result; with a nil error the result is the successful output.

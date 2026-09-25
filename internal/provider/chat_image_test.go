@@ -10,7 +10,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hizkifw/kon/internal/config"
 	"github.com/hizkifw/kon/internal/provider/wire"
 	"github.com/hizkifw/kon/internal/session"
 )
@@ -116,8 +115,7 @@ func TestModelWithoutVisionSendsNoImages(t *testing.T) {
 			body = string(b)
 			_, _ = io.WriteString(w, `{"choices":[{"index":0,"message":{"content":"ok"},"finish_reason":"stop"}]}`)
 		}))
-		profile := config.Model{Name: "m", Type: "openai-compatible", ModelID: "m", BaseURL: server.URL, Vision: vision}
-		model, err := newChatModel(profile, wire.Spec{ReasoningField: "reasoning_content"}, func(string) ([]byte, error) { return []byte("hello"), nil })
+		model, err := newChatModel(Spec{Name: "m", Format: wire.OpenAICompatible, ModelID: "m", BaseURL: server.URL, Vision: vision}, wire.Spec{ReasoningField: "reasoning_content"}, func(string) ([]byte, error) { return []byte("hello"), nil })
 		if err != nil {
 			t.Fatal(err)
 		}

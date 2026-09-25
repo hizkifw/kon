@@ -183,7 +183,7 @@ backend, and login discovery all read that one table. A provider is the
 service on the other end, identified by a connection's `id` and models.dev
 `catalog_provider`. Service quirks key on that identity instead of the format:
 OpenRouter's key check, Azure's deployment names, and what `/login` asks for
-live with the login registry and `app.catalogKey`. DeepSeek's empty-reasoning
+live in `internal/login` and `app.catalogKey`. DeepSeek's empty-reasoning
 rule is the one exception, keyed on the base URL because explicit profiles
 carry no service identity.
 

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 
 	"github.com/hizkifw/kon/internal/agent"
-	"github.com/hizkifw/kon/internal/provider"
 	"github.com/hizkifw/kon/internal/session"
 	"github.com/hizkifw/kon/internal/tokens"
 	"github.com/hizkifw/kon/internal/tools"
@@ -155,15 +154,15 @@ func (m *Model) applyHistoryTo(t *transcript, entries []session.Entry) {
 		case session.RoleAssistant:
 			for _, part := range entry.Message.Parts {
 				switch part.Type {
-				case provider.PartReasoning:
+				case session.PartReasoning:
 					if part.Text != "" {
 						t.add(block{kind: blockThinking, text: sanitize(part.Text)})
 					}
-				case provider.PartText:
+				case session.PartText:
 					if part.Text != "" {
 						t.add(block{kind: blockAssistant, text: sanitize(part.Text)})
 					}
-				case provider.PartToolCall:
+				case session.PartToolCall:
 					callArgs[part.ToolCallID] = part.ToolInput
 					t.add(m.toolBlock(part.ToolName, sanitize(string(part.ToolInput))))
 				}

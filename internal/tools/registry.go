@@ -1,7 +1,7 @@
 package tools
 
 import (
-	"github.com/hizkifw/kon/internal/provider"
+	"github.com/hizkifw/kon/internal/session"
 )
 
 // Registry is the central catalog of tools, the counterpart of the
@@ -43,8 +43,8 @@ func (r *Registry) Lookup(name string) (Tool, bool) {
 
 // Definitions returns the model-facing schema of every registered tool, in
 // registration order.
-func (r *Registry) Definitions() []provider.Tool {
-	definitions := make([]provider.Tool, 0, len(r.ordered))
+func (r *Registry) Definitions() []session.ToolDefinition {
+	definitions := make([]session.ToolDefinition, 0, len(r.ordered))
 	for _, tool := range r.ordered {
 		definitions = append(definitions, tool.Definition())
 	}

@@ -1,4 +1,7 @@
-package provider
+// Package login maps a service the user asks to connect to onto a connection
+// kon can save, and verifies that connection on explicit /login. It holds the
+// service-identity quirks that the wire-format table deliberately leaves out.
+package login
 
 import (
 	"net/url"
@@ -10,10 +13,10 @@ import (
 	"github.com/hizkifw/kon/internal/provider/wire"
 )
 
-// LoginEntry is one /login choice: the connection it saves and what the user
+// Entry is one /login choice: the connection it saves and what the user
 // must supply for it. These are facts about the service being connected to;
 // the wire format only contributes whether a base URL has a default.
-type LoginEntry struct {
+type Entry struct {
 	Connection config.Provider
 	// AskURL asks for the service's base URL. DefaultURL, when set, is used
 	// if the answer is blank.
@@ -34,9 +37,9 @@ var loginOverrides = map[string]config.Provider{
 	"azure":     {Type: wire.OpenAICompatible}, // Resource-specific endpoint.
 }
 
-// localLogins are servers the user runs, so login always asks where they are.
+// localEntries are servers the user runs, so login always asks where they are.
 // A local Ollama takes no key; an arbitrary compatible server may or may not.
-var localLogins = map[string]LoginEntry{
+var localEntries = map[string]Entry{
 	"ollama": {
 		Connection: config.Provider{Type: wire.Ollama},
 		AskURL:     true, DefaultURL: "http://localhost:11434",
@@ -55,55 +58,55 @@ var catalogWire = map[string]wire.Format{
 	"@ai-sdk/openai-compatible":   wire.OpenAICompatible,
 }
 
-// CatalogLoginEntry maps a models.dev provider to a login entry. A catalog URL
+// CatalogEntry maps a models.dev provider to a login entry. A catalog URL
 // is used only when it is a concrete API base URL, not a template or an
 // individual operation endpoint.
-func CatalogLoginEntry(entry catalog.Provider) (LoginEntry, bool) {
+func CatalogEntry(entry catalog.Provider) (Entry, bool) {
 	if entry.ID == "" {
-		return LoginEntry{}, false
+		return Entry{}, false
 	}
 	connection, override := loginOverrides[entry.ID]
 	if !override {
 		format, ok := catalogWire[entry.NPM]
 		if !ok {
-			return LoginEntry{}, false
+			return Entry{}, false
 		}
 		connection.Type = format
 		if entry.API != "" {
 			if !usableAPIURL(entry.API) {
-				return LoginEntry{}, false
+				return Entry{}, false
 			}
 			connection.BaseURL = strings.TrimRight(entry.API, "/")
 		}
 		// Only the services that define a format may lean on its default
 		// server; any other service must bring its own URL.
 		if connection.BaseURL == "" && entry.ID != "openai" && entry.ID != "openrouter" {
-			return LoginEntry{}, false
+			return Entry{}, false
 		}
 	}
 	connection.ID = entry.ID
 	connection.CatalogProvider = entry.ID
 	spec, _ := wire.Lookup(connection.Type)
-	return LoginEntry{
+	return Entry{
 		Connection: connection,
 		AskURL:     connection.BaseURL == "" && spec.RequiresBaseURL(),
 		AskKey:     true,
 	}, true
 }
 
-// LocalLoginIDs lists the login entries for servers the user runs.
-func LocalLoginIDs() []string {
-	ids := make([]string, 0, len(localLogins))
-	for id := range localLogins {
+// LocalIDs lists the login entries for servers the user runs.
+func LocalIDs() []string {
+	ids := make([]string, 0, len(localEntries))
+	for id := range localEntries {
 		ids = append(ids, id)
 	}
 	slices.Sort(ids)
 	return ids
 }
 
-// LocalLoginEntry returns the login entry for a server the user runs.
-func LocalLoginEntry(id string) (LoginEntry, bool) {
-	entry, ok := localLogins[id]
+// LocalEntry returns the login entry for a server the user runs.
+func LocalEntry(id string) (Entry, bool) {
+	entry, ok := localEntries[id]
 	if ok {
 		entry.Connection.ID = id
 	}

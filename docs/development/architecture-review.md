@@ -111,7 +111,7 @@ validates against it without importing the backends. `newModel`, the chat
 backend, and `Discover` read it instead of switching on type strings.
 
 Service quirks stay keyed on service identity, not format. Login entries
-(`provider.LoginEntry`) say whether to ask for a URL or key, so `ui/login.go`
+(`login.Entry`) say whether to ask for a URL or key, so `ui/login.go`
 no longer knows about Ollama. `app.catalogKey` decides which models.dev
 entry describes a connection, folding in the Azure and local-login
 exceptions. OpenRouter's key check still lives in `Discover`, and DeepSeek is
@@ -119,15 +119,16 @@ still detected by base URL, since explicit profiles carry no service identity.
 
 ### 8. Separate user-written profiles from resolved runtime specs
 
-- [ ] Introduce a resolved spec type; drop `agent`'s `config` import
+- [x] Introduce a resolved spec type; drop `agent`'s `config` import
 
-`config.Model` is both what the user wrote and the resolved runtime profile:
-`app.resolveModel` (`internal/app/models.go:224`) injects `Vision`,
-`ContextWindowTokens`, and the runtime-only `ReasoningEffort` from the catalog
-and config. `agent.New` (`internal/agent/agent.go:69`) takes `config.Model` and
-`config.Compaction`; `provider.New` (`provider.go:40`) takes `config.Model`.
-Introduce a resolved spec (for example `provider.Spec`) and agent-owned options
-so config stays pure input.
+`provider.New` takes a `provider.Spec` (endpoint, credentials, capabilities,
+and effort) and `agent.New` takes `agent.Limits` (context window and
+compaction budgets), so neither package imports `config`. `app` resolves
+both from its `modelSpec`: the profile as written or derived, catalog
+capabilities applied, plus the runtime effort. The runtime-only
+`config.Model.ReasoningEffort` is gone. Catalog capabilities still fill
+`config.Model` fields, but only ones an explicit profile can declare too, so
+each field keeps one meaning.
 
 ### 9. Stop rewriting the user's config at runtime
 
@@ -157,7 +158,7 @@ natural addition.
 
 - [ ] One `buildRunner`, one operation guard, one session swap
 
-`agent.New(profile, compaction, client, store, tools.New(cwd, vision))` appears
+`agent.New(profile.limits(compaction), client, store, tools.New(cwd, vision))` appears
 five times: `app.go:133` (`createRunner`), `app.go:523` (`openStore`),
 `models.go:111` (`resolveActive`), `models.go:153` (`CycleEffort`), and
 `models.go:325` (`Login`), with subtly different behavior (only `createRunner`
@@ -224,14 +225,14 @@ written, with an error that points at the reasoning effort.
 
 ### 14. Move login and connection mapping out of the wire-backend package
 
-- [ ] Relocate `provider/registry.go` and `provider/discovery.go`
-- [ ] Give tool specs a neutral home
+- [x] Relocate `provider/registry.go` and `provider/discovery.go`
+- [x] Give tool specs a neutral home
 
-Login mapping makes `provider` import `catalog` and `config`. `tools` imports
-`provider` only for the `Tool` struct, so the tools package transitively pulls
-in the catalog, config, and session packages. Move connection mapping to `app`
-or a dedicated package, and define tool specs where both sides can use them
-without the dependency.
+Login entries and `Discover` now live in `internal/login`, so `provider` no
+longer imports `catalog`. Tool definitions are `session.ToolDefinition`,
+beside the tool calls they invite, so `tools` imports only `session` and
+`provider` no longer re-exports the session part constants. Item 8 then
+removed `provider`'s last `config` import.
 
 ### 15. Fix the vocabulary
 
@@ -353,7 +354,7 @@ source.
   UI calls `tools.Describe` directly (`events.go:69`) and also through
   `Runtime.DescribeTool`.
 - [ ] Replay reads `session.Entry` (including the turn and compaction entry
-  types), `provider.PartReasoning`, and `typedid` directly. A runtime-provided
+  types), `session.PartReasoning`, and `typedid` directly. A runtime-provided
   transcript view model would decouple `ui` from the schema. The `ui.Runtime`
   interface has 19 methods.
 - [ ] `read` refuses files over 1 MiB even when `offset`/`limit` asks for a

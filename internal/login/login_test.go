@@ -1,4 +1,4 @@
-package provider
+package login
 
 import (
 	"testing"
@@ -9,7 +9,7 @@ import (
 
 func TestCatalogLoginEntryUsesCatalogWireAndURL(t *testing.T) {
 	entry := catalog.Provider{ID: "fireworks-ai", NPM: "@ai-sdk/openai-compatible", API: "https://api.fireworks.ai/inference/v1/"}
-	login, ok := CatalogLoginEntry(entry)
+	login, ok := CatalogEntry(entry)
 	connection := login.Connection
 	if !ok || connection.ID != entry.ID || connection.CatalogProvider != entry.ID || connection.Type != wire.OpenAICompatible || connection.BaseURL != "https://api.fireworks.ai/inference/v1" {
 		t.Fatalf("connection = %#v, %v", connection, ok)
@@ -18,7 +18,7 @@ func TestCatalogLoginEntryUsesCatalogWireAndURL(t *testing.T) {
 		t.Fatalf("a hosted service with a known URL asks only for a required key: %#v", login)
 	}
 	entry.ID, entry.API = "another-provider", "https://another.example/v1"
-	if login, ok := CatalogLoginEntry(entry); !ok || login.Connection.BaseURL != entry.API {
+	if login, ok := CatalogEntry(entry); !ok || login.Connection.BaseURL != entry.API {
 		t.Fatalf("new catalog entry was not mapped: %#v, %v", login, ok)
 	}
 }
@@ -35,34 +35,34 @@ func TestCatalogLoginEntryOverridesOnlyExceptions(t *testing.T) {
 		// OpenAI defines its format, whose default server needs no answer.
 		{catalog.Provider{ID: "openai", NPM: "@ai-sdk/openai"}, "", false},
 	} {
-		login, ok := CatalogLoginEntry(test.entry)
+		login, ok := CatalogEntry(test.entry)
 		if !ok || login.Connection.BaseURL != test.url || login.AskURL != test.askURL {
 			t.Fatalf("login entry for %s = %#v, %v", test.entry.ID, login, ok)
 		}
 	}
-	if _, ok := CatalogLoginEntry(catalog.Provider{ID: "unknown", NPM: "@ai-sdk/anthropic"}); ok {
+	if _, ok := CatalogEntry(catalog.Provider{ID: "unknown", NPM: "@ai-sdk/anthropic"}); ok {
 		t.Fatal("unsupported wire format was accepted")
 	}
 }
 
 func TestCatalogLoginEntrySkipsTemplateAndOperationURLs(t *testing.T) {
 	for _, api := range []string{"https://${HOST}/v1", "https://example.com/v1/chat/completions", "http://example.com/v1"} {
-		if _, ok := CatalogLoginEntry(catalog.Provider{ID: "example", NPM: "@ai-sdk/openai-compatible", API: api}); ok {
+		if _, ok := CatalogEntry(catalog.Provider{ID: "example", NPM: "@ai-sdk/openai-compatible", API: api}); ok {
 			t.Fatalf("accepted unusable URL %q", api)
 		}
 	}
 }
 
-func TestLocalLoginEntriesAskForTheServer(t *testing.T) {
-	ollama, ok := LocalLoginEntry("ollama")
+func TestLocalEntriesAskForTheServer(t *testing.T) {
+	ollama, ok := LocalEntry("ollama")
 	if !ok || ollama.Connection.ID != "ollama" || ollama.Connection.Type != wire.Ollama || !ollama.AskURL || ollama.DefaultURL == "" || ollama.AskKey {
 		t.Fatalf("ollama = %#v, %v", ollama, ok)
 	}
-	compatible, ok := LocalLoginEntry("openai-compatible")
+	compatible, ok := LocalEntry("openai-compatible")
 	if !ok || !compatible.AskURL || compatible.DefaultURL != "" || !compatible.AskKey || !compatible.KeyOptional {
 		t.Fatalf("openai-compatible = %#v, %v", compatible, ok)
 	}
-	if _, ok := LocalLoginEntry("fireworks-ai"); ok {
+	if _, ok := LocalEntry("fireworks-ai"); ok {
 		t.Fatal("a catalog service was treated as local")
 	}
 }

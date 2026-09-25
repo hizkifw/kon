@@ -24,13 +24,13 @@ import (
 
 type blockingProvider struct{ started chan struct{} }
 
-func (p *blockingProvider) Stream(ctx context.Context, _ []session.Message, _ []provider.Tool, _ func(provider.Event)) (session.Message, error) {
+func (p *blockingProvider) Stream(ctx context.Context, _ []session.Message, _ []session.ToolDefinition, _ func(provider.Event)) (session.Message, error) {
 	close(p.started)
 	<-ctx.Done()
 	return session.Message{}, ctx.Err()
 }
 
-func (*blockingProvider) Complete(context.Context, []session.Message, []provider.Tool, tokens.Count) (session.Message, error) {
+func (*blockingProvider) Complete(context.Context, []session.Message, []session.ToolDefinition, tokens.Count) (session.Message, error) {
 	return session.Message{}, errors.New("unexpected completion")
 }
 
@@ -38,7 +38,7 @@ func TestNewSessionFailureKeepsCurrentSession(t *testing.T) {
 	store := testStore(t)
 	runner := new(agent.Runner)
 	runtime := &Runtime{
-		active: config.Model{Name: "default", Type: "openai", ModelID: "model"},
+		active: modelSpec{Model: config.Model{Name: "default", Type: "openai", ModelID: "model"}},
 		store:  store, runner: runner,
 		createSession: func() (*session.Store, error) { return nil, errors.New("disk full") },
 	}
@@ -57,10 +57,10 @@ func TestNewSessionSwapsThenClosesPreviousStore(t *testing.T) {
 	previous := testStore(t)
 	replacement := testStore(t)
 	runtime := &Runtime{
-		active: config.Model{Name: "default", Type: "openai", ModelID: "model"},
+		active: modelSpec{Model: config.Model{Name: "default", Type: "openai", ModelID: "model"}},
 		store:  previous, runner: new(agent.Runner),
 		createSession: func() (*session.Store, error) { return replacement, nil },
-		createRunner:  func(config.Model, *session.Store) (*agent.Runner, error) { return new(agent.Runner), nil },
+		createRunner:  func(modelSpec, *session.Store) (*agent.Runner, error) { return new(agent.Runner), nil },
 	}
 	if err := runtime.NewSession(); err != nil {
 		t.Fatal(err)
@@ -527,11 +527,11 @@ func TestNewSkipsContextFilesWhenDisabled(t *testing.T) {
 
 func TestCloseCancelsAndWaitsForActiveRun(t *testing.T) {
 	store := testStore(t)
-	profile := config.Model{Name: "default", Type: "openai", ModelID: "model"}
+	profile := modelSpec{Model: config.Model{Name: "default", Type: "openai", ModelID: "model"}}
 	provider := &blockingProvider{started: make(chan struct{})}
 	runtime := &Runtime{
 		active: profile, store: store, phase: PhaseReady,
-		runner: agent.New(profile, config.Default().Compaction, provider, store, tools.New(t.TempDir(), false)),
+		runner: agent.New(profile.limits(config.Default().Compaction), provider, store, tools.New(t.TempDir(), false)),
 	}
 	runDone := make(chan error, 1)
 	go func() { runDone <- runtime.Run(context.Background(), "work", func(agent.Event) {}) }()
@@ -553,11 +553,11 @@ func TestSwitchModelPersistsDefaultModel(t *testing.T) {
 	dir := t.TempDir()
 	paths := config.Paths{ConfigFile: filepath.Join(dir, "config.json"), Sessions: filepath.Join(dir, "sessions")}
 	store := testStore(t)
-	profile := config.Model{Name: "default", Type: "openai", ModelID: "model"}
+	profile := modelSpec{Model: config.Model{Name: "default", Type: "openai", ModelID: "model"}}
 	runtime := &Runtime{
 		config: cfg, paths: paths,
 		active: profile, store: store, phase: PhaseReady,
-		createRunner: func(config.Model, *session.Store) (*agent.Runner, error) { return new(agent.Runner), nil },
+		createRunner: func(modelSpec, *session.Store) (*agent.Runner, error) { return new(agent.Runner), nil },
 	}
 	if err := runtime.SwitchModel("review"); err != nil {
 		t.Fatal(err)
@@ -764,7 +764,7 @@ func TestNewResumedWithoutSessionsStartsFresh(t *testing.T) {
 func TestCompactRefusesWhileRunning(t *testing.T) {
 	store := testStore(t)
 	runtime := &Runtime{
-		active: config.Model{Name: "default", Type: "openai", ModelID: "model"},
+		active: modelSpec{Model: config.Model{Name: "default", Type: "openai", ModelID: "model"}},
 		store:  store, phase: PhaseRunning,
 	}
 	if err := runtime.Compact(context.Background(), func(agent.Event) {}); !errors.Is(err, ErrBusy) {

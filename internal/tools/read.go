@@ -12,7 +12,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/hizkifw/kon/internal/provider"
+	"github.com/hizkifw/kon/internal/session"
 )
 
 const (
@@ -30,8 +30,8 @@ type readDetails struct {
 	EmptyFile bool `json:"empty_file,omitempty"`
 }
 
-func (readTool) Definition() provider.Tool {
-	return provider.Tool{
+func (readTool) Definition() session.ToolDefinition {
+	return session.ToolDefinition{
 		Name:        "read",
 		Description: "Read a UTF-8 text file with one-based line offsets, or load an image (png, jpeg, gif, webp) whole for models with vision.",
 		Parameters:  json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"offset":{"type":"integer","minimum":1},"limit":{"type":"integer","minimum":1,"maximum":2000}},"required":["path"],"additionalProperties":false}`),

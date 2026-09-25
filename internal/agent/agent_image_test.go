@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hizkifw/kon/internal/config"
 	"github.com/hizkifw/kon/internal/provider"
 	"github.com/hizkifw/kon/internal/session"
 	"github.com/hizkifw/kon/internal/tokens"
@@ -24,7 +23,7 @@ type toolCallingProvider struct {
 	streamCalls int
 }
 
-func (p *toolCallingProvider) Stream(_ context.Context, messages []session.Message, _ []provider.Tool, _ func(provider.Event)) (session.Message, error) {
+func (p *toolCallingProvider) Stream(_ context.Context, messages []session.Message, _ []session.ToolDefinition, _ func(provider.Event)) (session.Message, error) {
 	p.streamCalls++
 	p.asked++
 	if p.asked == 1 {
@@ -38,7 +37,7 @@ func (p *toolCallingProvider) Stream(_ context.Context, messages []session.Messa
 	return session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: "saw it"}}, Finish: "stop", Usage: &session.Usage{PromptTokens: 2000, CompletionTokens: 5, TotalTokens: 2005}}, nil
 }
 
-func (p *toolCallingProvider) Complete(_ context.Context, _ []session.Message, _ []provider.Tool, _ tokens.Count) (session.Message, error) {
+func (p *toolCallingProvider) Complete(_ context.Context, _ []session.Message, _ []session.ToolDefinition, _ tokens.Count) (session.Message, error) {
 	p.completed++
 	return session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: "summary"}}}, nil
 }
@@ -63,13 +62,11 @@ func TestImageResultDoesNotForceCompaction(t *testing.T) {
 	}
 	defer store.Close()
 	fake := &toolCallingProvider{toolName: "read", arguments: `{"path":"shot.png"}`}
-	cfg := config.Default()
-	model := testModel
-	model.Vision = true
-	model.ContextWindowTokens = 100_000
-	cfg.Compaction.ReserveTokens = 16_384
-	cfg.Compaction.KeepRecentTokens = 20_000
-	runner := New(model, cfg.Compaction, fake, store, tools.New(dir, true))
+	limits := testLimits
+	limits.ContextWindow = 100_000
+	limits.ReserveTokens = 16_384
+	limits.KeepRecentTokens = 20_000
+	runner := New(limits, fake, store, tools.New(dir, true))
 	if err := runner.Run(context.Background(), "look at shot.png", func(Event) {}); err != nil {
 		t.Fatal(err)
 	}
@@ -110,10 +107,8 @@ func TestRunPersistsImagePartsFromRead(t *testing.T) {
 	}
 	defer store.Close()
 	fake := &toolCallingProvider{toolName: "read", arguments: `{"path":"shot.png"}`}
-	cfg := config.Default()
-	model := testModel
-	model.Vision = true
-	runner := New(model, cfg.Compaction, fake, store, tools.New(dir, true))
+	limits := testLimits
+	runner := New(limits, fake, store, tools.New(dir, true))
 	if err := runner.Run(context.Background(), "look at shot.png", func(Event) {}); err != nil {
 		t.Fatal(err)
 	}

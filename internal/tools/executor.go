@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/hizkifw/kon/internal/provider"
+	"github.com/hizkifw/kon/internal/session"
 )
 
 // Executor runs model tool calls against the central registry. It is the only
@@ -30,7 +30,7 @@ func (e *Executor) Interrupt(attempt int) bool {
 }
 
 // Definitions returns the model-facing schema of every registered tool.
-func (e *Executor) Definitions() []provider.Tool {
+func (e *Executor) Definitions() []session.ToolDefinition {
 	return e.registry.Definitions()
 }
 

@@ -158,7 +158,7 @@ func assistantWire(t *testing.T, replay chatReplay, message session.Message) str
 }
 
 func thinkingReply(model, options string) session.Message {
-	message := session.Message{Role: session.RoleAssistant, Model: typedid.ExternalModelID(model), Parts: []session.Part{{Type: PartReasoning, Text: "think"}, {Type: PartText, Text: "hello"}}}
+	message := session.Message{Role: session.RoleAssistant, Model: typedid.ExternalModelID(model), Parts: []session.Part{{Type: session.PartReasoning, Text: "think"}, {Type: session.PartText, Text: "hello"}}}
 	if options != "" {
 		message.ProviderOptions = json.RawMessage(options)
 	}
@@ -261,7 +261,7 @@ func TestChatStreamMergesReasoningDetails(t *testing.T) {
 // reasoning model: every assistant message carries reasoning_content, empty
 // when it has none, and no other server is sent the empty field.
 func TestChatReplaySendsEmptyReasoningToDeepSeek(t *testing.T) {
-	plain := session.Message{Role: session.RoleAssistant, Model: "m", Parts: []session.Part{{Type: PartText, Text: "hello"}}}
+	plain := session.Message{Role: session.RoleAssistant, Model: "m", Parts: []session.Part{{Type: session.PartText, Text: "hello"}}}
 	if got := assistantWire(t, chatReplay{model: "m", emptyReasoning: true}, plain); !strings.Contains(got, `"reasoning_content":""`) {
 		t.Fatalf("deepseek wire = %s", got)
 	}
@@ -304,9 +304,9 @@ func TestChatStreamSendsChatCompletionsBody(t *testing.T) {
 		{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartToolCall, ToolCallID: "call-9", ToolName: "edit", ToolInput: json.RawMessage(`{"path":"x"}`)}}},
 		session.ToolResultMessage("call-9", "edit", "done"),
 		// Reasoning is sent back with the assistant message it belongs to.
-		{Role: session.RoleAssistant, Parts: []session.Part{{Type: PartReasoning, Text: "secret thoughts"}, {Type: PartText, Text: "checking"}}},
+		{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartReasoning, Text: "secret thoughts"}, {Type: session.PartText, Text: "checking"}}},
 	}
-	tools := []Tool{{Name: "edit", Description: "Edit a file", Parameters: json.RawMessage(`{"type":"object"}`)}}
+	tools := []session.ToolDefinition{{Name: "edit", Description: "Edit a file", Parameters: json.RawMessage(`{"type":"object"}`)}}
 	model.apiKey = "sk-test"
 	response, err := model.Stream(context.Background(), messages, tools, func(Event) {})
 	if err != nil {
@@ -483,7 +483,7 @@ func TestChatCompleteSendsToolsWithToolChoiceNone(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"choices":[{"index":0,"message":{"role":"assistant","content":"summary"},"finish_reason":"stop"}]}`)
 	})
-	toolList := []Tool{{Name: "read", Description: "read a file", Parameters: json.RawMessage(`{"type":"object"}`)}}
+	toolList := []session.ToolDefinition{{Name: "read", Description: "read a file", Parameters: json.RawMessage(`{"type":"object"}`)}}
 	if _, err := model.Complete(context.Background(), []session.Message{session.TextMessage(session.RoleUser, "hi")}, toolList, 0); err != nil {
 		t.Fatal(err)
 	}
@@ -685,7 +685,7 @@ func TestChatStreamPreservesPartOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{PartText, PartReasoning, PartToolCall, PartText}
+	want := []string{session.PartText, session.PartReasoning, session.PartToolCall, session.PartText}
 	if len(response.Parts) != len(want) {
 		t.Fatalf("parts = %#v", response.Parts)
 	}

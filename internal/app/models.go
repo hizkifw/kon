@@ -13,6 +13,7 @@ import (
 	"github.com/hizkifw/kon/internal/agent"
 	"github.com/hizkifw/kon/internal/catalog"
 	"github.com/hizkifw/kon/internal/config"
+	"github.com/hizkifw/kon/internal/login"
 	"github.com/hizkifw/kon/internal/provider"
 	"github.com/hizkifw/kon/internal/session"
 	"github.com/hizkifw/kon/internal/tokens"
@@ -28,7 +29,7 @@ func (r *Runtime) Models() []Model {
 	result := make([]Model, 0, len(r.config.Models))
 	for _, model := range r.config.Models {
 		resolved, _ := r.config.ResolveModel(model.Name)
-		entry := describe(resolved)
+		entry := describe(modelSpec{Model: resolved})
 		entry.DisplayName = model.Name
 		entry.Source = "configured"
 		result = append(result, entry)
@@ -53,7 +54,7 @@ func (r *Runtime) Models() []Model {
 		for id, source := range ids {
 			name := connection.ID + "/" + id
 			profile, _ := r.resolveModel(name)
-			entry := describe(profile)
+			entry := describe(modelSpec{Model: profile})
 			entry.ConnectionID = connection.ID
 			entry.DisplayName = displayNames[id]
 			if entry.DisplayName == "" {
@@ -99,17 +100,17 @@ func (r *Runtime) resolveActive() error {
 	if r.activeResolved {
 		return nil
 	}
-	profile, ok := r.resolveModel(r.active.Name)
+	resolved, ok := r.resolveModel(r.active.Name)
 	if !ok {
 		return nil
 	}
-	profile = r.withEffort(profile)
-	client, err := provider.New(profile, r.store.ReadImage)
+	profile := r.withEffort(resolved)
+	client, err := provider.New(profile.providerSpec(), r.store.ReadImage)
 	if err != nil {
 		return err
 	}
 	r.active = profile
-	r.runner = agent.New(profile, r.config.Compaction, client, r.store, tools.New(r.cwd, profile.Vision))
+	r.runner = agent.New(profile.limits(r.config.Compaction), client, r.store, tools.New(r.cwd, profile.Vision))
 	r.activeResolved = true
 	return nil
 }
@@ -136,34 +137,34 @@ func (r *Runtime) CycleEffort() (string, error) {
 		return "", ErrNoEffort
 	}
 	profile := r.active
-	profile.ReasoningEffort = ""
-	if i := slices.Index(efforts, r.active.ReasoningEffort); i+1 < len(efforts) {
-		profile.ReasoningEffort = efforts[i+1]
+	profile.effort = ""
+	if i := slices.Index(efforts, r.active.effort); i+1 < len(efforts) {
+		profile.effort = efforts[i+1]
 	}
-	client, err := provider.New(profile, r.store.ReadImage)
+	client, err := provider.New(profile.providerSpec(), r.store.ReadImage)
 	if err != nil {
 		return "", err
 	}
 	updated := r.config
-	updated.ReasoningEffort = profile.ReasoningEffort
+	updated.ReasoningEffort = profile.effort
 	if err := updated.Save(r.paths.ConfigFile); err != nil {
 		return "", fmt.Errorf("saving reasoning effort: %w", err)
 	}
 	r.config = updated
 	r.active = profile
-	r.runner = agent.New(profile, r.config.Compaction, client, r.store, tools.New(r.cwd, profile.Vision))
-	return profile.ReasoningEffort, nil
+	r.runner = agent.New(profile.limits(r.config.Compaction), client, r.store, tools.New(r.cwd, profile.Vision))
+	return profile.effort, nil
 }
 
 // withEffort applies the saved effort to a profile of the active model. A
 // level the model does not list, including one saved before its catalog
 // levels were known, falls back to the provider default.
-func (r *Runtime) withEffort(profile config.Model) config.Model {
-	profile.ReasoningEffort = ""
+func (r *Runtime) withEffort(profile config.Model) modelSpec {
+	spec := modelSpec{Model: profile}
 	if slices.Contains(profile.ReasoningEfforts, r.config.ReasoningEffort) {
-		profile.ReasoningEffort = r.config.ReasoningEffort
+		spec.effort = r.config.ReasoningEffort
 	}
-	return profile
+	return spec
 }
 
 // describeActive adds catalog display metadata when the catalog has loaded,
@@ -193,12 +194,12 @@ func (r *Runtime) DescribeSelection(selection session.ModelSelection) Model {
 		// The catalog is already loaded, so this does not block on it.
 		profile, _ = r.resolveModel(selection.Name)
 	}
-	return r.describeProfile(profile, resolved)
+	return r.describeProfile(modelSpec{Model: profile}, resolved)
 }
 
 // describeProfile names a profile for display. A derived model is named by its
 // catalog display name once withCatalog allows it, and by its model ID before.
-func (r *Runtime) describeProfile(profile config.Model, withCatalog bool) Model {
+func (r *Runtime) describeProfile(profile modelSpec, withCatalog bool) Model {
 	entry := describe(profile)
 	entry.DisplayName = profile.Name
 	if _, explicit := r.config.Model(profile.Name); explicit || !r.config.DerivedModel(profile.Name) {
@@ -221,13 +222,13 @@ func (r *Runtime) describeProfile(profile config.Model, withCatalog bool) Model 
 func (r *Runtime) LoginProviders() []string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	ids := provider.LocalLoginIDs()
+	ids := login.LocalIDs()
 	service := r.catalogService()
 	if service == nil {
 		return ids
 	}
 	for _, entry := range service.Providers() {
-		if _, ok := provider.CatalogLoginEntry(entry); ok {
+		if _, ok := login.CatalogEntry(entry); ok {
 			ids = append(ids, entry.ID)
 		}
 	}
@@ -235,14 +236,14 @@ func (r *Runtime) LoginProviders() []string {
 	return ids
 }
 
-// LoginEntry describes one /login choice. It is the provider package's type:
+// LoginEntry describes one /login choice. It is the login package's type:
 // the UI reads what to ask for without learning any wire format's rules.
-type LoginEntry = provider.LoginEntry
+type LoginEntry = login.Entry
 
 func (r *Runtime) LoginEntry(id string) (LoginEntry, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if entry, ok := provider.LocalLoginEntry(id); ok {
+	if entry, ok := login.LocalEntry(id); ok {
 		return entry, true
 	}
 	service := r.catalogService()
@@ -253,7 +254,7 @@ func (r *Runtime) LoginEntry(id string) (LoginEntry, bool) {
 	if !ok {
 		return LoginEntry{}, false
 	}
-	return provider.CatalogLoginEntry(entry)
+	return login.CatalogEntry(entry)
 }
 
 func (r *Runtime) resolveModel(name string) (config.Model, bool) {
@@ -292,7 +293,7 @@ func (r *Runtime) resolveModel(name string) (config.Model, bool) {
 func catalogKey(connection config.Provider) string {
 	key := connection.CatalogProvider
 	if key == "" {
-		if _, local := provider.LocalLoginEntry(connection.ID); local {
+		if _, local := login.LocalEntry(connection.ID); local {
 			return ""
 		}
 		key = connection.ID
@@ -312,7 +313,7 @@ func (r *Runtime) Login(ctx context.Context, connection config.Provider) (int, b
 		return 0, false, err
 	}
 	r.mu.Unlock()
-	models, verified, err := provider.Discover(ctx, connection)
+	models, verified, err := login.Discover(ctx, connection)
 	if err != nil {
 		return 0, false, err
 	}
@@ -360,13 +361,13 @@ func (r *Runtime) Login(ctx context.Context, connection config.Provider) (int, b
 	// A credential change applies to the live runner without adding a model
 	// switch to the durable session or rebuilding its system prompt.
 	if r.store != nil && r.active.Name != "" {
-		if profile, ok := r.resolveModel(r.active.Name); ok {
-			profile = r.withEffort(profile)
+		if resolved, ok := r.resolveModel(r.active.Name); ok {
+			profile := r.withEffort(resolved)
 			if profile.Ready() == nil {
-				client, err := provider.New(profile, r.store.ReadImage)
+				client, err := provider.New(profile.providerSpec(), r.store.ReadImage)
 				if err == nil {
 					r.active = profile
-					r.runner = agent.New(profile, r.config.Compaction, client, r.store, tools.New(r.cwd, profile.Vision))
+					r.runner = agent.New(profile.limits(r.config.Compaction), client, r.store, tools.New(r.cwd, profile.Vision))
 					r.problem, r.phase = nil, PhaseReady
 					r.activeResolved = true
 				}

@@ -7,14 +7,14 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/hizkifw/kon/internal/provider"
+	"github.com/hizkifw/kon/internal/session"
 )
 
 // writeTool creates or replaces a whole file atomically.
 type writeTool struct{}
 
-func (writeTool) Definition() provider.Tool {
-	return provider.Tool{
+func (writeTool) Definition() session.ToolDefinition {
+	return session.ToolDefinition{
 		Name:        "write",
 		Description: "Create or replace a text file. Parent directories must already exist.",
 		Parameters:  json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}`),

@@ -5,32 +5,41 @@
 // implies, are listed in the wire subpackage; all of them are dialects of
 // OpenAI chat completions, implemented in chat.go.
 //
-// The package also maps services onto connections for /login (registry.go)
-// and checks a connection on login (discovery.go). Those are about which
-// service kon talks to, not how, and are kept apart from the wire table.
+// Which service a connection reaches, and how /login sets one up, belongs to
+// internal/login; this package only learns how to talk to it, through Spec.
 package provider
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
-	"github.com/hizkifw/kon/internal/config"
 	"github.com/hizkifw/kon/internal/provider/wire"
 	"github.com/hizkifw/kon/internal/session"
 	"github.com/hizkifw/kon/internal/tokens"
 	"github.com/hizkifw/kon/internal/typedid"
 )
 
-// Part types persisted on assistant messages for exact replay of a turn. They
-// alias the session constants so callers can use either spelling; image parts
-// are produced by tools (see tools/read.go) and consumed by wire mappings.
-const (
-	PartText      = session.PartText
-	PartReasoning = session.PartReasoning
-	PartToolCall  = session.PartToolCall
-	PartImage     = session.PartImage
-)
+// Spec is a model resolved for use: where it is, how to talk to it, and what
+// it can do. The runtime builds it from the user's profile, catalog metadata,
+// and the chosen reasoning effort, so this package never reads configuration.
+type Spec struct {
+	// Name is the profile name, used only to identify the model in errors.
+	Name    string
+	Format  wire.Format
+	ModelID string
+	BaseURL string
+	APIKey  string
+	Headers map[string]string
+	// Vision gates whether image parts are sent; see imageReader.
+	Vision bool
+	// Reasoning marks a model that produces reasoning, which some servers hold
+	// to stricter rules for replayed history.
+	Reasoning bool
+	// ReasoningEffort is the level to request, or "" for the server default.
+	ReasoningEffort string
+}
 
 // Client drives one configured model. It is the kon-facing half of the
 // abstraction: everything above this package only ever sees session messages.
@@ -41,30 +50,30 @@ type Client struct {
 
 func (c *Client) ModelID() typedid.ModelID { return c.modelID }
 
-// New builds the client for a configured model profile.
-func New(profile config.Model, readImage func(string) ([]byte, error)) (*Client, error) {
-	if err := profile.Ready(); err != nil {
-		return nil, err
+// New builds the client for a resolved model.
+func New(spec Spec, readImage func(string) ([]byte, error)) (*Client, error) {
+	if strings.TrimSpace(spec.ModelID) == "" {
+		return nil, fmt.Errorf("model %q has no model ID", spec.Name)
 	}
-	model, err := newModel(profile, readImage)
+	model, err := newModel(spec, readImage)
 	if err != nil {
 		return nil, err
 	}
-	return &Client{model: model, modelID: typedid.ExternalModelID(profile.ModelID)}, nil
+	return &Client{model: model, modelID: typedid.ExternalModelID(spec.ModelID)}, nil
 }
 
-// newModel builds the backend for a profile's wire format. Every format in the
+// newModel builds the backend for a spec's wire format. Every format in the
 // wire table is a chat completions dialect, so one backend serves them all; a
 // format with another protocol would choose its backend here.
-func newModel(profile config.Model, readImage func(string) ([]byte, error)) (Model, error) {
-	spec, ok := wire.Lookup(profile.WireFormat())
+func newModel(spec Spec, readImage func(string) ([]byte, error)) (Model, error) {
+	dialect, ok := wire.Lookup(spec.Format)
 	if !ok {
-		return nil, fmt.Errorf("unsupported wire format %q", profile.WireFormat())
+		return nil, fmt.Errorf("unsupported wire format %q", spec.Format)
 	}
-	return newChatModel(profile, spec, readImage)
+	return newChatModel(spec, dialect, readImage)
 }
 
-func (c *Client) Stream(ctx context.Context, messages []session.Message, tools []Tool, emit func(Event)) (session.Message, error) {
+func (c *Client) Stream(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, emit func(Event)) (session.Message, error) {
 	response, err := c.model.Stream(ctx, messages, tools, emit)
 	if err != nil {
 		return c.assistantOrPartial(response, err)
@@ -109,7 +118,7 @@ func (c *Client) assistantOrPartial(response Response, err error) (session.Messa
 // answer, as when reasoning spends the whole budget.
 var ErrOutputLimit = errors.New("response reached its token limit before any answer")
 
-func (c *Client) Complete(ctx context.Context, messages []session.Message, tools []Tool, maxTokens tokens.Count) (session.Message, error) {
+func (c *Client) Complete(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, maxTokens tokens.Count) (session.Message, error) {
 	response, err := c.model.Complete(ctx, messages, tools, maxTokens)
 	if err != nil {
 		return session.Message{}, err
