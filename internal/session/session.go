@@ -18,6 +18,8 @@ import (
 
 	"github.com/hizkifw/kon/internal/tokens"
 	"github.com/hizkifw/kon/internal/typedid"
+
+	"github.com/gofrs/flock"
 )
 
 const SchemaVersion = 4
@@ -286,6 +288,7 @@ type Store struct {
 	header  Header
 	path    string
 	file    sessionFile
+	lock    *flock.Flock
 	entries []Entry
 	byID    map[typedid.EntryID]int
 	leafID  *typedid.EntryID
@@ -331,29 +334,52 @@ func New(root, cwd, appVersion, systemPrompt string) (*Store, error) {
 	now := time.Now().UTC()
 	name := now.Format("20060102T150405.000Z") + "_" + sessionID.String() + fileSuffix
 	path := filepath.Join(dir, name)
+	// Lock before the file exists, so no other process can find the session
+	// unlocked and open it as a second writer.
+	l, err := lock(path)
+	if err != nil {
+		return nil, err
+	}
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
+		_ = l.Unlock()
 		return nil, fmt.Errorf("create session: %w", err)
 	}
 	s := &Store{
 		header: Header{Type: "session", Version: SchemaVersion, ID: sessionID, AppVersion: appVersion, Timestamp: now, CWD: absCWD},
 		path:   path,
 		file:   f,
+		lock:   l,
 		byID:   make(map[typedid.EntryID]int),
 		empty:  true,
 	}
 	if err := s.writeLine(s.header, false); err != nil {
 		f.Close()
+		_ = l.Unlock()
 		return nil, err
 	}
 	if _, err := s.AppendMessage(TextMessage(RoleSystem, systemPrompt)); err != nil {
 		f.Close()
+		_ = l.Unlock()
 		return nil, err
 	}
 	return s, nil
 }
 
-func Open(path string) (*Store, error) {
+// Open opens a persisted session as its only writer. It returns ErrInUse while
+// another process has the session open.
+func Open(path string) (_ *Store, err error) {
+	// The lock comes before parsing: an incomplete tail is only safe to trim
+	// once no other writer can be partway through appending it.
+	l, err := lock(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err != nil {
+			_ = l.Unlock()
+		}
+	}()
 	parsed, err := parseSession(path)
 	if err != nil {
 		return nil, err
@@ -367,7 +393,7 @@ func Open(path string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open session for append: %w", err)
 	}
-	s := &Store{header: parsed.header, path: path, file: f, entries: parsed.entries, byID: parsed.byID}
+	s := &Store{header: parsed.header, path: path, file: f, lock: l, entries: parsed.entries, byID: parsed.byID}
 	// A session holding only its root system message and structural entries has
 	// no conversation to keep.
 	s.empty = true
@@ -612,6 +638,9 @@ type Summary struct {
 	// length-bounded, so a picker can show what a session is about without
 	// opening it.
 	Title string
+	// InUse reports that a kon process held the session open for writing when
+	// it was listed, including this one for its own live session.
+	InUse bool
 }
 
 // Discover lists every readable session recorded for cwd, newest first. The
@@ -645,6 +674,7 @@ func Discover(root, cwd string) ([]Summary, error) {
 			// A single unreadable file must not hide the rest of the sessions.
 			continue
 		}
+		summary.InUse = InUse(summary.Path)
 		summaries = append(summaries, summary)
 	}
 	// Newest first matches how "/resume" presents choices. Ordering uses each
@@ -825,6 +855,15 @@ func (s *Store) Close() error {
 		}
 		if removeErr := os.RemoveAll(s.blobDir()); removeErr != nil {
 			err = errors.Join(err, fmt.Errorf("discard empty session blobs: %w", removeErr))
+		}
+	}
+	// Release only after the file is closed or discarded, so the next writer
+	// never sees it mid-close. A discarded session's lock file goes with it;
+	// with the session gone, nothing can lock it again.
+	if s.lock != nil {
+		closeErr = errors.Join(closeErr, s.lock.Unlock())
+		if s.empty {
+			_ = os.Remove(lockPath(s.path))
 		}
 	}
 	return errors.Join(err, closeErr)

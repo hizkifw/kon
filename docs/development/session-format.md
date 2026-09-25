@@ -18,6 +18,23 @@ has millisecond precision. Listing orders sessions by the header `timestamp`
 rather than the name, because two sessions created in the same millisecond would
 otherwise tie on their random session ID.
 
+## Writer lock
+
+A session has one writer at a time. The writer holds an exclusive advisory
+lock on `<session.jsonl>.lock`, taken before the session file is created or
+parsed, and released when the session is closed. Each writer appends children
+of its own in-memory leaf. A second writer would silently fork the
+conversation, and trimming a torn tail could cut a record the first writer is
+still appending. Opening a session another process holds fails instead.
+
+The lock lives in its own file because Windows locks are mandatory, and they
+would block the read-only previews and listing that run against live sessions.
+The operating system drops the lock when its holder exits, so a crash leaves no
+stale lock. Lock files are never removed, except together with a discarded
+empty session. Unlinking one while another process has it open would let two
+processes lock different files. Advisory locks on network filesystems are
+best-effort.
+
 ## Entry envelope
 
 Every entry has these fields:

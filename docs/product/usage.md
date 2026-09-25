@@ -16,6 +16,10 @@ changes `default_model`. `/resume` lists sessions inside the app, and `/resume <
 switches to one. Typing `/resume ` opens a picker. Highlighting a row previews
 its recent turns without switching; `Esc` cancels the preview.
 
+A session can be open in only one kon at a time. The picker marks sessions
+that are open elsewhere, and resuming one reports that it is open in another
+kon.
+
 Sessions are plain JSONL files under `~/.local/share/kon/sessions/` by default.
 On Windows, kon uses `%LOCALAPPDATA%\kon\sessions\`.
 

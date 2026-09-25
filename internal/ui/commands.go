@@ -418,6 +418,7 @@ func completeSessionIDs(m Model, prefix string) []menuItem {
 	if err != nil {
 		return nil
 	}
+	current := m.runtime.SessionID()
 	var candidates []menuItem
 	for _, summary := range summaries {
 		id := summary.ID.String()
@@ -427,6 +428,9 @@ func completeSessionIDs(m Model, prefix string) []menuItem {
 		description := summary.CreatedAt.Local().Format("2006-01-02 15:04")
 		if summary.Title != "" {
 			description = summary.Title + " · " + description
+		}
+		if summary.InUse && summary.ID != current {
+			description += " · open elsewhere"
 		}
 		candidates = append(candidates, menuItem{
 			Value:       id,
@@ -525,6 +529,9 @@ func (m Model) listSessions() (tea.Model, tea.Cmd) {
 			marker = "* "
 		}
 		line := marker + summary.ID.String() + "  " + summary.CreatedAt.Local().Format("2006-01-02 15:04")
+		if summary.InUse && marker == "  " {
+			line += "  (open elsewhere)"
+		}
 		if summary.Title != "" {
 			line += "  " + summary.Title
 		}
