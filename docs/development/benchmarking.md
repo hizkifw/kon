@@ -62,7 +62,7 @@ Intel i5-8500T, 4 cores, Linux:
 
 | Scenario | Wall | CPU | Peak RSS | Notes |
 | --- | ---: | ---: | ---: | --- |
-| `startup` | 50 ms | 39 ms | 12.5 MB | one short reply, including process start |
+| `startup` | 21 ms | 9 ms | 10.9 MB | one short reply, including process start |
 | `stream-doc-50k` | 0.67 s | 0.64 s | 17.8 MB | 50k deltas as fast as the socket allows |
 | `stream-doc-200k` | 2.4 s | 2.3 s | 26.8 MB | linear in reply length |
 | `stream-code-50k` | 0.64 s | 0.59 s | 17.7 MB | |
@@ -71,9 +71,14 @@ Intel i5-8500T, 4 cores, Linux:
 | `tools-bigout-30` | 1.1 s | 0.75 s | 30.3 MB | each call prints 1.3 MB |
 | `tui-idle` | 5 s | 1% | 31 MB | |
 | `tui-doc` | 15 s | 12%, flat | 35 MB | ~100 deltas/s |
+| `tui-burst` | 15 s | 9%, flat | 36 MB | the same rate, five deltas per 50 ms |
 | `tui-paragraph` | 15 s | 11% rising to 31% | 36 MB | tail re-parse grows with the reply |
 | `tui-code` | 15 s | 11% rising to 21% | 35 MB | same, inside one fence |
 | `tui-tools` | 8 s | up to 130% while running | 52 MB | 100 tool turns, then idle |
+
+Startup was 50 ms until `go-runewidth` v0.0.30, whose predecessors built a
+width table for every Unicode code point in their package `init`; check
+`GODEBUG=inittrace=1 bin/kon --version` when a dependency changes.
 
 Before `BenchmarkDecodeChatStream` existed, the provider grew each streamed
 part with `+=`, so a 200k-delta reply took 46 s instead of 2.4 s. The rising

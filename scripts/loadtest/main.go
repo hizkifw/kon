@@ -33,6 +33,7 @@ import (
 type reply struct {
 	chunks    int           // text deltas in the final reply
 	delay     time.Duration // pause between deltas; zero streams as fast as possible
+	burst     int           // deltas sent together before each delay, as a network read often delivers several
 	shape     string        // doc, paragraph, or code; see token
 	toolTurns int           // turns that call tools before the final reply
 	parallel  int           // tool calls per tool turn
@@ -60,6 +61,7 @@ var scenarios = []scenario{
 	{name: "tui-idle", tui: true, secs: 5},
 	{name: "tui-doc", tui: true, secs: 15, reply: reply{chunks: 1500, delay: 10 * time.Millisecond}},
 	{name: "tui-paragraph", tui: true, secs: 15, reply: reply{chunks: 1500, delay: 10 * time.Millisecond, shape: "paragraph"}},
+	{name: "tui-burst", tui: true, secs: 15, reply: reply{chunks: 1500, delay: 50 * time.Millisecond, burst: 5}},
 	{name: "tui-code", tui: true, secs: 15, reply: reply{chunks: 1500, delay: 10 * time.Millisecond, shape: "code"}},
 	{name: "tui-tools", tui: true, secs: 8, reply: reply{chunks: 100, toolTurns: 100}},
 }
@@ -305,7 +307,7 @@ func (m *mockModel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	} else {
 		for i := range reply.chunks {
 			send(delta(map[string]any{"content": token(reply.shape, i)}, nil))
-			if reply.delay > 0 {
+			if reply.delay > 0 && (i+1)%max(reply.burst, 1) == 0 {
 				time.Sleep(reply.delay)
 			}
 		}
