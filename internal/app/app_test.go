@@ -34,6 +34,22 @@ func (*blockingProvider) Complete(context.Context, []session.Message, []session.
 	return session.Message{}, errors.New("unexpected completion")
 }
 
+// windingProvider blocks a request until cancelled, then keeps winding down
+// until released, which holds open the window where Close waits for the run.
+type windingProvider struct{ started, cancelled, release chan struct{} }
+
+func (p *windingProvider) Stream(ctx context.Context, _ []session.Message, _ []session.ToolDefinition, _ func(provider.Event)) (session.Message, error) {
+	close(p.started)
+	<-ctx.Done()
+	close(p.cancelled)
+	<-p.release
+	return session.Message{}, ctx.Err()
+}
+
+func (*windingProvider) Complete(context.Context, []session.Message, []session.ToolDefinition, tokens.Count) (session.Message, error) {
+	return session.Message{}, errors.New("unexpected completion")
+}
+
 func TestNewSessionFailureKeepsCurrentSession(t *testing.T) {
 	store := testStore(t)
 	runner := new(agent.Runner)
@@ -537,6 +553,38 @@ func TestCloseCancelsAndWaitsForActiveRun(t *testing.T) {
 	go func() { runDone <- runtime.Run(context.Background(), "work", func(agent.Event) {}) }()
 	<-provider.started
 	if err := runtime.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-runDone; !errors.Is(err, context.Canceled) {
+		t.Fatalf("run error = %v", err)
+	}
+	if runtime.State().Phase != PhaseClosed {
+		t.Fatalf("phase = %s", runtime.State().Phase)
+	}
+}
+
+func TestCloseRefusesOperationsWhileTheRunWindsDown(t *testing.T) {
+	store := testStore(t)
+	profile := modelSpec{Model: config.Model{Name: "default", Type: "openai", ModelID: "model"}}
+	provider := &windingProvider{started: make(chan struct{}), cancelled: make(chan struct{}), release: make(chan struct{})}
+	runtime := &Runtime{
+		active: profile, store: store, phase: PhaseReady,
+		runner: agent.New(profile.limits(config.Default().Compaction), provider, store, tools.New(t.TempDir(), false)),
+	}
+	runDone := make(chan error, 1)
+	go func() { runDone <- runtime.Run(context.Background(), "work", func(agent.Event) {}) }()
+	<-provider.started
+	closeDone := make(chan error, 1)
+	go func() { closeDone <- runtime.Close() }()
+	<-provider.cancelled
+	if err := runtime.Run(context.Background(), "again", func(agent.Event) {}); !errors.Is(err, ErrClosed) {
+		t.Fatalf("run during close = %v, want ErrClosed", err)
+	}
+	if err := runtime.NewSession(); !errors.Is(err, ErrClosed) {
+		t.Fatalf("new session during close = %v, want ErrClosed", err)
+	}
+	close(provider.release)
+	if err := <-closeDone; err != nil {
 		t.Fatal(err)
 	}
 	if err := <-runDone; !errors.Is(err, context.Canceled) {

@@ -10,14 +10,11 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/hizkifw/kon/internal/agent"
 	"github.com/hizkifw/kon/internal/catalog"
 	"github.com/hizkifw/kon/internal/config"
 	"github.com/hizkifw/kon/internal/login"
-	"github.com/hizkifw/kon/internal/provider"
 	"github.com/hizkifw/kon/internal/session"
 	"github.com/hizkifw/kon/internal/tokens"
-	"github.com/hizkifw/kon/internal/tools"
 )
 
 // Models combines explicit profiles with discovered and catalog entries.
@@ -97,21 +94,18 @@ func (r *Runtime) LoadCatalog() {
 // resolveActive applies catalog capabilities to an active derived model and
 // rebuilds its runner. Explicit profiles are resolved when selected.
 func (r *Runtime) resolveActive() error {
-	if r.activeResolved {
+	if r.active.resolved {
 		return nil
 	}
-	resolved, ok := r.resolveModel(r.active.Name)
+	profile, ok := r.resolvedSpec(r.active.Name)
 	if !ok {
 		return nil
 	}
-	profile := r.withEffort(resolved)
-	client, err := provider.New(profile.providerSpec(), r.store.ReadImage)
+	runner, err := r.buildRunner(profile, r.store)
 	if err != nil {
 		return err
 	}
-	r.active = profile
-	r.runner = agent.New(profile.limits(r.config.Compaction), client, r.store, tools.New(r.cwd, profile.Vision))
-	r.activeResolved = true
+	r.active, r.runner = profile, runner
 	return nil
 }
 
@@ -141,7 +135,7 @@ func (r *Runtime) CycleEffort() (string, error) {
 	if i := slices.Index(efforts, r.active.effort); i+1 < len(efforts) {
 		profile.effort = efforts[i+1]
 	}
-	client, err := provider.New(profile.providerSpec(), r.store.ReadImage)
+	runner, err := r.buildRunner(profile, r.store)
 	if err != nil {
 		return "", err
 	}
@@ -151,17 +145,37 @@ func (r *Runtime) CycleEffort() (string, error) {
 		return "", fmt.Errorf("saving reasoning effort: %w", err)
 	}
 	r.config = updated
-	r.active = profile
-	r.runner = agent.New(profile.limits(r.config.Compaction), client, r.store, tools.New(r.cwd, profile.Vision))
+	r.active, r.runner = profile, runner
 	return profile.effort, nil
 }
 
-// withEffort applies the saved effort to a profile of the active model. A
-// level the model does not list, including one saved before its catalog
-// levels were known, falls back to the provider default.
-func (r *Runtime) withEffort(profile config.Model) modelSpec {
-	spec := modelSpec{Model: profile}
-	if slices.Contains(profile.ReasoningEfforts, r.config.ReasoningEffort) {
+// configuredSpec resolves a model from the config alone, without waiting for
+// the catalog, so a derived model is left unresolved.
+func (r *Runtime) configuredSpec(name string) (modelSpec, bool) {
+	profile, ok := r.config.ResolveModel(name)
+	if !ok {
+		return modelSpec{}, false
+	}
+	_, explicit := r.config.Model(name)
+	return r.withEffort(modelSpec{Model: profile, resolved: explicit}), true
+}
+
+// resolvedSpec resolves a model with its catalog capabilities, waiting for the
+// catalog to load if it has not.
+func (r *Runtime) resolvedSpec(name string) (modelSpec, bool) {
+	profile, ok := r.resolveModel(name)
+	if !ok {
+		return modelSpec{}, false
+	}
+	return r.withEffort(modelSpec{Model: profile, resolved: true}), true
+}
+
+// withEffort applies the saved effort. A level the model does not list,
+// including one saved before its catalog levels were known, falls back to the
+// provider default.
+func (r *Runtime) withEffort(spec modelSpec) modelSpec {
+	spec.effort = ""
+	if slices.Contains(spec.ReasoningEfforts, r.config.ReasoningEffort) {
 		spec.effort = r.config.ReasoningEffort
 	}
 	return spec
@@ -170,7 +184,7 @@ func (r *Runtime) withEffort(profile config.Model) modelSpec {
 // describeActive adds catalog display metadata when the catalog has loaded,
 // without waiting for it.
 func (r *Runtime) describeActive() Model {
-	return r.describeProfile(r.active, r.activeResolved)
+	return r.describeProfile(r.active, r.active.resolved)
 }
 
 // DescribeSelection names a recorded model selection the way the header names
@@ -361,16 +375,10 @@ func (r *Runtime) Login(ctx context.Context, connection config.Provider) (int, b
 	// A credential change applies to the live runner without adding a model
 	// switch to the durable session or rebuilding its system prompt.
 	if r.store != nil && r.active.Name != "" {
-		if resolved, ok := r.resolveModel(r.active.Name); ok {
-			profile := r.withEffort(resolved)
-			if profile.Ready() == nil {
-				client, err := provider.New(profile.providerSpec(), r.store.ReadImage)
-				if err == nil {
-					r.active = profile
-					r.runner = agent.New(profile.limits(r.config.Compaction), client, r.store, tools.New(r.cwd, profile.Vision))
-					r.problem, r.phase = nil, PhaseReady
-					r.activeResolved = true
-				}
+		if profile, ok := r.resolvedSpec(r.active.Name); ok && profile.Ready() == nil {
+			if runner, err := r.buildRunner(profile, r.store); err == nil {
+				r.active, r.runner = profile, runner
+				r.problem, r.phase = nil, PhaseReady
 			}
 		}
 	}

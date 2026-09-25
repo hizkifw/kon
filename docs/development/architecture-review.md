@@ -156,20 +156,22 @@ natural addition.
 
 ### 10. Consolidate runner construction and session swaps in `app`
 
-- [ ] One `buildRunner`, one operation guard, one session swap
+- [x] One `buildRunner`, one operation guard, one session swap
 
-`agent.New(profile.limits(compaction), client, store, tools.New(cwd, vision))` appears
-five times: `app.go:133` (`createRunner`), `app.go:523` (`openStore`),
-`models.go:111` (`resolveActive`), `models.go:153` (`CycleEffort`), and
-`models.go:325` (`Login`), with subtly different behavior (only `createRunner`
-appends a model change). `Run` and `Compact` (`app.go:203`, `:247`) duplicate
-the busy-phase begin/end logic; `Resume` and `NewSession` (`app.go:391`,
-`:419`) duplicate the swap logic. The three constructors already share
-`start`.
+`buildRunner` is the only place a client and runner are built. `createRunner`
+is `buildRunner` plus `recordModel`, and it is used only when a different model
+starts answering in a store. `resolveActive`, `CycleEffort`, `Login`, and
+restoring a recorded model in `openStore` rebuild without recording. `Run` and
+`Compact` share `operate`. `Resume` and `NewSession` share `swap`, and
+`prepareSession` returns the same `opened` value `openStore` does. Whether a
+model's catalog capabilities are applied is now `modelSpec.resolved` instead
+of a runtime flag, so `install` no longer re-derives it and `NewSession` no
+longer forgets it.
 
-`Close` has a related window: after waiting for the active run it re-checks
-only for `PhaseClosed`, so an operation that starts in the gap can have its
-store closed underneath it. One operation guard would close that too.
+`Close` now claims `PhaseClosed` before it waits, and a finishing operation
+returns to ready only if it still owns the phase. An operation that tries to
+start while a run winds down gets `ErrClosed` instead of a store closed
+underneath it.
 
 ### 11. Decide what model a resumed session uses
 

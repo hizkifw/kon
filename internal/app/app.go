@@ -73,19 +73,21 @@ type Runtime struct {
 	catalog        atomic.Pointer[catalog.Service]
 	providerModels map[string][]string
 
-	active         modelSpec
-	activeResolved bool
-	store          *session.Store
-	runner         *agent.Runner
-	problem        error
-	cleanupErr     error
-	phase          Phase
-	runCancel      context.CancelFunc
-	runDone        chan struct{}
+	active     modelSpec
+	store      *session.Store
+	runner     *agent.Runner
+	problem    error
+	cleanupErr error
+	phase      Phase
+	runCancel  context.CancelFunc
+	runDone    chan struct{}
 
 	createSession func() (*session.Store, error)
 	openSession   func(string) (*session.Store, error)
-	createRunner  func(modelSpec, *session.Store) (*agent.Runner, error)
+	// createRunner puts a model to work in a store: it builds the runner and
+	// records the model change, so the log names the model behind each reply.
+	// Rebuilding a runner for the model already recorded uses buildRunner.
+	createRunner func(modelSpec, *session.Store) (*agent.Runner, error)
 }
 
 // modelSpec is a model ready to run: its profile as configured, completed with
@@ -95,6 +97,10 @@ type Runtime struct {
 type modelSpec struct {
 	config.Model
 	effort string
+	// resolved reports whether catalog capabilities have been applied. An
+	// explicit profile is complete as written; a derived one waits for the
+	// catalog, which startup never loads.
+	resolved bool
 }
 
 // providerSpec is what the backend needs to reach and shape requests for the model.
@@ -142,45 +148,57 @@ func start(cfg config.Config, paths config.Paths, cwd, version string, resume bo
 	}
 	r.openSession = session.Open
 	r.createRunner = func(profile modelSpec, store *session.Store) (*agent.Runner, error) {
-		client, err := provider.New(profile.providerSpec(), store.ReadImage)
+		runner, err := r.buildRunner(profile, store)
 		if err != nil {
 			return nil, err
 		}
-		selection := session.ModelSelection{Name: profile.Name, WireFormat: string(profile.WireFormat()), ExternalID: client.ModelID()}
-		if _, explicit := r.config.Model(profile.Name); !explicit {
-			if id, _, ok := strings.Cut(profile.Name, "/"); ok {
-				if connection, found := r.config.Provider(id); found {
-					selection.ConnectionID = connection.ID
-				}
-			}
-		}
-		if _, err := store.AppendModelChange(selection); err != nil {
+		if err := r.recordModel(profile, store); err != nil {
 			return nil, err
 		}
-		return agent.New(profile.limits(cfg.Compaction), client, store, tools.New(cwd, profile.Vision)), nil
+		return runner, nil
 	}
 
-	configured, _ := cfg.ResolveModel(cfg.DefaultModel)
 	// A derived model has no levels until its catalog entry resolves, so its
 	// saved effort is applied again by resolveActive.
-	profile := r.withEffort(configured)
-	r.active = profile
-	_, r.activeResolved = cfg.Model(cfg.DefaultModel)
+	r.active, _ = r.configuredSpec(cfg.DefaultModel)
 
+	var target opened
+	var err error
 	if resume {
-		target, err := r.openTarget(id)
-		if err != nil {
-			return nil, err
-		}
-		r.install(target)
-		return r, nil
+		target, err = r.openTarget(id)
+	} else {
+		target, err = r.prepareSession(r.active)
 	}
-	store, runner, problem, err := r.prepareSession(profile)
 	if err != nil {
 		return nil, err
 	}
-	r.install(opened{store: store, runner: runner, profile: profile, problem: problem})
+	r.install(target)
 	return r, nil
+}
+
+// buildRunner builds the runner for a model in a store without recording
+// anything, for a model the store already names as its latest.
+func (r *Runtime) buildRunner(profile modelSpec, store *session.Store) (*agent.Runner, error) {
+	client, err := provider.New(profile.providerSpec(), store.ReadImage)
+	if err != nil {
+		return nil, err
+	}
+	return agent.New(profile.limits(r.config.Compaction), client, store, tools.New(r.cwd, profile.Vision)), nil
+}
+
+// recordModel appends the model change that names profile as the model now
+// answering in store.
+func (r *Runtime) recordModel(profile modelSpec, store *session.Store) error {
+	selection := session.ModelSelection{Name: profile.Name, WireFormat: string(profile.WireFormat()), ExternalID: typedid.ExternalModelID(profile.ModelID)}
+	if _, explicit := r.config.Model(profile.Name); !explicit {
+		if id, _, ok := strings.Cut(profile.Name, "/"); ok {
+			if connection, found := r.config.Provider(id); found {
+				selection.ConnectionID = connection.ID
+			}
+		}
+	}
+	_, err := store.AppendModelChange(selection)
+	return err
 }
 
 // opened is a session ready to install: its store, the model that will answer
@@ -193,14 +211,23 @@ type opened struct {
 }
 
 // install makes an opened session and its model the live ones. The caller
-// closes any session it replaces.
+// closes any session it replaces; see swap.
 func (r *Runtime) install(o opened) {
 	r.store, r.runner, r.problem = o.store, o.runner, o.problem
 	r.active = o.profile
-	_, r.activeResolved = r.config.Model(o.profile.Name)
 	r.phase = PhaseReady
 	if o.problem != nil {
 		r.phase = PhaseNeedsConfiguration
+	}
+}
+
+// swap installs a fully opened replacement and only then closes the session it
+// replaces, so a failure to open leaves the current session usable.
+func (r *Runtime) swap(o opened) {
+	previous := r.store
+	r.install(o)
+	if previous != nil {
+		r.cleanupErr = errors.Join(r.cleanupErr, previous.Close())
 	}
 }
 
@@ -216,11 +243,7 @@ func (r *Runtime) openTarget(id typedid.SessionID) (opened, error) {
 		if !ok {
 			// Nothing to resume: fall back to a new session so --resume still
 			// launches rather than failing on an empty workspace.
-			store, runner, problem, err := r.prepareSession(r.active)
-			if err != nil {
-				return opened{}, err
-			}
-			return opened{store: store, runner: runner, profile: r.active, problem: problem}, nil
+			return r.prepareSession(r.active)
 		}
 		path = summary.Path
 	} else {
@@ -240,66 +263,40 @@ func (r *Runtime) State() State {
 }
 
 func (r *Runtime) Run(ctx context.Context, prompt string, emit func(agent.Event)) error {
-	r.mu.Lock()
-	if r.phase == PhaseClosed {
-		r.mu.Unlock()
-		return ErrClosed
-	}
-	if r.phase == PhaseRunning {
-		r.mu.Unlock()
-		return ErrBusy
-	}
-	if r.phase == PhaseNeedsConfiguration {
-		problem := r.problem
-		r.mu.Unlock()
-		return fmt.Errorf("%w: %v in %s", ErrNotReady, problem, r.paths.ConfigFile)
-	}
-	// Startup leaves catalog metadata to LoadCatalog; make sure the model's
-	// capabilities are resolved before its first provider request.
-	if err := r.resolveActive(); err != nil {
-		r.mu.Unlock()
-		return err
-	}
-	runner := r.runner
-	runCtx, cancel := context.WithCancel(ctx)
-	r.phase = PhaseRunning
-	r.runCancel = cancel
-	r.runDone = make(chan struct{})
-	done := r.runDone
-	r.mu.Unlock()
-
-	defer func() {
-		cancel()
-		r.mu.Lock()
-		r.phase = PhaseReady
-		r.runCancel = nil
-		r.runDone = nil
-		close(done)
-		r.mu.Unlock()
-	}()
-	return runner.Run(runCtx, prompt, emit)
+	return r.operate(ctx, func(ctx context.Context, runner *agent.Runner) error {
+		return runner.Run(ctx, prompt, emit)
+	})
 }
 
 // Compact forces a manual compaction of the live session. Like Run it occupies
 // the busy phase so it cannot race an active request, and it can be cancelled
 // with Esc through the same context.
 func (r *Runtime) Compact(ctx context.Context, emit func(agent.Event)) error {
+	return r.operate(ctx, func(ctx context.Context, runner *agent.Runner) error {
+		return runner.Compact(ctx, emit)
+	})
+}
+
+// operate runs op on the live runner in the busy phase, outside the lock, so
+// every other operation is refused until it returns. Close cancels op's context
+// and waits for it.
+func (r *Runtime) operate(ctx context.Context, op func(context.Context, *agent.Runner) error) error {
 	r.mu.Lock()
-	if r.phase == PhaseClosed {
+	switch r.phase {
+	case PhaseClosed:
 		r.mu.Unlock()
 		return ErrClosed
-	}
-	if r.phase == PhaseRunning {
+	case PhaseRunning:
 		r.mu.Unlock()
 		return ErrBusy
-	}
-	if r.phase == PhaseNeedsConfiguration {
+	case PhaseNeedsConfiguration:
 		problem := r.problem
 		r.mu.Unlock()
 		return fmt.Errorf("%w: %v in %s", ErrNotReady, problem, r.paths.ConfigFile)
 	}
-	// A derived model learns its context window from the catalog, which
-	// compaction needs as much as a run does.
+	// Startup leaves catalog metadata to LoadCatalog. A request needs the
+	// model's capabilities and compaction its context window, so resolve them
+	// before either.
 	if err := r.resolveActive(); err != nil {
 		r.mu.Unlock()
 		return err
@@ -309,23 +306,24 @@ func (r *Runtime) Compact(ctx context.Context, emit func(agent.Event)) error {
 		r.mu.Unlock()
 		return ErrNotReady
 	}
-	runCtx, cancel := context.WithCancel(ctx)
-	r.phase = PhaseRunning
-	r.runCancel = cancel
-	r.runDone = make(chan struct{})
-	done := r.runDone
+	opCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	r.phase, r.runCancel, r.runDone = PhaseRunning, cancel, done
 	r.mu.Unlock()
 
 	defer func() {
 		cancel()
 		r.mu.Lock()
-		r.phase = PhaseReady
-		r.runCancel = nil
-		r.runDone = nil
+		// Close claims the phase before waiting; only a live runtime returns
+		// to ready.
+		if r.phase == PhaseRunning {
+			r.phase = PhaseReady
+		}
+		r.runCancel, r.runDone = nil, nil
 		close(done)
 		r.mu.Unlock()
 	}()
-	return runner.Compact(runCtx, emit)
+	return op(opCtx, runner)
 }
 
 // Interrupt escalates cancellation of the tool call the agent is currently
@@ -351,7 +349,7 @@ func (r *Runtime) SwitchModel(name string) error {
 	if name == r.active.Name {
 		return nil
 	}
-	profile, ok := r.resolveModel(name)
+	profile, ok := r.resolvedSpec(name)
 	if !ok {
 		return fmt.Errorf("unknown model %q", name)
 	}
@@ -360,7 +358,8 @@ func (r *Runtime) SwitchModel(name string) error {
 	}
 	// Effort levels differ between models, so a switch starts on the provider
 	// default.
-	runner, err := r.createRunner(modelSpec{Model: profile}, r.store)
+	profile.effort = ""
+	runner, err := r.createRunner(profile, r.store)
 	if err != nil {
 		return err
 	}
@@ -370,8 +369,7 @@ func (r *Runtime) SwitchModel(name string) error {
 	if err := r.config.Save(r.paths.ConfigFile); err != nil {
 		return fmt.Errorf("model switched to %s, but saving config: %w", name, err)
 	}
-	r.active, r.runner, r.problem, r.phase = modelSpec{Model: profile}, runner, nil, PhaseReady
-	r.activeResolved = true
+	r.active, r.runner, r.problem, r.phase = profile, runner, nil, PhaseReady
 	return nil
 }
 
@@ -448,11 +446,7 @@ func (r *Runtime) Resume(id typedid.SessionID) error {
 	if err != nil {
 		return err
 	}
-	previous := r.store
-	r.install(target)
-	if previous != nil {
-		r.cleanupErr = errors.Join(r.cleanupErr, previous.Close())
-	}
+	r.swap(target)
 	return nil
 }
 
@@ -464,47 +458,38 @@ func (r *Runtime) NewSession() error {
 	if err := r.mutable(); err != nil {
 		return err
 	}
-	store, runner, problem, err := r.prepareSession(r.active)
+	target, err := r.prepareSession(r.active)
 	if err != nil {
 		return err
 	}
-	previous := r.store
-	r.store, r.runner, r.problem = store, runner, problem
-	r.phase = PhaseReady
-	if problem != nil {
-		r.phase = PhaseNeedsConfiguration
-	}
-	if previous != nil {
-		r.cleanupErr = errors.Join(r.cleanupErr, previous.Close())
-	}
+	r.swap(target)
 	return nil
 }
 
+// Close cancels any running operation, waits for it, and closes the session.
+// It claims the closed phase before waiting, so nothing can start while the
+// operation winds down and have its store closed underneath it.
 func (r *Runtime) Close() error {
 	r.mu.Lock()
 	if r.phase == PhaseClosed {
 		r.mu.Unlock()
 		return nil
 	}
-	if r.phase == PhaseRunning {
-		cancel, done := r.runCancel, r.runDone
-		r.mu.Unlock()
+	r.phase = PhaseClosed
+	cancel, done := r.runCancel, r.runDone
+	r.mu.Unlock()
+	if done != nil {
 		cancel()
 		<-done
-		r.mu.Lock()
-		if r.phase == PhaseClosed {
-			r.mu.Unlock()
-			return nil
-		}
 	}
-	r.phase = PhaseClosed
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if r.store == nil {
-		r.mu.Unlock()
 		return nil
 	}
 	err := errors.Join(r.cleanupErr, r.store.Close())
 	r.store, r.runner = nil, nil
-	r.mu.Unlock()
 	return err
 }
 
@@ -530,20 +515,22 @@ func (r *Runtime) systemPrompt() (string, error) {
 	return agent.SystemPrompt(r.cwd, executable, files, r.config.Instructions), nil
 }
 
-func (r *Runtime) prepareSession(profile modelSpec) (*session.Store, *agent.Runner, error, error) {
+// prepareSession creates a new session for profile. A model that is not ready
+// still gets its session, opened with the problem that keeps it from running.
+func (r *Runtime) prepareSession(profile modelSpec) (opened, error) {
 	store, err := r.createSession()
 	if err != nil {
-		return nil, nil, nil, err
+		return opened{}, err
 	}
 	if problem := profile.Ready(); problem != nil {
-		return store, nil, problem, nil
+		return opened{store: store, profile: profile, problem: problem}, nil
 	}
 	runner, err := r.createRunner(profile, store)
 	if err != nil {
 		_ = store.Close()
-		return nil, nil, nil, err
+		return opened{}, err
 	}
-	return store, runner, nil, nil
+	return opened{store: store, runner: runner, profile: profile}, nil
 }
 
 // openStore opens a persisted session on the model it last recorded, so a
@@ -562,22 +549,19 @@ func (r *Runtime) openStore(path string) (opened, error) {
 	last := lastModelChange(store.ActivePath())
 	profile := r.active
 	if last != nil {
-		if recorded, ok := r.config.ResolveModel(last.Name); ok {
-			profile = r.withEffort(recorded)
+		if recorded, ok := r.configuredSpec(last.Name); ok {
+			profile = recorded
 		}
 	}
 	if problem := profile.Ready(); problem != nil {
 		return opened{store: store, profile: profile, problem: problem}, nil
 	}
-	var runner *agent.Runner
+	build := r.createRunner
 	if last != nil && last.Name == profile.Name && last.ExternalID.String() == profile.ModelID {
-		client, err := provider.New(profile.providerSpec(), store.ReadImage)
-		if err != nil {
-			_ = store.Close()
-			return opened{}, err
-		}
-		runner = agent.New(profile.limits(r.config.Compaction), client, store, tools.New(r.cwd, profile.Vision))
-	} else if runner, err = r.createRunner(profile, store); err != nil {
+		build = r.buildRunner
+	}
+	runner, err := build(profile, store)
+	if err != nil {
 		_ = store.Close()
 		return opened{}, err
 	}

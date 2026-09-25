@@ -48,8 +48,6 @@ type Client struct {
 	modelID typedid.ModelID
 }
 
-func (c *Client) ModelID() typedid.ModelID { return c.modelID }
-
 // New builds the client for a resolved model.
 func New(spec Spec, readImage func(string) ([]byte, error)) (*Client, error) {
 	if strings.TrimSpace(spec.ModelID) == "" {
