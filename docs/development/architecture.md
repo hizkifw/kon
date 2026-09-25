@@ -38,15 +38,26 @@ kon owns orchestration, persistence, and compaction.
 ## CLI surface
 
 `cmd/kon` owns startup wiring and CLI metadata. Each subcommand lives in its own
-file (`docs.go`, `models.go`, `upgrade.go`) as a thin adapter: it parses its
-flags, resolves paths, and delegates the work to an `internal/` package that
-owns the logic (`docs/product`, `internal/catalog`, `internal/selfupdate`). Subcommands register in one table in
+file (`run.go`, `docs.go`, `models.go`, `upgrade.go`) as a thin adapter: it
+parses its flags, resolves paths, and delegates the work to an `internal/`
+package that owns the logic (`internal/headless`, `docs/product`,
+`internal/catalog`, `internal/selfupdate`). Subcommands register in one table in
 `cli.go`; the root `--help` index is rendered from that table, so a new command
 cannot be accepted without also being documented in help.
 
 The default command — the full-screen TUI in `session.go` — parses its flags by
 hand because `--resume` takes an optional value that the standard `flag` package
-cannot express. A leading flag always selects it, so `kon --resume docs` resumes
+cannot express. `kon run` parses by hand for the same reason, and stops at the
+first word of the message. Help is recognized only among leading flags, so a
+message that mentions `-h` is still sent. `kon run` is the one command with exit
+statuses beyond 1 (2 for usage, 130 for an interrupt), carried by `exitError`
+in `main.go`.
+
+`kon run` builds its runtime with `app.Start` options, which override the
+default model and effort without writing the config. `internal/headless` is a
+second frontend beside `internal/ui`. It turns agent events into streamed text
+or the JSON events documented in `docs/product/usage.md`, and that schema, not
+`agent.Event`, is the stable contract. A leading flag always selects it, so `kon --resume docs` resumes
 a session rather than invoking the `docs` command. Every subcommand supports
 `kon <command> --help`.
 

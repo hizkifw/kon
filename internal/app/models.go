@@ -183,9 +183,13 @@ func (r *Runtime) resolvedSpec(name string) (modelSpec, bool) {
 // including one saved before its catalog levels were known, falls back to the
 // provider default.
 func (r *Runtime) withEffort(spec modelSpec) modelSpec {
+	preferred := r.config.ReasoningEffort
+	if r.effort != "" {
+		preferred = r.effort
+	}
 	spec.effort = ""
-	if slices.Contains(spec.ReasoningEfforts, r.config.ReasoningEffort) {
-		spec.effort = r.config.ReasoningEffort
+	if slices.Contains(spec.ReasoningEfforts, preferred) {
+		spec.effort = preferred
 	}
 	return spec
 }

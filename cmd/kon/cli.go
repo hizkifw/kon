@@ -21,7 +21,7 @@ type command struct {
 // commands returns kon's subcommands in display order. The root help index and
 // lookup both read from here, so a new command only registers in one place.
 func commands() []command {
-	return []command{docsCommand(), modelsCommand(), upgradeCommand()}
+	return []command{runCommand(), docsCommand(), modelsCommand(), upgradeCommand()}
 }
 
 func lookup(name string) (command, bool) {
@@ -83,9 +83,14 @@ func run(args []string) error {
 
 // wantsHelp reports whether args requests the command's help. Handling help here
 // gives every command one help path and keeps it out of the flag parsers, where
-// the flag package would otherwise report "help requested" as an error.
+// the flag package would otherwise report "help requested" as an error. Only
+// flags count: the first plain word, or "--", starts arguments such as a
+// kon run message, which may itself mention -h.
 func wantsHelp(args []string) bool {
 	for _, arg := range args {
+		if arg == "--" || !strings.HasPrefix(arg, "-") {
+			return false
+		}
 		if arg == "-h" || arg == "--help" {
 			return true
 		}

@@ -42,8 +42,11 @@ const (
 )
 
 type Event struct {
-	Kind      EventKind
-	Text      string
+	Kind EventKind
+	Text string
+	// CallID identifies the tool call a tool event belongs to, so a consumer
+	// can pair each start with its output and result.
+	CallID    typedid.ToolCallID
 	Tool      string
 	Arguments string
 	IsError   bool
@@ -297,12 +300,12 @@ func (r *Runner) run(ctx context.Context, prompt string, emit func(Event)) error
 
 		for i, call := range calls {
 			arguments := string(call.Function.Arguments)
-			emit(Event{Kind: EventToolStart, Tool: call.Function.Name, Arguments: arguments})
+			emit(Event{Kind: EventToolStart, CallID: call.ID, Tool: call.Function.Name, Arguments: arguments})
 			// A long-running tool publishes live display snapshots; they are
 			// forwarded as coalescible events that replace the running call's
 			// presentation in the transcript.
 			report := func(d tools.Display) {
-				emit(Event{Kind: EventToolOutput, Tool: call.Function.Name, Arguments: arguments, Display: d})
+				emit(Event{Kind: EventToolOutput, CallID: call.ID, Tool: call.Function.Name, Arguments: arguments, Display: d})
 			}
 			result, isError := r.tools.Execute(ctx, call.Function.Name, call.Function.Arguments, report)
 			message := session.ToolResultMessage(call.ID, call.Function.Name, result.Content)
@@ -322,7 +325,7 @@ func (r *Runner) run(ctx context.Context, prompt string, emit func(Event)) error
 			// The done event carries the raw result; the transcript resolves
 			// the final display through the owning tool, which supersedes any
 			// live snapshots the call published.
-			emit(Event{Kind: EventToolDone, Tool: call.Function.Name, Arguments: arguments, Text: result.Content, IsError: isError, Details: result.Details})
+			emit(Event{Kind: EventToolDone, CallID: call.ID, Tool: call.Function.Name, Arguments: arguments, Text: result.Content, IsError: isError, Details: result.Details})
 			if ctx.Err() != nil {
 				if err := r.appendInterruptedToolResults(calls[i+1:]); err != nil {
 					return err

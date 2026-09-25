@@ -51,6 +51,69 @@ in `/new`.
 These are in-app commands. For the command-line surface, run `kon --help` to see
 the available subcommands; `kon <command> --help` prints the flags for one.
 
+## Scripting
+
+`kon run` sends one prompt in the current directory without the full-screen
+UI, and exits when the turn is done:
+
+```sh
+kon run "summarize what changed in this branch"
+git diff | kon run review this
+kon run --resume "now fix the first issue"
+```
+
+The message is the words after the flags. Flags must come first, and `--`
+ends them early, so a message may contain words that look like flags. When
+stdin is piped, it is appended to the message after a blank line, or is the
+whole message when there are no words. kon reads it to the end before sending
+anything, so a caller that leaves stdin open without writing to it should
+redirect it from `/dev/null`.
+
+Every assistant message streams to stdout as it is written, separated by blank
+lines. When stderr is a terminal, kon also prints one line per tool call and
+the resume hint there. A pipe or log file gets only the conversation.
+
+| Flag | Effect |
+| --- | --- |
+| `--model <name>` | Use this model for this run. `default_model` is not changed. |
+| `--effort <level>` | Use this reasoning effort for this run. It must be one of the model's levels. |
+| `--resume`, `-r` | Continue the most recent session in this directory. |
+| `--resume=<id>` | Continue a specific session. |
+| `--format text\|json` | Stream text (the default), or write one JSON event per line. |
+
+Each run is an ordinary session that you can resume later, in `kon run` or in
+the full-screen UI. It never writes `config.json`, and its prompts are not added
+to the Up-arrow history. A session that another kon has open cannot be
+continued: `kon run --resume` exits with an error instead of following it.
+
+Tools run without confirmation, exactly as they do in the full-screen UI. With
+nobody watching, give kon only work you would let it do unattended.
+
+Exit status is `0` when the turn completes, `1` on an error (including a model
+that is not configured or a provider failure), `2` on a usage error, and `130`
+when interrupted. A tool that fails does not fail the run; the model sees the
+failure and carries on. The first Ctrl+C (or SIGTERM) stops the turn and keeps
+what was written so far. A second Ctrl+C kills a command that ignored the
+first.
+
+### JSON events
+
+With `--format json`, stdout carries one JSON object per line. Each object has
+a `type`:
+
+| Type | Fields |
+| --- | --- |
+| `session` | `session_id`, `model`, `cwd`. Written first. |
+| `assistant` | `text`, `reasoning` when the model reasoned, and `partial: true` for a message cut off by an interrupt. |
+| `tool_start` | `call_id`, `tool`, `arguments` (the model's JSON arguments). |
+| `tool_done` | `call_id`, `tool`, `is_error`, `output` (what the model sees), `details` (tool-specific). |
+| `compacted` | `tokens_before`, `estimated`. |
+| `usage` | `context_tokens`, the context size the provider reported. |
+| `result` | `session_id`, `text` (the last assistant message), `error` when the run failed, `duration_ms`. Written last. |
+
+Events are whole messages, not streamed fragments. New fields and event types
+may be added, so ignore ones you do not recognize.
+
 ## Upgrading
 
 `kon upgrade` installs the latest GitHub release over the running executable.

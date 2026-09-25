@@ -72,12 +72,9 @@ func runSession(args []string) (runErr error) {
 	if err != nil {
 		return err
 	}
-	cwd, err := os.Getwd()
+	cwd, err := workingDirectory()
 	if err != nil {
-		return fmt.Errorf("get working directory: %w", err)
-	}
-	if canonical, canonicalErr := filepath.EvalSymlinks(cwd); canonicalErr == nil {
-		cwd = canonical
+		return err
 	}
 	historyStore := history.New(paths.History)
 	historyEntries, err := historyStore.Load()
@@ -115,6 +112,19 @@ func runSession(args []string) (runErr error) {
 		fmt.Fprintf(os.Stderr, "\nresume with: kon --resume %s\n", sessionID)
 	}
 	return errors.Join(uiErr, closeErr)
+}
+
+// workingDirectory is the directory sessions belong to. Symlinks are resolved
+// so one project reached by two paths shares its sessions.
+func workingDirectory() (string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("get working directory: %w", err)
+	}
+	if canonical, err := filepath.EvalSymlinks(cwd); err == nil {
+		cwd = canonical
+	}
+	return cwd, nil
 }
 
 func enterStorage(paths config.Paths) (*migrate.Guard, error) {

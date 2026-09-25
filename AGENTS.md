@@ -38,6 +38,7 @@ Each package owns one boundary. Do not reach across them.
 | --- | --- | --- |
 | `cmd/kon` | startup wiring and CLI metadata | business logic |
 | `internal/ui` | terminal state and presentation | HTTP or JSONL encoding |
+| `internal/headless` | `kon run` output: streamed text or JSON events, one run per process | terminal state or session policy |
 | `internal/app` | live runner/store lifecycle and model switching | terminal presentation |
 | `internal/agent` | model/tool loop and compaction policy | terminal rendering |
 | `internal/provider` | provider `Model` backends and durable-message conversion | session policy |

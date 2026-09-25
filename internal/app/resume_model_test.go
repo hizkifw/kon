@@ -3,7 +3,9 @@ package app
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/hizkifw/kon/internal/agent"
@@ -143,5 +145,59 @@ func TestCompactResolvesTheDerivedModelFirst(t *testing.T) {
 	}
 	if window := runtime.State().Active.ContextWindow; window <= 0 {
 		t.Fatalf("context window = %d after /compact, want the catalog's", window)
+	}
+}
+
+func TestPinnedModelOverridesTheRecordedOneWithoutSaving(t *testing.T) {
+	paths, cwd := resumePaths(t), t.TempDir()
+	id := sessionOnReview(t, paths, cwd)
+	saved, err := os.ReadFile(paths.ConfigFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runtime, err := Start(twoModels(), paths, cwd, "test", Options{Resume: true, SessionID: id, Model: "fast"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+	if state := runtime.State(); !state.Ready() || state.Active.Name != "fast" {
+		t.Fatalf("resumed on %q, want the pinned model", state.Active.Name)
+	}
+	// Answering on another model than the session recorded is a switch.
+	if got := modelChanges(runtime.SessionHistory()); len(got) != 3 || got[2] != "fast" {
+		t.Fatalf("model changes = %q", got)
+	}
+	if after, err := os.ReadFile(paths.ConfigFile); err != nil || string(after) != string(saved) {
+		t.Fatalf("pinning a model changed the config: %v", err)
+	}
+}
+
+func TestStartRejectsAnUnknownModel(t *testing.T) {
+	if _, err := Start(twoModels(), resumePaths(t), t.TempDir(), "test", Options{Model: "missing"}); err == nil {
+		t.Fatal("started on a model that is not configured")
+	}
+}
+
+func TestEffortOptionReplacesTheSavedEffort(t *testing.T) {
+	cfg := twoModels()
+	cfg.Models[0].ReasoningEfforts = []string{"low", "high"}
+	cfg.ReasoningEffort = "low"
+	runtime, err := Start(cfg, resumePaths(t), t.TempDir(), "test", Options{Effort: "high"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+	if got := runtime.State().Active.ReasoningEffort; got != "high" {
+		t.Fatalf("effort = %q, want the option's", got)
+	}
+}
+
+func TestEffortOptionMustBeALevelOfTheModel(t *testing.T) {
+	cfg := twoModels()
+	cfg.Models[0].ReasoningEfforts = []string{"low", "high"}
+	_, err := Start(cfg, resumePaths(t), t.TempDir(), "test", Options{Effort: "max"})
+	if err == nil || !strings.Contains(err.Error(), "low, high") {
+		t.Fatalf("error = %v, want the model's levels", err)
 	}
 }

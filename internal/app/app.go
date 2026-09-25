@@ -91,6 +91,12 @@ type Runtime struct {
 	runCancel  context.CancelFunc
 	runDone    chan struct{}
 
+	// pinned keeps the active model across a resume instead of restoring the
+	// session's recorded one, and effort, when set, replaces the saved
+	// effort. Both come from Options and are never written to the config.
+	pinned bool
+	effort string
+
 	createSession func() (*session.Store, error)
 	openSession   func(string) (*session.Store, error)
 	// createRunner puts a model to work in a store: it builds the runner and
@@ -131,23 +137,45 @@ func (m modelSpec) limits(compaction config.Compaction) agent.Limits {
 }
 
 func New(cfg config.Config, paths config.Paths, cwd, version string) (*Runtime, error) {
-	return start(cfg, paths, cwd, version, false, typedid.SessionID{})
+	return Start(cfg, paths, cwd, version, Options{})
 }
 
 // NewResumed starts a runtime already attached to an existing session for cwd,
 // if one exists. It is the entry point for the --resume flag.
 func NewResumed(cfg config.Config, paths config.Paths, cwd, version string) (*Runtime, error) {
-	return start(cfg, paths, cwd, version, true, typedid.SessionID{})
+	return Start(cfg, paths, cwd, version, Options{Resume: true})
 }
 
 // NewResumedID starts a runtime attached to a specific session ID. The named
 // session must already exist for cwd.
 func NewResumedID(cfg config.Config, paths config.Paths, cwd, version string, id typedid.SessionID) (*Runtime, error) {
-	return start(cfg, paths, cwd, version, true, id)
+	return Start(cfg, paths, cwd, version, Options{Resume: true, SessionID: id})
 }
 
-func start(cfg config.Config, paths config.Paths, cwd, version string, resume bool, id typedid.SessionID) (*Runtime, error) {
-	r := &Runtime{config: cfg, paths: paths, cwd: cwd, providerModels: loadProviderModels(paths.ProviderModels)}
+// Options choose how a runtime starts.
+type Options struct {
+	// Resume opens the session named by SessionID, or the newest one for cwd
+	// when it is zero. With no sessions at all a new one starts.
+	Resume    bool
+	SessionID typedid.SessionID
+	// Model and Effort replace the configured default model and saved
+	// reasoning effort for this runtime only, and are never written to the
+	// config. A resumed session switches to Model instead of restoring the one
+	// it recorded.
+	Model  string
+	Effort string
+}
+
+// Start builds a runtime on a new or resumed session.
+func Start(cfg config.Config, paths config.Paths, cwd, version string, opts Options) (*Runtime, error) {
+	name := cfg.DefaultModel
+	if opts.Model != "" {
+		if _, ok := cfg.ResolveModel(opts.Model); !ok {
+			return nil, fmt.Errorf("unknown model %q", opts.Model)
+		}
+		name = opts.Model
+	}
+	r := &Runtime{config: cfg, paths: paths, cwd: cwd, providerModels: loadProviderModels(paths.ProviderModels), pinned: opts.Model != "", effort: opts.Effort}
 	r.createSession = func() (*session.Store, error) {
 		prompt, err := r.systemPrompt()
 		if err != nil {
@@ -169,12 +197,12 @@ func start(cfg config.Config, paths config.Paths, cwd, version string, resume bo
 
 	// A derived model has no levels until its catalog entry resolves, so its
 	// saved effort is applied again by resolveActive.
-	r.active, _ = r.configuredSpec(cfg.DefaultModel)
+	r.active, _ = r.configuredSpec(name)
 
 	var target opened
 	var err error
-	if resume {
-		target, err = r.openTarget(id)
+	if opts.Resume {
+		target, err = r.openTarget(opts.SessionID)
 	} else {
 		target, err = r.prepareSession(r.active)
 	}
@@ -182,7 +210,33 @@ func start(cfg config.Config, paths config.Paths, cwd, version string, resume bo
 		return nil, err
 	}
 	r.install(target)
+	if opts.Effort != "" {
+		if err := r.checkEffort(opts.Effort); err != nil {
+			_ = r.Close()
+			return nil, err
+		}
+	}
 	return r, nil
+}
+
+// checkEffort refuses a requested effort the active model does not list,
+// rather than quietly running at the provider default. A derived model learns
+// its levels from the catalog, so asking for an effort waits for it to load.
+func (r *Runtime) checkEffort(effort string) error {
+	if r.phase != PhaseReady {
+		return nil
+	}
+	if err := r.resolveActive(); err != nil {
+		return err
+	}
+	if r.active.effort == effort {
+		return nil
+	}
+	levels := "none"
+	if len(r.active.ReasoningEfforts) > 0 {
+		levels = strings.Join(r.active.ReasoningEfforts, ", ")
+	}
+	return fmt.Errorf("model %q has no reasoning effort %q (levels: %s)", r.active.Name, effort, levels)
 }
 
 // buildRunner builds the runner for a model in a store without recording
@@ -597,9 +651,10 @@ func (r *Runtime) openStore(path string) (opened, error) {
 }
 
 // recordedProfile is the model a session last recorded, or the current model
-// when the session never recorded one or it no longer resolves.
+// when the session never recorded one, it no longer resolves, or Options
+// pinned the model.
 func (r *Runtime) recordedProfile(last *session.ModelSelection) modelSpec {
-	if last != nil {
+	if last != nil && !r.pinned {
 		if recorded, ok := r.configuredSpec(last.Name); ok {
 			return recorded
 		}

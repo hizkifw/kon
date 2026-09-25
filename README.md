@@ -51,6 +51,11 @@ migrations before opening the prompt. It waits for other kon instances to exit
 before changing shared files. Normal launches check a small version marker and
 do not scan sessions.
 
+`kon run <message>` sends one prompt without the full-screen UI and streams the
+reply to stdout, for scripts and pipelines: `git diff | kon run review this`.
+`--format json` writes one event per line instead. See
+[scripting](docs/product/usage.md#scripting).
+
 Run `kon docs` to extract the bundled product guide on demand and print its
 local directory. The files are ordinary Markdown, available offline. Each
 version gets its own directory, so renamed or removed pages from an older

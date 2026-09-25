@@ -308,11 +308,11 @@ source.
 
 ## Tier 3 — seams for what comes next
 
-- [ ] **Tool call IDs on agent events.** `agent.Event` carries no call ID
-  (`internal/agent/agent.go:44`), and the UI attaches live snapshots and results
-  to "the trailing tool block" (`internal/ui/transcript.go:176`); parallel tool
-  execution breaks that. Replay already keys on IDs (`callArgs`,
-  `internal/ui/events.go:104`).
+- [ ] **Tool call IDs on agent events.** Tool events now carry `CallID`, and
+  `kon run --format json` pairs starts with results by it. The UI still
+  attaches live snapshots and results to "the trailing tool block"
+  (`internal/ui/transcript.go:176`), so parallel tool execution would break it.
+  Replay already keys on IDs (`callArgs`, `internal/ui/events.go`).
 - [ ] **Replace `Tool.Interrupt`.** Every tool implements it (three no-ops),
   `Registry.InterruptAll` broadcasts, and `shellTool` has a single `running`
   slot. A per-call context plus a kill signal in `Env` is simpler and allows
@@ -324,9 +324,9 @@ source.
   now.
 - [ ] **Streaming tool-call events.** A large `write` shows nothing while its
   arguments stream.
-- [ ] **Headless frontend** (`kon -p`, JSON event stream). `app.Runtime` is
-  nearly UI-agnostic; keep `agent.Event` (which now also carries
-  `tools.Display`, `Details`, and `tokens.Count`) stable enough to serialize.
+- [x] **Headless frontend.** `kon run` in `internal/headless` streams text or
+  writes JSON events. The JSON schema in `docs/product/usage.md` is the
+  contract, not `agent.Event`, which can keep changing behind it.
 - [ ] **Keep blocking work off the Bubble Tea update loop.** All of these run
   synchronously in `Update`:
   - `Resume` scans session headers and parses the whole file;

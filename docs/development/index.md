@@ -31,6 +31,7 @@ XDG_CONFIG_HOME="$(mktemp -d)" XDG_DATA_HOME="$(mktemp -d)" go run ./cmd/kon
 | `cmd/kon` | startup wiring and CLI metadata | business logic |
 | `docs/product` | bundled user guide and on-demand extraction | terminal state or config mutation |
 | `internal/ui` | terminal state and presentation | HTTP or JSONL encoding |
+| `internal/headless` | `kon run` output: streamed text or JSON events, one run per process | terminal state or session policy |
 | `internal/app` | live runner/store lifecycle and model switching | terminal presentation |
 | `internal/agent` | model/tool loop and compaction policy | terminal rendering |
 | `internal/provider` | provider `Model` backends and durable-message conversion | session policy |
