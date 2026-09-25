@@ -17,6 +17,8 @@ make check        # formatting, vet, and shuffled unit tests — the pre-commit 
 make test-race    # race detector; separate because it needs CGO and is slower
 make build        # build bin/kon
 make smoke        # build and verify the CLI entry point
+make tag          # have kon tag the next release (BUMP=patch|minor|major)
+make commit       # have kon review, check, and commit the changes
 ```
 
 Run `make check` before considering any change done. Tests shuffle package test
@@ -80,11 +82,17 @@ no terminal state; the UI owns no provider or session serialization.
 
 ## Releases
 
-A release tag's message becomes the GitHub release notes, so tag it properly:
+A release tag's message becomes the GitHub release notes, so tag it properly.
+`make tag [BUMP=patch|minor|major]` has `kon run` follow these steps:
 
 1. Check both `git tag` and `git ls-remote --tags origin` and pick the next
    version that does not collide with either.
 2. Format the tag as semver with a `v` prefix, e.g. `v0.1.4`.
 3. Write the tag message as a summary of the changes between the previous
    tag and this one; `gh release create` in `.github/workflows/release.yml`
-   uses it as the release description.
+   uses it as the release description. Write it for kon's users, grouping
+   related commits, and create the tag with
+   `git tag -a --cleanup=whitespace -F <file>`: the default cleanup strips
+   every line starting with `#`, which drops Markdown headings.
+4. Do not push the tag. Pushing publishes the release, so leave that to a
+   person.
