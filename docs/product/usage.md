@@ -224,7 +224,8 @@ Ask the agent to use a subagent and it hands the task off: it runs `kon run
 "<task>"` as a background job. The system prompt tells it subagents exist but
 to use them only when you ask. The subagent works in the same directory with
 the same tools and model, in a session of its own that records the parent
-session, and its answer reaches the agent as the job's exit notice. In
+session. When it finishes, the exit notice quotes its whole final answer,
+while the job's output keeps its full turn log. In
 `/jobs`, a subagent's row previews its own conversation. Subagent sessions stay
 out of `--resume` and the `/resume` list, which belong to the sessions you
 started.

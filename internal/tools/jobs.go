@@ -23,6 +23,9 @@ const maxJobOutputBytes = 16 << 20
 // the model can usually react without reading the file first.
 const jobNoticeLines = 20
 
+// maxAnswerBytes bounds the subagent answer a notice quotes whole.
+const maxAnswerBytes = 64 << 10
+
 // Jobs supervises the background commands of one session. Each job is a
 // directory of plain files, so the agent (and a person in another terminal)
 // can list and inspect jobs with ordinary commands instead of a kon API:
@@ -32,6 +35,7 @@ const jobNoticeLines = 20
 //	<dir>/<id>/output  combined stdout and stderr, capped at maxJobOutputBytes
 //	<dir>/<id>/exit    the exit code, or why it stopped; absent while running
 //	<dir>/<id>/session the session of a kon run subagent, written by it
+//	<dir>/<id>/answer  a kon run subagent's final message, written by it
 //
 // A job is started by one kon process and dies with it: Close kills every job
 // still running, and a job directory left without an exit file by a kon that
@@ -264,12 +268,15 @@ func (j *Jobs) wait(id int, command string, cmd *exec.Cmd, start time.Time, pr, 
 	if closed || j.notify == nil {
 		return
 	}
-	j.notify(jobNotice(id, command, status, elapsed, filepath.Join(dir, "output")))
+	j.notify(jobNotice(id, command, status, elapsed, dir))
 }
 
 // jobNotice is the message the model receives when a job exits. It is framed
 // as coming from kon so the model does not mistake it for the user speaking.
-func jobNotice(id int, command, status string, elapsed time.Duration, output string) string {
+// A subagent's notice quotes its final answer whole; any other job's quotes
+// the last lines of its output.
+func jobNotice(id int, command, status string, elapsed time.Duration, dir string) string {
+	output := filepath.Join(dir, "output")
 	var outcome string
 	switch {
 	case status == "killed: stopped by user":
@@ -285,7 +292,12 @@ func jobNotice(id int, command, status string, elapsed time.Duration, output str
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "[kon notice] job %d %s after %s: %s\noutput: %s", id, outcome, elapsed, strings.ReplaceAll(command, "\n", "; "), output)
-	if tail := fileTail(output, jobNoticeLines); tail != "" {
+	if answer, err := os.ReadFile(filepath.Join(dir, "answer")); err == nil && len(answer) > 0 {
+		if len(answer) > maxAnswerBytes {
+			answer = []byte(strings.ToValidUTF8(string(answer[:maxAnswerBytes]), "") + "\n[kon: answer truncated, full text in answer file]")
+		}
+		fmt.Fprintf(&b, "\nsubagent answer:\n%s", answer)
+	} else if tail := fileTail(output, jobNoticeLines); tail != "" {
 		fmt.Fprintf(&b, "\nlast lines:\n%s", tail)
 	}
 	return b.String()

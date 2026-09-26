@@ -185,3 +185,26 @@ func TestUserKillIsNamedInTheNotice(t *testing.T) {
 		t.Fatalf("exit = %q", got)
 	}
 }
+
+func TestSubagentNoticeQuotesWholeAnswer(t *testing.T) {
+	dir := t.TempDir()
+	notices := make(chan string, 1)
+	jobs := NewJobs(dir, "ses_x", func(n string) { notices <- n })
+	defer jobs.Close()
+	// The turn log goes to output; the final message to the answer file.
+	command := `for i in $(seq 40); do echo "log line $i"; done; printf 'first line\nsecond line' > "$KON_JOB/answer"`
+	if _, _, err := jobs.Start(command, t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case notice := <-notices:
+		if !strings.HasSuffix(notice, "subagent answer:\nfirst line\nsecond line") || strings.Contains(notice, "last lines:") {
+			t.Fatalf("notice = %q", notice)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("no notice")
+	}
+	if tail := jobs.List()[0].Tail(1); tail != "log line 40" {
+		t.Fatalf("output tail = %q; the full log should stay in output", tail)
+	}
+}

@@ -98,6 +98,9 @@ IDs counting up from 1 per session:
   job whose kon exited without recording it.
 - `session`: a `kon run` subagent's own session ID, which it writes through
   the `KON_JOB` variable.
+- `answer`: a `kon run` subagent's final assistant message, written when its
+  turn completes. The exit notice quotes it whole, up to 64 KiB, instead of
+  the last lines of `output`, which keeps the full turn log.
 
 None of these are referenced from the JSONL; the shell tool result that
 started a job records `details.job`.

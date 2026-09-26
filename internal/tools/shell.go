@@ -88,7 +88,7 @@ type shellDetails struct {
 func (t *shellTool) Definition() session.ToolDefinition {
 	return session.ToolDefinition{
 		Name:        "shell",
-		Description: "Run a shell command in the current working directory, interpreted by " + shellName() + ". timeout is required: 1-600 seconds, command killed when it expires. timeout 0 runs it as a background job for servers, watchers, and long builds: returns at once, output goes to a file under $KON_JOBS, notice sent on exit.",
+		Description: "Run a shell command in the current working directory, interpreted by " + shellName() + ". timeout is required: 1-600 seconds, command killed when it expires. timeout 0 runs it as a background job for servers, watchers, and long builds: returns at once, output goes to a file under $KON_JOBS, and a notice arrives automatically on exit. Don't poll or sleep just to wait for it to finish; checking its output for something mid-run, like a server becoming ready, is fine.",
 		Parameters:  json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"},"timeout":{"type":"integer","minimum":0,"maximum":600,"description":"wall-clock seconds; 0 runs in background"}},"required":["command","timeout"],"additionalProperties":false}`),
 	}
 }
@@ -350,7 +350,7 @@ func startJob(env Env, command string) (Result, error) {
 	}
 	dir := filepath.Join(env.jobs.Dir(), strconv.Itoa(id))
 	details, _ := json.Marshal(shellDetails{Job: id})
-	content := fmt.Sprintf("background job %d started (pid %d)\noutput: %s\nnotice sent on exit. list jobs: ls $KON_JOBS (each has cmd, pid, output, exit when done). stop: %s",
+	content := fmt.Sprintf("background job %d started (pid %d)\noutput: %s\nnotice arrives automatically on exit, even after your turn ends: don't poll or sleep just to wait for it to finish (checking output for something mid-run, like a server becoming ready, is fine); end your turn if nothing else to do. list jobs: ls $KON_JOBS (each has cmd, pid, output, exit when done). stop: %s",
 		id, pid, filepath.Join(dir, "output"), killHint(pid))
 	return Result{Content: content, Details: details}, nil
 }

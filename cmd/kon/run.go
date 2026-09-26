@@ -15,6 +15,7 @@ import (
 	"github.com/hizkifw/kon/internal/buildinfo"
 	"github.com/hizkifw/kon/internal/config"
 	"github.com/hizkifw/kon/internal/headless"
+	"github.com/hizkifw/kon/internal/session"
 	"github.com/hizkifw/kon/internal/tools"
 	"github.com/hizkifw/kon/internal/typedid"
 )
@@ -189,6 +190,9 @@ func runRun(args []string) error {
 		ctx, stop := interruptible(runtime)
 		defer stop()
 		runErr := headless.Run(ctx, runtime, prompt, out)
+		if runErr == nil {
+			recordJobAnswer(runtime.SessionHistory())
+		}
 		closeErr := runtime.Close()
 		if ctx.Err() != nil {
 			return errors.Join(&exitError{code: 130}, closeErr)
@@ -216,6 +220,23 @@ func recordJobSession(id typedid.SessionID) {
 		return
 	}
 	_ = os.WriteFile(filepath.Join(dir, "session"), []byte(id.String()+"\n"), 0o600)
+}
+
+// recordJobAnswer writes this run's final assistant message into the
+// directory of the background job running it, so the parent's exit notice can
+// quote the answer whole rather than the tail of the full turn log. Outside a
+// job it does nothing.
+func recordJobAnswer(history []session.Entry) {
+	dir := os.Getenv("KON_JOB")
+	if dir == "" {
+		return
+	}
+	for i := len(history) - 1; i >= 0; i-- {
+		if message := history[i].Message; message != nil && message.Role == session.RoleAssistant && message.Text() != "" {
+			_ = os.WriteFile(filepath.Join(dir, "answer"), []byte(message.Text()), 0o600)
+			return
+		}
+	}
 }
 
 // interruptible cancels the run on the first interrupt or terminate signal,
