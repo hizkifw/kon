@@ -32,8 +32,12 @@ func TestCatalogLoginEntryOverridesOnlyExceptions(t *testing.T) {
 		{catalog.Provider{ID: "deepinfra", NPM: "@ai-sdk/deepinfra"}, "https://api.deepinfra.com/v1/openai", false},
 		// Azure endpoints are per resource, so login must ask for one.
 		{catalog.Provider{ID: "azure", NPM: "@ai-sdk/azure"}, "", true},
-		// OpenAI defines its format, whose default server needs no answer.
+		// OpenAI and Anthropic define their formats, whose default servers
+		// need no answer.
 		{catalog.Provider{ID: "openai", NPM: "@ai-sdk/openai"}, "", false},
+		{catalog.Provider{ID: "anthropic", NPM: "@ai-sdk/anthropic"}, "", false},
+		// A compatible service brings its own URL.
+		{catalog.Provider{ID: "minimax", NPM: "@ai-sdk/anthropic", API: "https://api.minimax.io/anthropic/v1"}, "https://api.minimax.io/anthropic/v1", false},
 	} {
 		login, ok := CatalogEntry(test.entry)
 		if !ok || login.Connection.BaseURL != test.url || login.AskURL != test.askURL {
@@ -41,7 +45,13 @@ func TestCatalogLoginEntryOverridesOnlyExceptions(t *testing.T) {
 		}
 	}
 	if _, ok := CatalogEntry(catalog.Provider{ID: "unknown", NPM: "@ai-sdk/anthropic"}); ok {
-		t.Fatal("unsupported wire format was accepted")
+		t.Fatal("a service without a URL leaned on Anthropic's server")
+	}
+	if login, _ := CatalogEntry(catalog.Provider{ID: "openai", NPM: "@ai-sdk/openai"}); login.Connection.Type != wire.OpenAIResponses {
+		t.Fatalf("openai logs in with %q, want Responses", login.Connection.Type)
+	}
+	if login, _ := CatalogEntry(catalog.Provider{ID: "anthropic", NPM: "@ai-sdk/anthropic"}); login.Connection.Type != wire.Anthropic {
+		t.Fatalf("anthropic logs in with %q", login.Connection.Type)
 	}
 }
 

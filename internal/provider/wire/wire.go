@@ -18,12 +18,14 @@ import (
 type Format string
 
 // Most formats below are dialects of OpenAI chat completions, differing in
-// defaults and in how reasoning is encoded. Anthropic is its own protocol.
+// defaults and in how reasoning is encoded. OpenAI Responses and Anthropic
+// are protocols of their own.
 const (
 	OpenAI           Format = "openai"
 	OpenAICompatible Format = "openai-compatible"
 	OpenRouter       Format = "openrouter"
 	Ollama           Format = "ollama"
+	OpenAIResponses  Format = "openai-responses"
 	Anthropic        Format = "anthropic"
 )
 
@@ -34,6 +36,8 @@ type Protocol string
 const (
 	// ChatCompletions is OpenAI's POST /chat/completions.
 	ChatCompletions Protocol = "chat_completions"
+	// Responses is OpenAI's POST /responses.
+	Responses Protocol = "responses"
 	// Messages is Anthropic's POST /messages.
 	Messages Protocol = "messages"
 )
@@ -73,7 +77,8 @@ var specs = map[Format]Spec{
 	Ollama:           {DefaultBaseURL: "http://localhost:11434", APIPath: "/v1", ReasoningField: "reasoning_content"},
 	// Anthropic-compatible services do not all list models; a bad key still
 	// fails the listing with 401 rather than 404.
-	Anthropic: {Protocol: Messages, DefaultBaseURL: "https://api.anthropic.com/v1", ListingOptional: true},
+	OpenAIResponses: {Protocol: Responses, DefaultBaseURL: "https://api.openai.com/v1"},
+	Anthropic:       {Protocol: Messages, DefaultBaseURL: "https://api.anthropic.com/v1", ListingOptional: true},
 }
 
 // AuthHeaders are the headers that carry an API key, and any the protocol

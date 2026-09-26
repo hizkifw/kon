@@ -97,6 +97,12 @@ wrote it needs to send the reply back as it arrived. For chat completions that i
 structured reasoning, kept verbatim because it can hold encrypted entries.
 Reasoning is replayed only to the model that wrote it.
 
+Parts carry their own `provider_options` too. The Messages backend stores a
+thinking block's `signature`, or a redacted block's opaque `redacted` payload,
+on its reasoning part. The Responses backend stores each output item verbatim
+as `item` on the part it produced, reasoning items with their encrypted
+content included.
+
 Tool results may include `is_error: true` and a tool-owned `details` object.
 Shell details record `exit_code`, `duration`, and `output_bytes` (the byte
 length of output before the model-facing status marker), or `job` alone for a

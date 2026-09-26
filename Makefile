@@ -66,16 +66,18 @@ release:
 	./scripts/release.sh "$(VERSION)"
 
 # kon itself tags the release, following the Releases section of AGENTS.md.
+# kon run appends piped stdin to its prompt, so both targets close stdin
+# rather than wait on whatever make inherited.
 tag:
 	go run ./cmd/kon run $(if $(MODEL),--model $(MODEL)) \
-	  "Tag the next $(BUMP) release of kon, following the Releases section of AGENTS.md. Do not push the tag."
+	  "Tag the next $(BUMP) release of kon, following the Releases section of AGENTS.md. Do not push the tag." </dev/null
 
 # kon reviews the changes, runs the checks, and commits them.
 # The guard and the run share one shell, so a clean tree really stops here.
 commit:
 	@if [ -z "$$(git status --porcelain)" ]; then echo "nothing to commit"; exit 0; fi; \
 	go run ./cmd/kon run $(if $(MODEL),--model $(MODEL)) \
-	  "Review the uncommitted changes, run make check, and if it passes commit the changes. Write the commit message in the style of recent commits. Do not push."
+	  "Review the uncommitted changes, run make check, and if it passes commit the changes. Write the commit message in the style of recent commits. Do not push." </dev/null
 
 clean:
 	rm -rf bin dist

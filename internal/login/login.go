@@ -30,6 +30,10 @@ type Entry struct {
 // These services have no usable fixed API URL in models.dev, or need a
 // different login flow. The normal path is the catalog's npm + api fields.
 var loginOverrides = map[string]config.Provider{
+	// OpenAI itself gets Responses: it is the API that carries reasoning
+	// across turns. Other services on the OpenAI package keep chat
+	// completions, which is what compatible servers implement.
+	"openai":    {Type: wire.OpenAIResponses},
 	"deepinfra": {Type: wire.OpenAICompatible, BaseURL: "https://api.deepinfra.com/v1/openai"},
 	"groq":      {Type: wire.OpenAICompatible, BaseURL: "https://api.groq.com/openai/v1"},
 	"cerebras":  {Type: wire.OpenAICompatible, BaseURL: "https://api.cerebras.ai/v1"},
@@ -81,7 +85,7 @@ func CatalogEntry(entry catalog.Provider) (Entry, bool) {
 		}
 		// Only the services that define a format may lean on its default
 		// server; any other service must bring its own URL.
-		if connection.BaseURL == "" && entry.ID != "openai" && entry.ID != "openrouter" {
+		if connection.BaseURL == "" && entry.ID != "openrouter" && entry.ID != "anthropic" {
 			return Entry{}, false
 		}
 	}

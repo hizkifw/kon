@@ -196,7 +196,14 @@ protocol, default base URL, API path, auth headers, reasoning-effort encoding,
 default reasoning field, and whether model listing is optional. Config
 validation, both backends, and login discovery all read that one table. The
 protocol picks the backend: `chat.go` for OpenAI Chat Completions and its
-dialects, `messages.go` for Anthropic's Messages API.
+dialects, `responses.go` for OpenAI Responses, and `messages.go` for
+Anthropic's Messages API.
+
+The Responses backend runs stateless (`store: false`) so the session file
+stays the source of truth. Each output item is kept verbatim in its part's
+`provider_options` and replayed byte for byte to the model that wrote it,
+which carries encrypted reasoning across turns and keeps the request prefix
+stable for the prompt cache. Another model's reasoning items are left out.
 
 The Messages backend replays thinking blocks unchanged with the signature
 stored in each reasoning part's `provider_options`, and marks two prompt cache
@@ -339,8 +346,8 @@ the compact `12.4k`/`1.0m` rendering, so every displayed figure matches.
 ## Dependency policy
 
 Direct dependencies are Bubble Tea, Bubbles, and Lip Gloss. The provider layer
-uses only the Go standard library: Chat Completions and Messages request
-bodies and SSE streams are parsed in-tree so token accounting and streaming stay exact and
+uses only the Go standard library: Chat Completions, Responses, and Messages
+request bodies and SSE streams are parsed in-tree so token accounting and streaming stay exact and
 inspected. JSON, typed-ID generation, files, subprocesses, and release
 cross-compilation also use the Go standard library. Dependencies are pinned in
 `go.mod` and authenticated by `go.sum`.
