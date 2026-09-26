@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/hizkifw/kon/internal/tools"
 )
 
 // busyModel is a test model with a run in flight.
@@ -209,5 +211,32 @@ func TestNoticeWhileIdleStartsARun(t *testing.T) {
 	}
 	if view := plain(m.View().Content); !strings.Contains(view, "⚙ 1") {
 		t.Fatalf("running jobs missing from the status line:\n%s", view)
+	}
+}
+
+func TestJobsPickerPreviewsAndKills(t *testing.T) {
+	m := newTestModel(t)
+	runtime := m.runtime.(*fakeRuntime)
+	updated, _ := m.listJobs(nil)
+	if got := updated.(Model); got.status != "no background jobs" {
+		t.Fatalf("status = %q", got.status)
+	}
+	runtime.jobList = []tools.Job{
+		{ID: 2, Command: "go test ./...", Output: "/nonexistent"},
+		{ID: 1, Command: "kon run \"audit\"", Exit: "0", Session: "not-a-session", Output: "/nonexistent"},
+	}
+	items := completeJobs(false)(m, "")
+	if len(items) != 2 || items[0].Label != "2 job · running" || items[1].Label != "1 subagent · exit 0" {
+		t.Fatalf("picker = %#v", items)
+	}
+	if preview := items[0].Preview(); preview == nil || !strings.Contains(plain(strings.Join(preview.linesFor(80), "\n")), "$ go test ./...") {
+		t.Fatal("job preview does not show its command")
+	}
+	if running := completeJobs(true)(m, ""); len(running) != 1 || running[0].Value != "2" {
+		t.Fatalf("kill picker = %#v", running)
+	}
+	updated, _ = m.killJob("2")
+	if got := updated.(Model); got.status != "stopped job 2" || len(runtime.killed) != 1 || runtime.killed[0] != 2 {
+		t.Fatalf("status = %q, killed = %v", got.status, runtime.killed)
 	}
 }

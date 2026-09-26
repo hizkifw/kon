@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -30,6 +31,7 @@ const jobNoticeLines = 20
 //	<dir>/<id>/pid     the process ID, which is also its process group ID
 //	<dir>/<id>/output  combined stdout and stderr, capped at maxJobOutputBytes
 //	<dir>/<id>/exit    the exit code, or why it stopped; absent while running
+//	<dir>/<id>/session the session of a kon run subagent, written by it
 //
 // A job is started by one kon process and dies with it: Close kills every job
 // still running, and a job directory left without an exit file by a kon that
@@ -76,12 +78,74 @@ func (j *Jobs) recover() {
 }
 
 // Env is the environment every shell command runs with, so a command can find
-// the jobs directory and a nested `kon run` its parent session.
+// the jobs directory and a nested `kon run` its parent session and depth.
 func (j *Jobs) Env() []string {
 	if j == nil {
 		return nil
 	}
-	return []string{"KON_JOBS=" + j.dir, "KON_SESSION=" + j.session}
+	return []string{"KON_JOBS=" + j.dir, "KON_SESSION=" + j.session, "KON_DEPTH=" + strconv.Itoa(Depth()+1)}
+}
+
+// Depth is how many kon agents this process runs beneath: 0 for one started
+// by a person, and one more for each kon run started from an agent's shell.
+func Depth() int {
+	depth, err := strconv.Atoi(os.Getenv("KON_DEPTH"))
+	if err != nil || depth < 0 {
+		return 0
+	}
+	return depth
+}
+
+// Job is one background job as its files describe it.
+type Job struct {
+	ID      int
+	Command string
+	// Exit is the content of the exit file, empty while the job runs.
+	Exit   string
+	Output string
+	// Session is the session of a kon run subagent, when the job is one.
+	Session string
+}
+
+// List reads every job of the session from its files, newest first.
+func (j *Jobs) List() []Job {
+	if j == nil {
+		return nil
+	}
+	entries, err := os.ReadDir(j.dir)
+	if err != nil {
+		return nil
+	}
+	var jobs []Job
+	for _, entry := range entries {
+		id, err := strconv.Atoi(entry.Name())
+		if err != nil || !entry.IsDir() {
+			continue
+		}
+		dir := filepath.Join(j.dir, entry.Name())
+		read := func(name string) string {
+			data, _ := os.ReadFile(filepath.Join(dir, name))
+			return strings.TrimSpace(string(data))
+		}
+		jobs = append(jobs, Job{ID: id, Command: read("cmd"), Exit: read("exit"), Output: filepath.Join(dir, "output"), Session: read("session")})
+	}
+	slices.SortFunc(jobs, func(a, b Job) int { return b.ID - a.ID })
+	return jobs
+}
+
+// Tail returns up to n trailing lines of a job's output.
+func (job Job) Tail(n int) string { return fileTail(job.Output, n) }
+
+// Kill stops a running job and everything it spawned. The agent still gets
+// the exit notice, so it learns the job was stopped.
+func (j *Jobs) Kill(id int) error {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	cmd, ok := j.running[id]
+	if !ok {
+		return fmt.Errorf("job %d is not running", id)
+	}
+	return killProcess(cmd)
 }
 
 // Dir is the directory holding one subdirectory per job.
@@ -120,7 +184,8 @@ func (j *Jobs) Start(command, cwd string) (int, int, error) {
 	backend := shellCommand()
 	cmd := exec.Command(backend.path, append(backend.args, command)...)
 	cmd.Dir = cwd
-	cmd.Env = append(os.Environ(), j.Env()...)
+	// KON_JOB lets a kon run subagent record its session beside the job.
+	cmd.Env = append(os.Environ(), append(j.Env(), "KON_JOB="+dir)...)
 	configureProcessGroup(cmd)
 	// As in the foreground shell, output goes through a pipe the job owns, so
 	// the cap applies and a grandchild holding the pipe cannot delay the exit

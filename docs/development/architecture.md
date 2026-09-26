@@ -340,7 +340,12 @@ the compact `12.4k`/`1.0m` rendering, so every displayed figure matches.
   closes, killing every job, before the store closes. Job state is plain files
   under `<session.jsonl>.jobs/`, so the agent inspects jobs with ordinary
   commands. An exit notice reaches the UI through `Runtime.Notices`; the UI
-  pushes it into the inbox during a run or starts a run with it when idle. Ctrl+C never interrupts;
+  pushes it into the inbox during a run or starts a run with it when idle.
+- A subagent is a background job running `kon run`; there is no subagent
+  concept in the agent loop. The shell exports `KON_SESSION`, `KON_JOBS`, and
+  an incremented `KON_DEPTH` to every command and `KON_JOB` to each job. `kon
+  run` records `KON_SESSION` as its session's parent, writes its session ID
+  into `KON_JOB`, and refuses to start past a fixed depth. Ctrl+C never interrupts;
   it clears the input, or hints at Ctrl+D to exit when the input is empty.
 
 ## Dependency policy

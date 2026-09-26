@@ -170,6 +170,9 @@ type Options struct {
 	// it recorded.
 	Model  string
 	Effort string
+	// Parent records the session that started this one as a subagent. It
+	// applies only to a new session.
+	Parent typedid.SessionID
 }
 
 // Start builds a runtime on a new or resumed session.
@@ -188,7 +191,7 @@ func Start(cfg config.Config, paths config.Paths, cwd, version string, opts Opti
 		if err != nil {
 			return nil, err
 		}
-		return session.New(paths.Sessions, cwd, version, prompt)
+		return session.NewChild(paths.Sessions, cwd, version, prompt, opts.Parent)
 	}
 	r.openSession = session.Open
 	r.createRunner = func(profile modelSpec, store *session.Store) (*agent.Runner, error) {
@@ -291,6 +294,37 @@ func (r *Runtime) closeStore(store *session.Store) error {
 // agent should hear about it: the frontend passes it on as steering while a
 // run is in flight, or starts a run with it when idle.
 func (r *Runtime) Notices() <-chan string { return r.notices }
+
+// Jobs lists the live session's background jobs, newest first.
+func (r *Runtime) Jobs() []tools.Job {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.store == nil {
+		return nil
+	}
+	return r.jobs[r.store].List()
+}
+
+// KillJob stops one of the live session's running jobs.
+func (r *Runtime) KillJob(id int) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	jobs, ok := r.jobs[r.store]
+	if r.store == nil || !ok {
+		return fmt.Errorf("job %d is not running", id)
+	}
+	return jobs.Kill(id)
+}
+
+// SubagentPreview returns the last maxTurns user turns of a subagent's
+// session, which runs in this workspace, for a read-only preview.
+func (r *Runtime) SubagentPreview(id typedid.SessionID, maxTurns int) ([]session.Entry, error) {
+	summary, err := session.Find(r.paths.Sessions, r.cwd, id)
+	if err != nil {
+		return nil, err
+	}
+	return session.TailEntries(summary.Path, maxTurns)
+}
 
 // RunningJobs reports how many of the live session's background jobs are
 // still running.

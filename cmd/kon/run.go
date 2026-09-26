@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/hizkifw/kon/internal/buildinfo"
 	"github.com/hizkifw/kon/internal/config"
 	"github.com/hizkifw/kon/internal/headless"
+	"github.com/hizkifw/kon/internal/tools"
 	"github.com/hizkifw/kon/internal/typedid"
 )
 
@@ -141,10 +143,18 @@ func (a runArgs) prompt(stdin io.Reader, piped bool) (string, error) {
 	return prompt, nil
 }
 
+// maxSubagentDepth is how deep kon run may nest beneath a person's own kon: a
+// subagent may delegate once more, and no further, so an agent that keeps
+// delegating cannot fork without bound.
+const maxSubagentDepth = 2
+
 func runRun(args []string) error {
 	parsed, err := parseRunArgs(args)
 	if err != nil {
 		return usageError(err)
+	}
+	if depth := tools.Depth(); depth > maxSubagentDepth {
+		return fmt.Errorf("subagents are nested %d deep, past the limit of %d; do this task directly", depth, maxSubagentDepth)
 	}
 	prompt, err := parsed.prompt(os.Stdin, !isTerminal(os.Stdin))
 	if err != nil {
@@ -165,11 +175,12 @@ func runRun(args []string) error {
 		}
 		runtime, err := app.Start(cfg, paths, cwd, buildinfo.Version(), app.Options{
 			Resume: parsed.resume, SessionID: parsed.resumeID, Model: parsed.model, Effort: parsed.effort,
+			Parent: parentSession(),
 		})
 		if err != nil {
 			return err
 		}
-		out := headless.Output{Format: parsed.format, Stdout: os.Stdout, CWD: cwd}
+		out := headless.Output{Format: parsed.format, Stdout: os.Stdout, CWD: cwd, Started: recordJobSession}
 		// Progress is for a person watching; a log or a pipe gets only the
 		// conversation.
 		if parsed.format == headless.FormatText && isTerminal(os.Stderr) {
@@ -184,6 +195,27 @@ func runRun(args []string) error {
 		}
 		return errors.Join(runErr, closeErr)
 	})
+}
+
+// parentSession is the session of the agent whose shell started this run, if
+// any; the shell tool exports it as KON_SESSION.
+func parentSession() typedid.SessionID {
+	id, err := typedid.ParseSessionID(os.Getenv("KON_SESSION"))
+	if err != nil {
+		return typedid.SessionID{}
+	}
+	return id
+}
+
+// recordJobSession writes this run's session into the directory of the
+// background job running it, which KON_JOB names, so the parent's job list
+// can show the subagent's conversation. Outside a job it does nothing.
+func recordJobSession(id typedid.SessionID) {
+	dir := os.Getenv("KON_JOB")
+	if dir == "" || id.IsZero() {
+		return
+	}
+	_ = os.WriteFile(filepath.Join(dir, "session"), []byte(id.String()+"\n"), 0o600)
 }
 
 // interruptible cancels the run on the first interrupt or terminate signal,

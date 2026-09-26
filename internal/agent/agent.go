@@ -190,6 +190,7 @@ Your output will be displayed in a terminal with a markdown renderer.
 `
 	prompt += "\nCurrent kon executable: " + executable
 	prompt += "\nFor questions about kon itself, run `kon docs` using the executable path above, then read the relevant bundled documentation before answering."
+	prompt += "\n\nFor a self-contained subtask that would fill your context with exploration, you can delegate to a subagent: run the executable above as `<kon> run \"<task>\"` in a background shell job. Give the task everything it needs, since the subagent starts with no memory of this conversation. It works in the same directory with the same tools, and its final answer is the job's output, which you receive when it exits. Independent subtasks can run as parallel jobs."
 
 	prompt += renderContextFiles(contextFiles)
 	prompt += "\nCurrent working directory: " + filepath.Clean(cwd)

@@ -250,6 +250,9 @@ type Header struct {
 	AppVersion string            `json:"app_version"`
 	Timestamp  time.Time         `json:"timestamp"`
 	CWD        string            `json:"cwd"`
+	// Parent is the session whose agent started this one as a subagent, with
+	// kon run from its shell. It is optional, so older readers ignore it.
+	Parent typedid.SessionID `json:"parent_session_id,omitzero"`
 }
 
 type Entry struct {
@@ -314,6 +317,12 @@ type sessionFile interface {
 }
 
 func New(root, cwd, appVersion, systemPrompt string) (*Store, error) {
+	return NewChild(root, cwd, appVersion, systemPrompt, typedid.SessionID{})
+}
+
+// NewChild creates a session that records parent as the session that started
+// it. A zero parent makes an ordinary session.
+func NewChild(root, cwd, appVersion, systemPrompt string, parent typedid.SessionID) (*Store, error) {
 	dir, err := directoryFor(root, cwd)
 	if err != nil {
 		return nil, err
@@ -346,7 +355,7 @@ func New(root, cwd, appVersion, systemPrompt string) (*Store, error) {
 		return nil, fmt.Errorf("create session: %w", err)
 	}
 	s := &Store{
-		header: Header{Type: "session", Version: SchemaVersion, ID: sessionID, AppVersion: appVersion, Timestamp: now, CWD: absCWD},
+		header: Header{Type: "session", Version: SchemaVersion, ID: sessionID, AppVersion: appVersion, Timestamp: now, CWD: absCWD, Parent: parent},
 		path:   path,
 		file:   f,
 		lock:   l,
@@ -654,6 +663,8 @@ type Summary struct {
 	// InUse reports that a kon process held the session open for writing when
 	// it was listed, including this one for its own live session.
 	InUse bool
+	// Parent is the session that started this one as a subagent, or zero.
+	Parent typedid.SessionID
 }
 
 // Discover lists every readable session recorded for cwd, newest first. The
@@ -710,10 +721,14 @@ func Latest(root, cwd string) (Summary, bool, error) {
 	if err != nil {
 		return Summary{}, false, err
 	}
-	if len(summaries) == 0 {
-		return Summary{}, false, nil
+	// A subagent's session is never the one to resume: it would otherwise win
+	// whenever the last thing the agent did was delegate.
+	for _, summary := range summaries {
+		if summary.Parent.IsZero() {
+			return summary, true, nil
+		}
 	}
-	return summaries[0], true, nil
+	return Summary{}, false, nil
 }
 
 // Find returns the session for cwd whose ID matches. Only the current working
@@ -787,7 +802,7 @@ func readSummary(path string) (Summary, error) {
 		// been discarded; ignore any that survived, e.g. a crash before close.
 		return Summary{}, errors.New("empty session")
 	}
-	return Summary{ID: header.ID, Path: path, CWD: header.CWD, CreatedAt: header.Timestamp, Title: title}, nil
+	return Summary{ID: header.ID, Path: path, CWD: header.CWD, CreatedAt: header.Timestamp, Title: title, Parent: header.Parent}, nil
 }
 
 // titleMaxRunes bounds a session title so a picker row stays one line.

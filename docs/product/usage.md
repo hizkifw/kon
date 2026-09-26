@@ -44,6 +44,8 @@ Type `/` at the start of the prompt to see the available commands.
 | `/login <provider>` | Connect and check a supported provider |
 | `/resume [id]` | List sessions for this directory, or switch to one |
 | `/compact` | Summarize older context now |
+| `/jobs [id]` | Pick a background job or subagent to preview, or show one's recent output |
+| `/kill <id>` | Stop a running background job |
 | `/queue [item\|clear]` | Pick a pending steer or queued message to pull back for editing, or drop them all |
 
 `/clear` is a hidden alias for `/new`: typing it works, and completing it fills
@@ -214,6 +216,20 @@ Jobs belong to the kon that started them. Quitting kon, `/new`, and `/resume`
 kill every job still running, and its `exit` file records why. A job whose kon
 crashed is marked lost the next time the session opens. `kon run` supports
 background jobs too, but they end when it exits.
+
+### Subagents
+
+The agent can hand a self-contained task to a subagent: it runs `kon run
+"<task>"` as a background job. The subagent works in the same directory with
+the same tools and model, in a session of its own that records the parent
+session, and its answer reaches the agent as the job's exit notice. In
+`/jobs`, a subagent's row previews its own conversation. Subagent sessions stay
+out of `--resume` and the `/resume` list, which belong to the sessions you
+started.
+
+A subagent may delegate once more and no further: `kon run` refuses to start
+more than two levels below the kon you are using, which it tracks with
+`KON_DEPTH`.
 
 There is no sandbox or confirmation prompt, and shell commands inherit your
 environment. Run kon with the same care you would give any coding agent.

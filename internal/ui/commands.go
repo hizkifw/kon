@@ -285,6 +285,29 @@ func defaultRegistry() *registry {
 		},
 	})
 	registry.register(slashCommand{
+		name:    "jobs",
+		summary: "list background jobs and subagents, or show one's output",
+		arguments: []argument{{
+			name:     "id",
+			optional: true,
+			complete: completeJobs(false),
+		}},
+		run: func(m Model, args []string) (tea.Model, tea.Cmd) {
+			return m.listJobs(args)
+		},
+	})
+	registry.register(slashCommand{
+		name:    "kill",
+		summary: "stop a running background job",
+		arguments: []argument{{
+			name:     "id",
+			complete: completeJobs(true),
+		}},
+		run: func(m Model, args []string) (tea.Model, tea.Cmd) {
+			return m.killJob(args[0])
+		},
+	})
+	registry.register(slashCommand{
 		name:    "queue",
 		summary: "edit or drop pending steer and queued messages",
 		arguments: []argument{{
@@ -439,7 +462,9 @@ func completeSessionIDs(m Model, prefix string) []menuItem {
 	var candidates []menuItem
 	for _, summary := range summaries {
 		id := summary.ID.String()
-		if !strings.HasPrefix(id, prefix) {
+		// Subagent sessions belong to the session that started them; /jobs
+		// shows them there.
+		if !strings.HasPrefix(id, prefix) || !summary.Parent.IsZero() {
 			continue
 		}
 		description := summary.CreatedAt.Local().Format("2006-01-02 15:04")
@@ -541,6 +566,9 @@ func (m Model) listSessions() (tea.Model, tea.Cmd) {
 	}
 	lines := make([]string, 0, len(summaries))
 	for _, summary := range summaries {
+		if !summary.Parent.IsZero() {
+			continue
+		}
 		marker := "  "
 		if summary.ID.String() == current {
 			marker = "* "

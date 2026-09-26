@@ -50,6 +50,8 @@ type fakeRuntime struct {
 	runs    atomic.Int32
 	notices chan string
 	jobs    int
+	jobList []tools.Job
+	killed  []int
 }
 
 func (f *fakeRuntime) Models() []app.Model { return f.models }
@@ -69,6 +71,14 @@ func (f *fakeRuntime) Notices() <-chan string {
 	return f.notices
 }
 func (f *fakeRuntime) RunningJobs() int  { return f.jobs }
+func (f *fakeRuntime) Jobs() []tools.Job { return f.jobList }
+func (f *fakeRuntime) KillJob(id int) error {
+	f.killed = append(f.killed, id)
+	return nil
+}
+func (f *fakeRuntime) SubagentPreview(typedid.SessionID, int) ([]session.Entry, error) {
+	return f.previewEntries, f.previewErr
+}
 func (f *fakeRuntime) NewSession() error { return nil }
 func (f *fakeRuntime) Login(_ context.Context, provider config.Provider) (int, bool, error) {
 	f.loginProvider = provider
@@ -639,7 +649,12 @@ func TestModelPickerShowsDisplayNameAndKeepsQualifiedValue(t *testing.T) {
 func TestRegistryCompletesAllCommandsOnBareSlash(t *testing.T) {
 	m := newTestModel(t)
 	got := m.commands.completion(m, "/")
-	if len(got) != 6 || got[0].Value != "/new" || got[1].Value != "/model" || got[2].Value != "/login" || got[3].Value != "/resume" || got[4].Value != "/compact" || got[5].Value != "/queue" {
+	want := []string{"/new", "/model", "/login", "/resume", "/compact", "/jobs", "/kill", "/queue"}
+	values := make([]string, 0, len(got))
+	for _, item := range got {
+		values = append(values, item.Value)
+	}
+	if strings.Join(values, " ") != strings.Join(want, " ") {
 		t.Fatalf("bare slash completion = %#v", got)
 	}
 }
@@ -751,7 +766,7 @@ func TestMenuPopupAppearsOnLeadingSlashAndClears(t *testing.T) {
 	m := newTestModel(t)
 	typed, _ := m.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
 	m = typed.(Model)
-	if !m.menu.open() || len(m.menu.items) != 6 {
+	if !m.menu.open() || len(m.menu.items) != 8 {
 		t.Fatalf("popup did not open on slash: %#v", m.menu)
 	}
 	// Typing ordinary text mid-prompt closes the popup and offers nothing.

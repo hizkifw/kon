@@ -55,6 +55,11 @@ type Runtime interface {
 	// exiting; RunningJobs counts the live session's running jobs.
 	Notices() <-chan string
 	RunningJobs() int
+	// Jobs lists the session's background jobs, KillJob stops one, and
+	// SubagentPreview reads the tail of a subagent job's own session.
+	Jobs() []tools.Job
+	KillJob(id int) error
+	SubagentPreview(id typedid.SessionID, maxTurns int) ([]session.Entry, error)
 	// ContextUsage reports the last provider-reported context size and whether it
 	// is known, so a resumed session can show it instead of an unknown value.
 	ContextUsage() (tokens.Count, bool)

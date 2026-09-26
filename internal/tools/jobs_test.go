@@ -134,3 +134,29 @@ func TestCappedWriterMarksTruncation(t *testing.T) {
 		t.Fatalf("output = %q", got)
 	}
 }
+
+func TestJobsExportDepthAndJobDirectory(t *testing.T) {
+	t.Setenv("KON_DEPTH", "1")
+	dir := t.TempDir()
+	exited := make(chan string, 1)
+	jobs := NewJobs(dir, "ses_x", func(n string) { exited <- n })
+	defer jobs.Close()
+	if env := strings.Join(jobs.Env(), " "); !strings.Contains(env, "KON_DEPTH=2") {
+		t.Fatalf("env = %s", env)
+	}
+	if _, _, err := jobs.Start(`printf '%s %s' "$KON_DEPTH" "$KON_JOB" > "$KON_JOB/session"`, t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-exited:
+	case <-time.After(5 * time.Second):
+		t.Fatal("job did not exit")
+	}
+	list := jobs.List()
+	if len(list) != 1 || list[0].Session != "2 "+filepath.Join(dir, "1") || list[0].Exit != "0" {
+		t.Fatalf("jobs = %#v", list)
+	}
+	if err := jobs.Kill(1); err == nil {
+		t.Fatal("killed a job that is not running")
+	}
+}

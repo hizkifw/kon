@@ -9,6 +9,10 @@ object. The first line is a header; later lines form an append-only tree.
 {"type":"session","version":4,"id":"ses_7Yk2mP9Qa4Zx8Vc1Nd6R","app_version":"v0.1.0","timestamp":"2026-09-21T08:00:00Z","cwd":"/work/project"}
 ```
 
+A session started by `kon run` from an agent's shell, a subagent, also records
+`parent_session_id`, the session that started it. The field is optional and
+additive, so it does not change the schema version.
+
 The schema version governs the file representation. Readers accept only version
 4. The startup migration converts version 1 sessions written by kon v0.1.1 to
 version 4 before a reader opens them. Versions 2 and 3 are not migrated.
@@ -85,7 +89,8 @@ carry no image part.
 Background shell jobs keep their files in `<session.jsonl>.jobs/<id>/`, with
 IDs counting up from 1 per session: `cmd` (the command), `pid` (the process,
 which leads its own process group on Unix), `output` (combined output, capped
-at 16 MiB), and `exit`, written when the job ends. `exit` holds the exit code,
+at 16 MiB), `exit`, written when the job ends, and `session`, which a `kon run`
+subagent writes with its own session ID through the `KON_JOB` variable. `exit` holds the exit code,
 or a reason such as `killed: kon exited` or `lost: …` for a job whose kon
 exited without recording it. None of these are referenced from the JSONL; the
 shell tool result that started a job records `details.job`.

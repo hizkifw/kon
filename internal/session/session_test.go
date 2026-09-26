@@ -1010,3 +1010,35 @@ func TestImagePartRoundTripsThroughPersistence(t *testing.T) {
 		t.Fatal("invalid image hash was accepted")
 	}
 }
+
+func TestSubagentSessionRecordsParentAndIsNotLatest(t *testing.T) {
+	root, cwd := t.TempDir(), t.TempDir()
+	parent, err := New(root, cwd, "test", "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := parent.AppendMessage(TextMessage(RoleUser, "parent task")); err != nil {
+		t.Fatal(err)
+	}
+	if err := parent.Close(); err != nil {
+		t.Fatal(err)
+	}
+	child, err := NewChild(root, cwd, "test", "system", parent.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := child.AppendMessage(TextMessage(RoleUser, "subtask")); err != nil {
+		t.Fatal(err)
+	}
+	if err := child.Close(); err != nil {
+		t.Fatal(err)
+	}
+	found, err := Find(root, cwd, child.ID())
+	if err != nil || found.Parent != parent.ID() {
+		t.Fatalf("child summary = %#v, %v", found, err)
+	}
+	latest, ok, err := Latest(root, cwd)
+	if err != nil || !ok || latest.ID != parent.ID() {
+		t.Fatalf("latest = %s, %v, %v; want the parent, not the newer subagent", latest.ID, ok, err)
+	}
+}

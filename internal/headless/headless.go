@@ -44,6 +44,9 @@ type Output struct {
 	Progress io.Writer
 	// CWD shortens paths in tool summaries.
 	CWD string
+	// Started, when set, receives the session ID once the session has its
+	// first message and so an ID that will persist.
+	Started func(typedid.SessionID)
 }
 
 // Run sends one prompt and writes the run's output as it happens. The error
@@ -60,8 +63,19 @@ func Run(ctx context.Context, runtime Runtime, prompt string, out Output) error 
 		return fmt.Errorf("unknown format %q", out.Format)
 	}
 	start := time.Now()
+	emit := w.event
+	if out.Started != nil {
+		started := false
+		emit = func(e agent.Event) {
+			if !started {
+				started = true
+				out.Started(runtime.SessionID())
+			}
+			w.event(e)
+		}
+	}
 	// Nobody can steer a headless run, so it has no inbox.
-	err := runtime.Run(ctx, prompt, nil, w.event)
+	err := runtime.Run(ctx, prompt, nil, emit)
 	if finishErr := w.finish(runtime.SessionID(), err, time.Since(start)); finishErr != nil && err == nil {
 		err = finishErr
 	}
