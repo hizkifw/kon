@@ -154,7 +154,7 @@ func runRun(args []string) error {
 		return usageError(err)
 	}
 	if depth := tools.Depth(); depth > maxSubagentDepth {
-		return fmt.Errorf("subagents are nested %d deep, past the limit of %d; do this task directly", depth, maxSubagentDepth)
+		return fmt.Errorf("subagents nested %d deep, past limit of %d; do task directly", depth, maxSubagentDepth)
 	}
 	prompt, err := parsed.prompt(os.Stdin, !isTerminal(os.Stdin))
 	if err != nil {

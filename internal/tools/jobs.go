@@ -44,15 +44,18 @@ type Jobs struct {
 	mu      sync.Mutex
 	next    int
 	running map[int]*exec.Cmd
-	closed  bool
-	wg      sync.WaitGroup
+	// userKilled marks jobs the user stopped, so the notice can say so: a
+	// model told only that a job died by a signal assumes it crashed.
+	userKilled map[int]bool
+	closed     bool
+	wg         sync.WaitGroup
 }
 
 // NewJobs supervises jobs under dir for the session with the given ID. notify
 // receives a notice for the model whenever a job exits on its own; it is
 // called from the job's goroutine and must not block.
 func NewJobs(dir, session string, notify func(string)) *Jobs {
-	j := &Jobs{dir: dir, session: session, notify: notify, next: 1, running: map[int]*exec.Cmd{}}
+	j := &Jobs{dir: dir, session: session, notify: notify, next: 1, running: map[int]*exec.Cmd{}, userKilled: map[int]bool{}}
 	j.recover()
 	return j
 }
@@ -72,7 +75,7 @@ func (j *Jobs) recover() {
 		j.next = max(j.next, id+1)
 		exit := filepath.Join(j.dir, entry.Name(), "exit")
 		if _, err := os.Stat(exit); errors.Is(err, os.ErrNotExist) {
-			_ = os.WriteFile(exit, []byte("lost: kon exited while it was running\n"), 0o600)
+			_ = os.WriteFile(exit, []byte("lost: kon exited while running\n"), 0o600)
 		}
 	}
 }
@@ -136,8 +139,8 @@ func (j *Jobs) List() []Job {
 // Tail returns up to n trailing lines of a job's output.
 func (job Job) Tail(n int) string { return fileTail(job.Output, n) }
 
-// Kill stops a running job and everything it spawned. The agent still gets
-// the exit notice, so it learns the job was stopped.
+// Kill stops a running job and everything it spawned, on the user's behalf.
+// The agent still gets the exit notice, which says the user stopped it.
 func (j *Jobs) Kill(id int) error {
 	j.mu.Lock()
 	defer j.mu.Unlock()
@@ -145,7 +148,11 @@ func (j *Jobs) Kill(id int) error {
 	if !ok {
 		return fmt.Errorf("job %d is not running", id)
 	}
-	return killProcess(cmd)
+	if err := killProcess(cmd); err != nil {
+		return err
+	}
+	j.userKilled[id] = true
+	return nil
 }
 
 // Dir is the directory holding one subdirectory per job.
@@ -244,10 +251,14 @@ func (j *Jobs) wait(id int, command string, cmd *exec.Cmd, start time.Time, pr, 
 	dir := filepath.Join(j.dir, strconv.Itoa(id))
 	j.mu.Lock()
 	delete(j.running, id)
-	closed := j.closed
+	closed, userKilled := j.closed, j.userKilled[id]
+	delete(j.userKilled, id)
 	j.mu.Unlock()
-	if closed {
+	switch {
+	case closed:
 		status = "killed: kon exited"
+	case userKilled:
+		status = "killed: stopped by user"
 	}
 	_ = os.WriteFile(filepath.Join(dir, "exit"), []byte(status+"\n"), 0o600)
 	if closed || j.notify == nil {
@@ -259,14 +270,23 @@ func (j *Jobs) wait(id int, command string, cmd *exec.Cmd, start time.Time, pr, 
 // jobNotice is the message the model receives when a job exits. It is framed
 // as coming from kon so the model does not mistake it for the user speaking.
 func jobNotice(id int, command, status string, elapsed time.Duration, output string) string {
-	outcome := "exited with code " + status
-	if _, err := strconv.Atoi(status); err != nil {
-		outcome = "stopped (" + status + ")"
+	var outcome string
+	switch {
+	case status == "killed: stopped by user":
+		outcome = "stopped by user"
+	case strings.HasPrefix(status, "signal: "):
+		outcome = "ended by " + status
+	default:
+		if _, err := strconv.Atoi(status); err == nil {
+			outcome = "exited with code " + status
+		} else {
+			outcome = "stopped (" + status + ")"
+		}
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "[kon notice] Background job %d %s after %s: %s\nOutput: %s", id, outcome, elapsed, strings.ReplaceAll(command, "\n", "; "), output)
+	fmt.Fprintf(&b, "[kon notice] job %d %s after %s: %s\noutput: %s", id, outcome, elapsed, strings.ReplaceAll(command, "\n", "; "), output)
 	if tail := fileTail(output, jobNoticeLines); tail != "" {
-		fmt.Fprintf(&b, "\nLast lines:\n%s", tail)
+		fmt.Fprintf(&b, "\nlast lines:\n%s", tail)
 	}
 	return b.String()
 }
@@ -327,7 +347,7 @@ func (c *cappedWriter) Write(p []byte) (int, error) {
 	}
 	if c.written >= c.limit && !c.capped {
 		c.capped = true
-		_, _ = io.WriteString(c.w, "\n[kon: output truncated; the job keeps running]\n")
+		_, _ = io.WriteString(c.w, "\n[kon: output truncated, job still running]\n")
 	}
 	return len(p), nil
 }

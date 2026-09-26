@@ -190,7 +190,7 @@ func TestPendingStripKeepsTranscriptHeight(t *testing.T) {
 
 func TestNoticeWhileBusyWaitsInInboxOutOfSight(t *testing.T) {
 	m := busyModel(t)
-	updated, _ := m.deliverNotice("[kon notice] Background job 1 exited with code 0")
+	updated, _ := m.deliverNotice("[kon notice] job 1 exited with code 0")
 	m = updated.(Model)
 	if len(m.steering) != 0 || m.pendingHeight() != 0 {
 		t.Fatalf("a notice shows as steering: %q", m.steering)
@@ -204,9 +204,9 @@ func TestNoticeWhileBusyWaitsInInboxOutOfSight(t *testing.T) {
 func TestNoticeWhileIdleStartsARun(t *testing.T) {
 	m := newTestModel(t)
 	m.runtime.(*fakeRuntime).jobs = 1
-	updated, _ := m.deliverNotice("[kon notice] Background job 1 exited with code 1")
+	updated, _ := m.deliverNotice("[kon notice] job 1 exited with code 1")
 	m = updated.(Model)
-	if !m.busy || !strings.Contains(plain(m.viewport.View()), "Background job 1 exited") {
+	if !m.busy || !strings.Contains(plain(m.viewport.View()), "job 1 exited") {
 		t.Fatalf("idle notice did not start a run: busy = %v", m.busy)
 	}
 	if view := plain(m.View().Content); !strings.Contains(view, "⚙ 1") {

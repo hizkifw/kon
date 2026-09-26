@@ -20,8 +20,8 @@ import (
 const (
 	maxOutputBytes = 64 * 1024
 	// maxShellTimeout caps the timeout the model may request for a shell
-	// command. Every foreground command must carry one; a command meant to
-	// outlive it runs as a background job instead.
+	// command. Every command must carry one; a timeout of 0 runs the command
+	// as a background job, which has none.
 	maxShellTimeout = 600 * time.Second
 )
 
@@ -88,8 +88,8 @@ type shellDetails struct {
 func (t *shellTool) Definition() session.ToolDefinition {
 	return session.ToolDefinition{
 		Name:        "shell",
-		Description: "Run a shell command in the current working directory, interpreted by " + shellName() + ". A foreground command must specify a timeout in whole seconds (1-600) and is killed when it expires. Set background for servers, watchers, and long builds: the call returns at once, output goes to a file under $KON_JOBS, and kon sends a notice when the command exits.",
-		Parameters:  json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"},"timeout":{"type":"integer","minimum":1,"maximum":600,"description":"maximum wall-clock seconds a foreground command may run"},"background":{"type":"boolean","description":"run as a background job with no timeout"}},"required":["command"],"additionalProperties":false}`),
+		Description: "Run a shell command in the current working directory, interpreted by " + shellName() + ". timeout is required: 1-600 seconds, command killed when it expires. timeout 0 runs it as a background job for servers, watchers, and long builds: returns at once, output goes to a file under $KON_JOBS, notice sent on exit.",
+		Parameters:  json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"},"timeout":{"type":"integer","minimum":0,"maximum":600,"description":"wall-clock seconds; 0 runs in background"}},"required":["command","timeout"],"additionalProperties":false}`),
 	}
 }
 
@@ -204,9 +204,10 @@ func splitResult(text string) (output, exit, took string, hasExit bool) {
 
 func (t *shellTool) Run(ctx context.Context, env Env, raw json.RawMessage) (Result, error) {
 	var args struct {
-		Command    string `json:"command"`
-		Timeout    int    `json:"timeout"`
-		Background bool   `json:"background"`
+		Command string `json:"command"`
+		// Timeout is a pointer so a missing timeout is an error rather than
+		// a background job the model never asked for.
+		Timeout *int `json:"timeout"`
 	}
 	if err := decodeArgs(raw, &args); err != nil {
 		return Result{}, err
@@ -214,16 +215,15 @@ func (t *shellTool) Run(ctx context.Context, env Env, raw json.RawMessage) (Resu
 	if strings.TrimSpace(args.Command) == "" {
 		return Result{}, errors.New("command must not be empty")
 	}
-	if args.Background {
+	switch {
+	case args.Timeout == nil || *args.Timeout < 0:
+		return Result{}, fmt.Errorf("timeout required: 1-%d seconds, or 0 to run in background", int(maxShellTimeout/time.Second))
+	case *args.Timeout == 0:
 		return startJob(env, args.Command)
-	}
-	if args.Timeout <= 0 {
-		return Result{}, fmt.Errorf("timeout is required: specify whole seconds between 1 and %d; commands without a timeout are not supported", int(maxShellTimeout/time.Second))
-	}
-	if time.Duration(args.Timeout)*time.Second > maxShellTimeout {
+	case time.Duration(*args.Timeout)*time.Second > maxShellTimeout:
 		return Result{}, fmt.Errorf("timeout must be at most %d seconds", int(maxShellTimeout/time.Second))
 	}
-	timeout := time.Duration(args.Timeout) * time.Second
+	timeout := time.Duration(*args.Timeout) * time.Second
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	backend := shellCommand()
@@ -342,7 +342,7 @@ func (t *shellTool) Run(ctx context.Context, env Env, raw json.RawMessage) (Resu
 // even long after this call has scrolled out of its attention.
 func startJob(env Env, command string) (Result, error) {
 	if env.jobs == nil {
-		return Result{}, errors.New("background jobs are not available in this session")
+		return Result{}, errors.New("background jobs not available in this session")
 	}
 	id, pid, err := env.jobs.Start(command, env.cwd)
 	if err != nil {
@@ -350,7 +350,7 @@ func startJob(env Env, command string) (Result, error) {
 	}
 	dir := filepath.Join(env.jobs.Dir(), strconv.Itoa(id))
 	details, _ := json.Marshal(shellDetails{Job: id})
-	content := fmt.Sprintf("Started background job %d (pid %d).\nOutput: %s\nkon sends a notice when it exits. List jobs with `ls $KON_JOBS` (each has cmd, pid, output, and exit once finished); stop this one with `%s`.",
+	content := fmt.Sprintf("background job %d started (pid %d)\noutput: %s\nnotice sent on exit. list jobs: ls $KON_JOBS (each has cmd, pid, output, exit when done). stop: %s",
 		id, pid, filepath.Join(dir, "output"), killHint(pid))
 	return Result{Content: content, Details: details}, nil
 }

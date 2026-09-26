@@ -454,7 +454,7 @@ func (m *messagesModel) stream(ctx context.Context, payload messagesRequest, emi
 		return Response{}, err
 	}
 	if result.Finish == "refusal" && result.Text() == "" && len(result.ToolCalls()) == 0 {
-		return Response{}, errors.New("the model declined to respond (stop reason: refusal)")
+		return Response{}, errors.New("model declined to respond (reason: refusal)")
 	}
 	return result, nil
 }

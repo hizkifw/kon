@@ -45,7 +45,7 @@ Type `/` at the start of the prompt to see the available commands.
 | `/resume [id]` | List sessions for this directory, or switch to one |
 | `/compact` | Summarize older context now |
 | `/jobs [id]` | Pick a background job or subagent to preview, or show one's recent output |
-| `/kill <id>` | Stop a running background job |
+| `/kill <id>` | Stop a running background job; the agent is told you stopped it |
 | `/queue [item\|clear]` | Pick a pending steer or queued message to pull back for editing, or drop them all |
 
 `/clear` is a hidden alias for `/new`: typing it works, and completing it fills
@@ -193,14 +193,15 @@ Tool calls run serially in the directory where kon was started:
 - `edit` replaces exactly one occurrence and fails on zero or multiple matches.
 - `shell` runs a command through your configured `$SHELL`, falling back to
   `/bin/sh` when it is unset or missing. On Windows it uses Git Bash when
-  available, then PowerShell, then `cmd.exe`. A foreground command carries a
-  model-specified timeout, capped at 600 seconds, and the tool description tells
-  the model which interpreter it is.
+  available, then PowerShell, then `cmd.exe`. Every command carries a
+  model-specified timeout, capped at 600 seconds; a timeout of 0 starts it as
+  a background job instead. The tool description tells the model which
+  interpreter it is.
 
 ### Background jobs
 
 For servers, watchers, and long builds, the model can start a shell command as
-a background job. The call returns at once and the job keeps running. The
+a background job, by giving it a timeout of 0. The call returns at once and the job keeps running. The
 status bar shows `⚙ N` while jobs run, and when a job exits kon tells the
 agent, quoting the job's last lines of output: at its next step if it is
 working, or by starting a turn if it is idle.
@@ -219,8 +220,9 @@ background jobs too, but they end when it exits.
 
 ### Subagents
 
-The agent can hand a self-contained task to a subagent: it runs `kon run
-"<task>"` as a background job. The subagent works in the same directory with
+Ask the agent to use a subagent and it hands the task off: it runs `kon run
+"<task>"` as a background job. The system prompt tells it subagents exist but
+to use them only when you ask. The subagent works in the same directory with
 the same tools and model, in a session of its own that records the parent
 session, and its answer reaches the agent as the job's exit notice. In
 `/jobs`, a subagent's row previews its own conversation. Subagent sessions stay

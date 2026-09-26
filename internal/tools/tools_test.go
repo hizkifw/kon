@@ -75,8 +75,8 @@ func TestShellDescriptionNamesResolvedInterpreter(t *testing.T) {
 func TestShellRequiresTimeout(t *testing.T) {
 	executor := New(t.TempDir(), false, nil)
 	cases := map[string]json.RawMessage{
+		// A missing timeout must not quietly become a background job.
 		"missing":   json.RawMessage(`{"command":"true"}`),
-		"zero":      raw(map[string]any{"command": "true", "timeout": 0}),
 		"negative":  raw(map[string]any{"command": "true", "timeout": -5}),
 		"too large": raw(map[string]any{"command": "true", "timeout": int(maxShellTimeout/time.Second) + 1}),
 	}

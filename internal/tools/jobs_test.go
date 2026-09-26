@@ -33,7 +33,7 @@ func TestJobRecordsExitAndNotifies(t *testing.T) {
 	}
 	select {
 	case notice := <-notices:
-		if !strings.HasPrefix(notice, "[kon notice] Background job 1 exited with code 3") || !strings.Contains(notice, "hello\nses_x") {
+		if !strings.HasPrefix(notice, "[kon notice] job 1 exited with code 3") || !strings.Contains(notice, "last lines:\nhello\nses_x") {
 			t.Fatalf("notice = %q", notice)
 		}
 	case <-time.After(5 * time.Second):
@@ -98,15 +98,15 @@ func TestShellBackgroundStartsJobAndSharesEnv(t *testing.T) {
 	jobs := NewJobs(jobsDir, "ses_x", nil)
 	defer jobs.Close()
 	executor := New(dir, false, jobs)
-	result, failed := executor.Execute(context.Background(), "shell", raw(map[string]any{"command": "sleep 5", "background": true}), nil)
-	if failed || !strings.Contains(result.Content, "Started background job 1") || !strings.Contains(result.Content, filepath.Join(jobsDir, "1", "output")) {
+	result, failed := executor.Execute(context.Background(), "shell", raw(map[string]any{"command": "sleep 5", "timeout": 0}), nil)
+	if failed || !strings.HasPrefix(result.Content, "background job 1 started") || !strings.Contains(result.Content, filepath.Join(jobsDir, "1", "output")) {
 		t.Fatalf("background result = %q (failed %v)", result.Content, failed)
 	}
 	var details shellDetails
 	if err := json.Unmarshal(result.Details, &details); err != nil || details.Job != 1 {
 		t.Fatalf("details = %s", result.Details)
 	}
-	if d := (&shellTool{}).Describe(raw(map[string]any{"command": "sleep 5", "background": true}), result.Content, false, result.Details, dir); d.Note != "background job 1" {
+	if d := (&shellTool{}).Describe(raw(map[string]any{"command": "sleep 5", "timeout": 0}), result.Content, false, result.Details, dir); d.Note != "background job 1" {
 		t.Fatalf("display = %#v", d)
 	}
 	result, failed = executor.Execute(context.Background(), "shell", raw(map[string]any{"command": "ls $KON_JOBS", "timeout": 5}), nil)
@@ -116,7 +116,7 @@ func TestShellBackgroundStartsJobAndSharesEnv(t *testing.T) {
 }
 
 func TestShellBackgroundNeedsJobs(t *testing.T) {
-	result, failed := New(t.TempDir(), false, nil).Execute(context.Background(), "shell", raw(map[string]any{"command": "true", "background": true}), nil)
+	result, failed := New(t.TempDir(), false, nil).Execute(context.Background(), "shell", raw(map[string]any{"command": "true", "timeout": 0}), nil)
 	if !failed || !strings.Contains(result.Content, "not available") {
 		t.Fatalf("result = %q (failed %v)", result.Content, failed)
 	}
@@ -158,5 +158,30 @@ func TestJobsExportDepthAndJobDirectory(t *testing.T) {
 	}
 	if err := jobs.Kill(1); err == nil {
 		t.Fatal("killed a job that is not running")
+	}
+}
+
+func TestUserKillIsNamedInTheNotice(t *testing.T) {
+	dir := t.TempDir()
+	notices := make(chan string, 1)
+	jobs := NewJobs(dir, "ses_x", func(n string) { notices <- n })
+	defer jobs.Close()
+	id, _, err := jobs.Start("sleep 30", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := jobs.Kill(id); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case notice := <-notices:
+		if !strings.HasPrefix(notice, "[kon notice] job 1 stopped by user after") {
+			t.Fatalf("notice = %q", notice)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("no notice for a killed job")
+	}
+	if got := readJobFile(t, dir, "1", "exit"); got != "killed: stopped by user" {
+		t.Fatalf("exit = %q", got)
 	}
 }
