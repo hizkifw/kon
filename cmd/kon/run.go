@@ -25,14 +25,15 @@ func runCommand() command {
 		summary:  "send one prompt without the full-screen UI",
 		synopsis: runSynopsis,
 		detail: "Send one prompt in the current directory and stream the reply to stdout.\n" +
-			"The message is the arguments after the flags; piped stdin is appended\n" +
-			"after a blank line, or is the whole message when there are no arguments.\n" +
+			"The message is the arguments after the flags, or piped stdin when there\n" +
+			"are none. With --stdin, stdin is appended to the arguments after a blank line.\n" +
 			"Tools run without confirmation, as they do in the full-screen UI.\n\n" +
 			"  --model <name>         use this model for this run; the config is not changed\n" +
 			"  --effort <level>       use this reasoning effort for this run\n" +
 			"  --resume, -r           continue the most recent session in this directory\n" +
 			"  --resume=<id>          continue a specific session\n" +
-			"  --format text|json     stream text (default), or write one JSON event per line\n\n" +
+			"  --format text|json     stream text (default), or write one JSON event per line\n" +
+			"  --stdin                append stdin to the message\n\n" +
 			"Exit status is 0 when the turn completes, 1 on error, 2 on a usage error,\n" +
 			"and 130 when interrupted.",
 		run: runRun,
@@ -46,6 +47,10 @@ type runArgs struct {
 	resume        bool
 	resumeID      typedid.SessionID
 	format        headless.Format
+	// stdin appends stdin to a message given as arguments. Without it stdin
+	// is read only when there is no message, so a caller that leaves stdin
+	// open without writing to it cannot stall a run it gave a message.
+	stdin bool
 }
 
 // parseRunArgs reads flags up to the first word of the message, or "--", so a
@@ -77,6 +82,8 @@ func parseRunArgs(args []string) (runArgs, error) {
 				i++
 				parsed.resumeID, err = typedid.ParseSessionID(args[i])
 			}
+		case arg == "--stdin":
+			parsed.stdin = true
 		case name == "--resume" && hasInline:
 			parsed.resume = true
 			parsed.resumeID, err = typedid.ParseSessionID(inline)
@@ -110,11 +117,13 @@ func (a runArgs) check() error {
 	return nil
 }
 
-// prompt joins the message words and appends piped stdin, so
-// `git diff | kon run review this` sends the instruction and then the diff.
+// prompt joins the message words. Stdin is the message when there are no
+// words and it is piped, and is appended after them with --stdin, so
+// `git diff | kon run --stdin review this` sends the instruction and then the
+// diff.
 func (a runArgs) prompt(stdin io.Reader, piped bool) (string, error) {
 	prompt := strings.Join(a.message, " ")
-	if piped {
+	if a.stdin || (len(a.message) == 0 && piped) {
 		b, err := io.ReadAll(stdin)
 		if err != nil {
 			return "", fmt.Errorf("read stdin: %w", err)

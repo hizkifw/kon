@@ -82,16 +82,17 @@ UI, and exits when the turn is done:
 
 ```sh
 kon run "summarize what changed in this branch"
-git diff | kon run review this
+git diff | kon run --stdin review this
 kon run --resume "now fix the first issue"
 ```
 
 The message is the words after the flags. Flags must come first, and `--`
-ends them early, so a message may contain words that look like flags. When
-stdin is piped, it is appended to the message after a blank line, or is the
-whole message when there are no words. kon reads it to the end before sending
-anything, so a caller that leaves stdin open without writing to it should
-redirect it from `/dev/null`.
+ends them early, so a message may contain words that look like flags. With no
+words, piped stdin is the message (`echo hi | kon run`). To send both, pass
+`--stdin`: stdin is appended to the words after a blank line
+(`git diff | kon run --stdin review this`). kon reads stdin to the end before
+sending anything, and only in those two cases, so a message given as words
+never waits on a stdin that stays open.
 
 Every assistant message streams to stdout as it is written, separated by blank
 lines. When stderr is a terminal, kon also prints one line per tool call and

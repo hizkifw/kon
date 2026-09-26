@@ -52,7 +52,7 @@ before changing shared files. Normal launches check a small version marker and
 do not scan sessions.
 
 `kon run <message>` sends one prompt without the full-screen UI and streams the
-reply to stdout, for scripts and pipelines: `git diff | kon run review this`.
+reply to stdout, for scripts and pipelines: `git diff | kon run --stdin review this`.
 `--format json` writes one event per line instead. See
 [scripting](docs/product/usage.md#scripting).
 
