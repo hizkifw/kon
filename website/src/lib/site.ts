@@ -1,0 +1,70 @@
+// Every claim on the page reads from here, next to where it was measured, so a
+// number can be checked or updated in one place. Re-measure before a release
+// that could move them.
+
+export const repo = "https://github.com/hizkifw/kon";
+export const docsUrl = `${repo}/blob/main/docs/product/index.md`;
+
+export type Os = "windows" | "unix" | "go";
+
+export const installs: Record<Os, { tab: string; prompt: string; command: string }> = {
+  windows: {
+    tab: "Windows",
+    prompt: "PS>",
+    command: "iwr -useb https://raw.githubusercontent.com/hizkifw/kon/main/scripts/install.ps1 | iex",
+  },
+  unix: {
+    tab: "macOS & Linux",
+    prompt: "$",
+    command: "curl -fsSL https://raw.githubusercontent.com/hizkifw/kon/main/scripts/install.sh | sh",
+  },
+  go: {
+    tab: "Go",
+    prompt: "$",
+    command: "go install github.com/hizkifw/kon/cmd/kon@latest",
+  },
+};
+
+// The `startup` scenario of `make loadtest` (docs/development/benchmarking.md):
+// process start through one short reply from a local mock model, on an Intel
+// i5-8500T running Linux. Peak RSS is 10.9 MB in the same run.
+export const startupMs = 21;
+export const startupRssMb = 11;
+
+// `-s -w` release builds, as scripts/release.sh makes them. The windows/amd64
+// zip the installer downloads is 4.9 MB.
+export const binaries = [
+  { file: "kon.exe", platform: "Windows x64", mb: 12.0 },
+  { file: "kon", platform: "Linux x64", mb: 11.6 },
+  { file: "kon", platform: "macOS Apple silicon", mb: 11.0 },
+];
+export const binaryMb = 12;
+export const downloadMb = 5;
+
+// scripts/release.sh: linux, darwin, and windows, each on amd64 and arm64.
+export const nativeBuilds = 6;
+
+// Reference points for the startup chart. Only kon's own row is a measurement
+// of kon; the rest are well-known human and display timings.
+export const startupScale = [
+  { label: "One frame on a 60 Hz display", ms: 16.7, value: "16.7 ms", source: "1,000 ms ÷ 60" },
+  {
+    label: "kon, launch to a finished reply",
+    ms: startupMs,
+    value: `${startupMs} ms`,
+    source: "make loadtest, startup scenario",
+    kon: true,
+  },
+  {
+    label: "Where a delay stops feeling instant",
+    ms: 100,
+    value: "100 ms",
+    source: "Nielsen, Usability Engineering (1993)",
+  },
+  {
+    label: "Reacting to something on screen",
+    ms: 250,
+    value: "~250 ms",
+    source: "typical simple visual reaction time",
+  },
+];

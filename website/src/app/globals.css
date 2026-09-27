@@ -1,0 +1,64 @@
+@import "tailwindcss";
+
+/* kon's own terminal palette, from internal/ui/transcript.go, so the site
+   looks like the product. The page tokens around it are chosen to keep body
+   text above 4.5:1 on the darkest surfaces. */
+@theme {
+  --color-screen: #0c0c0c;
+  --color-panel: #131313;
+  --color-line: #262626;
+  --color-fg: #eaeaea;
+  --color-muted: #a8a8a8;
+  --color-faint: #808080;
+
+  --color-accent: #c98a8a;
+  --color-accent-bright: #e3a7a7;
+  --color-ok: #79c98b;
+  --color-link: #7fb3d5;
+
+  --color-agent: #eaeaea;
+  --color-bar: #1c1c1c;
+  --color-bar-fg: #c8c8c8;
+  --color-user: #313131;
+  --color-user-fg: #dedede;
+  --color-tool: #2b2b2b;
+  --color-tool-name: #c9c9c9;
+  --color-tool-fg: #909090;
+  --color-tool-note: #707070;
+
+  --animate-blink: blink 1.06s steps(1, end) infinite;
+
+  /* The block blinks, not the character under it, as in kon's prompt. */
+  @keyframes blink {
+    50% {
+      background-color: transparent;
+      color: var(--color-faint);
+    }
+  }
+}
+
+@theme inline {
+  --font-sans: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+
+html {
+  color-scheme: dark;
+  scroll-padding-top: 4rem;
+}
+
+body {
+  background: var(--color-screen);
+  color: var(--color-fg);
+}
+
+::selection {
+  background: color-mix(in oklab, var(--color-accent) 45%, transparent);
+  color: var(--color-fg);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
