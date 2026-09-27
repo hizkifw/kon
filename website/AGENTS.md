@@ -15,7 +15,9 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
   claim in section copy must trace to kon's docs, scripts, or git history; do
   not add one that cannot.
 - The page is a static export (`output: "export"`). Keep it that way: no
-  route handlers, server actions, or image optimization.
+  server actions or image optimization, and any route handler, like
+  `src/app/og.png/route.tsx`, must be `force-static` and named with its file
+  extension so static hosts serve the right content type.
 - Client JavaScript is limited to the install tabs and the terminal demo. A
   site about startup speed should load fast too.
 - Run `npm run lint` and `npm run build` before considering a change done.

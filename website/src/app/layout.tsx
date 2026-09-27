@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, JetBrains_Mono } from "next/font/google";
+import { binaryMb, ogImage, siteUrl, startupMs } from "@/lib/site";
 import "./globals.css";
 
 const geist = Geist({
@@ -12,15 +13,16 @@ const jetbrains = JetBrains_Mono({
   subsets: ["latin"],
 });
 
+const title = `kon · the coding agent that starts in ${startupMs} ms`;
+const description = `kon is a terminal coding agent in one native binary. It starts in ${startupMs} ms, weighs ${binaryMb} MB, and runs natively on Windows, macOS, and Linux.`;
+
 export const metadata: Metadata = {
-  title: "kon · the coding agent that starts in 21 ms",
-  description:
-    "kon is a terminal coding agent in one native binary. It starts in about 20 ms, weighs 12 MB, and runs natively on Windows, macOS, and Linux.",
-  openGraph: {
-    title: "kon · the coding agent that starts in 21 ms",
-    description: "One 12 MB native binary. First-class on Windows, macOS, and Linux.",
-    type: "website",
-  },
+  metadataBase: new URL(siteUrl),
+  title,
+  description,
+  alternates: { canonical: "/" },
+  openGraph: { title, description, url: "/", siteName: "kon", type: "website", images: [ogImage] },
+  twitter: { card: "summary_large_image", title, description, images: [ogImage] },
 };
 
 export const viewport: Viewport = {

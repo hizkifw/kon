@@ -2,21 +2,27 @@
 // number can be checked or updated in one place. Re-measure before a release
 // that could move them.
 
+// The canonical address. Shared links and the Open Graph image resolve
+// against it, so crawlers never see a localhost URL.
+export const siteUrl = "https://kon.kitsu.red";
+
 export const repo = "https://github.com/hizkifw/kon";
 export const docsUrl = `${repo}/blob/main/docs/product/index.md`;
 
 export type Os = "windows" | "unix" | "go";
 
+// The site's install URLs redirect to the scripts on main (see vercel.json),
+// so the commands stay short and the scripts keep one home.
 export const installs: Record<Os, { tab: string; prompt: string; command: string }> = {
   windows: {
     tab: "Windows",
     prompt: "PS>",
-    command: "iwr -useb https://raw.githubusercontent.com/hizkifw/kon/main/scripts/install.ps1 | iex",
+    command: `iwr -useb ${siteUrl}/install.ps1 | iex`,
   },
   unix: {
     tab: "macOS & Linux",
     prompt: "$",
-    command: "curl -fsSL https://raw.githubusercontent.com/hizkifw/kon/main/scripts/install.sh | sh",
+    command: `curl -fsSL ${siteUrl}/install.sh | sh`,
   },
   go: {
     tab: "Go",
@@ -68,3 +74,14 @@ export const startupScale = [
     source: "typical simple visual reaction time",
   },
 ];
+
+// src/app/og.png/route.tsx renders this image. It is a plain route rather than
+// the opengraph-image convention because a static export writes that one
+// without a file extension, and static hosts would then serve it without an
+// image content type.
+export const ogImage = {
+  url: "/og.png",
+  width: 1200,
+  height: 630,
+  alt: `kon: starts in ${startupMs} ms. One binary. Every OS. Below, kon runs in Windows Terminal, fixing a failing test.`,
+};
