@@ -17,7 +17,7 @@ const REASONS = [
   },
   {
     title: "Milliseconds are tracked",
-    body: "A dependency was quietly building a Unicode table at init. Finding it cut startup from 50 ms to 21 ms, and the load test is there to catch the next one.",
+    body: "A dependency was quietly building a Unicode table at init. Finding it took about 30 ms off every launch, and the load test is there to catch the next one.",
   },
 ];
 
@@ -27,8 +27,8 @@ export function Speed() {
       <div className="grid grid-cols-1 gap-12 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] lg:items-center">
         <SectionHeading eyebrow="Startup" title="Faster than you can notice.">
           <p>
-            From launching the process to streaming back a finished reply, kon takes {startupMs} ms. That&rsquo;s
-            about one frame on a 60 Hz screen, and a fraction of the 100 ms where a delay starts to register.
+            From launching the process to its first frame on screen, kon takes {startupMs} ms. That&rsquo;s under
+            two frames on a 60 Hz screen, and about a quarter of the 100 ms where a delay starts to register.
           </p>
           <p>No splash screen, no spinner, nothing to wait for. Type <Kbd>kon</Kbd> and it&rsquo;s there.</p>
         </SectionHeading>

@@ -31,11 +31,13 @@ export const installs: Record<Os, { tab: string; prompt: string; command: string
   },
 };
 
-// The `startup` scenario of `make loadtest` (docs/development/benchmarking.md):
-// process start through one short reply from a local mock model, on an Intel
-// i5-8500T running Linux. Peak RSS is 10.9 MB in the same run.
-export const startupMs = 21;
-export const startupRssMb = 11;
+// The `first-paint` scenario of `make loadtest` (docs/development/benchmarking.md):
+// exec to the first frame of the full-screen UI, the median of seven runs of
+// 50 launches each, on an Intel i5-8500T running Linux. Peak RSS at that
+// frame is 15.9 MB in the same runs.
+export const startupMs = 27;
+export const startupRssMb = 16;
+export const startupMachine = "an Intel i5-8500T running Linux";
 
 // `-s -w` release builds, as scripts/release.sh makes them. The windows/amd64
 // zip the installer downloads is 4.9 MB.
@@ -55,10 +57,10 @@ export const nativeBuilds = 6;
 export const startupScale = [
   { label: "One frame on a 60 Hz display", ms: 16.7, value: "16.7 ms", source: "1,000 ms ÷ 60" },
   {
-    label: "kon, launch to a finished reply",
+    label: "kon, launch to first frame",
     ms: startupMs,
     value: `${startupMs} ms`,
-    source: "make loadtest, startup scenario",
+    source: "make loadtest, first-paint scenario",
     kon: true,
   },
   {

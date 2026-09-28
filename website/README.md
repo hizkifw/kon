@@ -31,10 +31,10 @@ own docs:
 
 | Claim | Source |
 | --- | --- |
-| 21 ms startup, 11 MB memory | the `startup` scenario of `make loadtest`, in `docs/development/benchmarking.md` |
+| 27 ms startup, 16 MB memory | the `first-paint` scenario of `make loadtest`, in `docs/development/benchmarking.md` |
 | 12 MB binary, 5 MB download | a `-s -w` release build, as `scripts/release.sh` makes it |
 | 6 native builds | the target list in `scripts/release.sh` |
-| 50 ms to 21 ms, streaming throughput | `docs/development/benchmarking.md` and commit `acab5ff` |
+| about 30 ms off every launch, streaming throughput | `docs/development/benchmarking.md` and commit `acab5ff` |
 | Windows behavior | `docs/product/usage.md`, `docs/development/index.md`, `docs/development/session-format.md`, `docs/development/architecture.md` |
 
 Re-measure before a release that could move them.
