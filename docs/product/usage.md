@@ -248,7 +248,7 @@ directory's permissions rather than running kon as root.
 | Ctrl+K | Kill from the cursor to the end of the line |
 | Ctrl+W | Kill the word before the cursor |
 | Ctrl+Y | Yank the last kill back at the cursor |
-| Ctrl+R | Reverse-search prompt history; type to match, Ctrl+R or Up for older matches, Down for newer, Enter accepts, Esc cancels |
+| Ctrl+R | Search prompt history as bash does: type to match, Ctrl+R for an older match, Ctrl+S for a newer one, Backspace to take a character back; Esc keeps the match, Ctrl+G puts back what you were typing, and any other key keeps the match and acts on it, so Enter sends it and the arrows move through it or on through history |
 
 The status bar shows the working directory, context usage, what the session
 has cost, the mode kon is in, such as a login in progress or a session it can

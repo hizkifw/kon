@@ -88,29 +88,29 @@ type flushTranscriptMsg struct{}
 type Model struct {
 	// ctx lives as long as the program. Runs and logins derive from it so that
 	// every exit path, including a signal that bypasses Update, releases them.
-	ctx                     context.Context
-	width, height           int
-	viewport                scrollView
-	input                   textarea.Model
-	transcript              transcript
-	history                 promptHistory
-	runtime                 Runtime
-	commands                *registry
-	active                  app.Model
-	cwd, configPath         string
+	ctx             context.Context
+	width, height   int
+	viewport        scrollView
+	input           textarea.Model
+	transcript      transcript
+	history         promptHistory
+	runtime         Runtime
+	commands        *registry
+	active          app.Model
+	cwd, configPath string
 	// message is the last thing that happened, as the status line tells it:
 	// a command's result, an error, a passing notice. The mode kon is in,
 	// which lasts as long as the mode does, is apart from it (see mode).
 	message string
 	// configured is whether kon has a model to send to, or follows a session
 	// that has one, as of the last sync with the runtime.
-	configured    bool
-	contextTokens tokens.Count
-	contextApprox bool
-	terminalFocused         bool
-	busy                    bool
-	runCancel               context.CancelFunc
-	runEvents               chan tea.Msg
+	configured      bool
+	contextTokens   tokens.Count
+	contextApprox   bool
+	terminalFocused bool
+	busy            bool
+	runCancel       context.CancelFunc
+	runEvents       chan tea.Msg
 	// interruptPresses counts consecutive Esc presses while a run is in
 	// flight, so the harness can escalate: the first press cancels the run
 	// (interrupting a running command), the second kills it.
@@ -160,7 +160,10 @@ type Model struct {
 	// removed text is captured once the textarea has applied the deletion.
 	killPending bool
 	// search is the active reverse history search (Ctrl+R), nil when idle.
-	search *reverseSearch
+	// lastSearch is the query it last ended with, which Ctrl+R on an empty
+	// query searches for again.
+	search     *reverseSearch
+	lastSearch string
 	// startAtBottom asks the first sized frame to scroll to the end, so a
 	// resumed conversation opens on its latest messages instead of at the top.
 	startAtBottom bool
@@ -290,6 +293,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.copied(msg)
 	case flashDoneMsg:
 		return m.flashDone(msg)
+	case tea.PasteMsg:
+		if m.search != nil {
+			return m.pasteSearch(msg), nil
+		}
 	case tea.FocusMsg:
 		m.terminalFocused = true
 	case tea.BlurMsg:
@@ -370,9 +377,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateLogin(msg)
 		}
 		if m.search != nil {
-			// The search owns every key while active so plain typing extends
-			// the query instead of editing the prompt.
-			return m.updateSearch(msg)
+			// The search takes the keys it knows. Any other has ended it,
+			// keeping the match, and acts on the prompt as usual below.
+			var took bool
+			if m, took = m.searchKey(msg); took {
+				return m, nil
+			}
 		}
 		updated, cmd, handled := m.handleKey(msg.String())
 		if handled {
