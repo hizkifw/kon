@@ -3,6 +3,7 @@ package ui
 import (
 	"strings"
 	"time"
+	"unicode"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -11,42 +12,78 @@ import (
 )
 
 // Dragging over the transcript selects it, and releasing the button copies
-// the selection. kon takes the mouse to scroll, so the terminal's own
-// selection needs a modifier held, and it would copy replies as wrapped and
-// styled for the screen. A reply is copied as the Markdown behind the
-// selection instead, cut out by markdown.Excerpt; everything else is copied
-// as shown.
+// the selection and clears it. A double click selects a word and a triple
+// click a paragraph, and dragging on from either grows the selection by that
+// unit. kon takes the mouse to scroll, so the terminal's own selection needs
+// a modifier held, and it would copy replies as wrapped and styled for the
+// screen. A reply is copied as the Markdown behind the selection instead, cut
+// out by markdown.Excerpt; everything else is copied as shown.
 
 // point is a cell of the transcript: a line of it and a screen column.
 type point struct{ line, col int }
 
 func (p point) before(q point) bool { return p.line < q.line || p.line == q.line && p.col < q.col }
 
-// selection is a stretch of the transcript picked with the mouse, from the
-// cell pressed (anchor) to the cell the pointer is on (head), both included.
+// cells is a run of the transcript from one cell to another, both included.
+type cells struct{ from, to point }
+
+// unit is what a selection grows by as it is dragged: cells from a press,
+// words from a double click, paragraphs from a triple click.
+type unit int
+
+const (
+	byCell unit = iota
+	byWord
+	byParagraph
+)
+
+// selection is a stretch of the transcript being picked with the mouse. It
+// lasts only while the button is held: releasing copies it and clears it.
 type selection struct {
-	anchor, head point
-	// dragging is set while the button is held. edge is -1 or 1 while the
-	// pointer is above or below the transcript, which scrolls it that way.
-	dragging bool
-	edge     int
+	unit unit
+	// anchor is the unit pressed on, and head the unit under the pointer.
+	anchor, head cells
+	// edge is how many rows the pointer is past the top (negative) or the
+	// bottom (positive) of the transcript, which scrolls it that way.
+	edge int
 }
 
 // span returns the selection's first and last cells in reading order.
 func (s *selection) span() (start, end point) {
-	if s.head.before(s.anchor) {
-		return s.head, s.anchor
+	start, end = s.anchor.from, s.anchor.to
+	if s.head.from.before(start) {
+		start = s.head.from
 	}
-	return s.anchor, s.head
+	if end.before(s.head.to) {
+		end = s.head.to
+	}
+	return start, end
 }
+
+// click is the last press on the transcript, to tell a double or triple click
+// from separate presses and to start a drag from.
+type click struct {
+	at    point
+	when  time.Time
+	count int // presses in a row, from 1 to 3
+	down  bool
+}
+
+// multiClickInterval is how soon a press on the same cell must follow the
+// last to count as a double or triple click.
+const multiClickInterval = 400 * time.Millisecond
 
 // transcriptTop is the screen row the transcript starts on, under the
 // one-line header.
 const transcriptTop = 1
 
 // selectScrollInterval is how often a drag held past the top or bottom of the
-// transcript scrolls it by a line.
-const selectScrollInterval = 50 * time.Millisecond
+// transcript scrolls it. Each tick scrolls a line per row the pointer is past
+// the edge, up to maxSelectScroll, so reaching further scrolls faster.
+const (
+	selectScrollInterval = 50 * time.Millisecond
+	maxSelectScroll      = 5
+)
 
 type selectScrollMsg struct{ epoch int }
 
@@ -61,14 +98,14 @@ type selectionTextMsg struct{ text string }
 var selectedStyle = lipgloss.NewStyle().Reverse(true)
 
 // pointAt returns the transcript cell under screen cell (x, y), held to the
-// lines the transcript has, and which edge the row lies past: -1 above the
-// transcript, 1 below it, 0 on it.
+// lines the transcript has, and how many rows y lies past the top (negative)
+// or the bottom (positive) of the transcript.
 func (m Model) pointAt(x, y int) (point, int) {
 	row, edge := y-transcriptTop, 0
 	if row < 0 {
-		row, edge = 0, -1
-	} else if row >= m.viewport.Height() {
-		row, edge = m.viewport.Height()-1, 1
+		row, edge = 0, row
+	} else if last := m.viewport.Height() - 1; row > last {
+		row, edge = last, row-last
 	}
 	line := m.viewport.YOffset() + row
 	if last := len(m.viewport.lines) - 1; line > last {
@@ -79,70 +116,111 @@ func (m Model) pointAt(x, y int) (point, int) {
 	return point{line, max(0, x)}, edge
 }
 
-// pressMouse starts a selection at a left click on the transcript. Any click
-// drops the selection that was there.
+// pressMouse records a left press on the transcript. A single press selects
+// nothing until the pointer moves; a double click selects the word pressed
+// on and a triple click the paragraph, straight away.
 func (m Model) pressMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	m.transcript.selection = nil
 	row := msg.Y - transcriptTop
 	if msg.Button != tea.MouseLeft || m.preview != nil || row < 0 || row >= m.viewport.Height() || len(m.viewport.lines) == 0 {
+		m.click = click{}
 		return m, nil
 	}
 	p, _ := m.pointAt(msg.X, msg.Y)
-	m.transcript.selection = &selection{anchor: p, head: p, dragging: true}
+	now := time.Now()
+	count := 1
+	if p == m.click.at && now.Sub(m.click.when) < multiClickInterval {
+		count = m.click.count%3 + 1
+	}
+	m.click = click{at: p, when: now, count: count, down: true}
+	if u := unit(count - 1); u != byCell {
+		if r, ok := m.transcript.unitAt(p, u, m.width); ok {
+			m.transcript.selection = &selection{unit: u, anchor: r, head: r}
+		}
+	}
 	return m, nil
 }
 
-// dragMouse moves the selection's head with the pointer. Past the top or
-// bottom of the transcript it starts scrolling that way.
+// dragMouse grows the selection to the unit under the pointer, starting one
+// once a single press moves off its cell. Past the top or bottom of the
+// transcript it scrolls that way.
 func (m Model) dragMouse(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
-	sel := m.transcript.selection
-	if sel == nil || !sel.dragging {
+	if !m.click.down {
 		return m, nil
 	}
 	p, edge := m.pointAt(msg.X, msg.Y)
-	sel.head = p
-	start := edge != 0 && sel.edge == 0
+	sel := m.transcript.selection
+	if sel == nil {
+		// A pointer past the edge has left the pressed cell, though the
+		// cell it is held to is that one.
+		if p == m.click.at && edge == 0 {
+			return m, nil
+		}
+		pressed := cells{m.click.at, m.click.at}
+		sel = &selection{unit: byCell, anchor: pressed, head: pressed}
+		m.transcript.selection = sel
+	}
+	m.moveHead(p)
+	scroll := edge != 0 && sel.edge == 0
 	sel.edge = edge
-	if start {
+	if scroll {
 		m.selectEpoch++
 		return m, selectScrollTick(m.selectEpoch)
 	}
 	return m, nil
 }
 
-// scrollSelection scrolls a line toward the edge a drag is held past and
-// moves the selection's head onto the line brought in.
+// moveHead moves the selection's head to the unit at p, or to p alone when no
+// unit is there, as on a blank line.
+func (m *Model) moveHead(p point) {
+	sel := m.transcript.selection
+	r, ok := m.transcript.unitAt(p, sel.unit, m.width)
+	if !ok {
+		r = cells{p, p}
+	}
+	sel.head = r
+}
+
+// wheelMouse scrolls the transcript, and a drag in progress takes in the
+// lines the wheel brings under the pointer.
+func (m Model) wheelMouse(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
+	m.viewport.Update(msg)
+	if m.transcript.selection != nil {
+		p, _ := m.pointAt(msg.X, msg.Y)
+		m.moveHead(p)
+	}
+	return m, nil
+}
+
+// scrollSelection scrolls toward the edge a drag is held past and moves the
+// selection's head onto the line brought in.
 func (m Model) scrollSelection(msg selectScrollMsg) (tea.Model, tea.Cmd) {
 	sel := m.transcript.selection
-	if sel == nil || !sel.dragging || sel.edge == 0 || msg.epoch != m.selectEpoch {
+	if sel == nil || sel.edge == 0 || msg.epoch != m.selectEpoch {
 		return m, nil
 	}
-	m.viewport.SetYOffset(m.viewport.YOffset() + sel.edge)
+	m.viewport.SetYOffset(m.viewport.YOffset() + max(-maxSelectScroll, min(sel.edge, maxSelectScroll)))
 	row := transcriptTop
 	if sel.edge > 0 {
 		row += m.viewport.Height() - 1
 	}
-	sel.head, _ = m.pointAt(sel.head.col, row)
+	p, _ := m.pointAt(sel.head.to.col, row)
+	m.moveHead(p)
 	return m, selectScrollTick(msg.epoch)
 }
 
-// releaseMouse ends a drag and copies what it selected. A click without a
-// drag selects nothing, so clicking to focus the window never replaces what
-// is on the clipboard.
-func (m Model) releaseMouse(msg tea.MouseReleaseMsg) (tea.Model, tea.Cmd) {
+// releaseMouse copies what the press selected and clears the selection. A
+// click without a drag selects nothing, so clicking to focus the window never
+// replaces what is on the clipboard.
+func (m Model) releaseMouse(tea.MouseReleaseMsg) (tea.Model, tea.Cmd) {
 	sel := m.transcript.selection
-	if sel == nil || !sel.dragging {
+	m.transcript.selection = nil
+	m.click.down = false
+	if sel == nil {
 		return m, nil
 	}
-	if msg.Y >= transcriptTop && msg.Y < transcriptTop+m.viewport.Height() {
-		sel.head, _ = m.pointAt(msg.X, msg.Y)
-	}
-	sel.dragging, sel.edge = false, 0
-	if sel.head == sel.anchor {
-		m.transcript.selection = nil
-		return m, nil
-	}
-	parts := m.transcript.selectedParts(m.width)
+	start, end := sel.span()
+	parts := m.transcript.selectedParts(start, end, m.width)
 	if len(parts) == 0 {
 		m.status = "nothing to copy in the selection"
 		return m, nil
@@ -160,8 +238,81 @@ func (m Model) copied(msg selectionTextMsg) (tea.Model, tea.Cmd) {
 	return m, copyToClipboard(msg.text)
 }
 
+// unitAt returns the unit u that covers p: the cell itself, the word there,
+// or the paragraph, the run of lines around p with no blank line between.
+// ok is false when p is on no word or paragraph.
+func (t *transcript) unitAt(p point, u unit, width int) (cells, bool) {
+	switch u {
+	case byWord:
+		from, to, ok := wordAt(ansi.Strip(t.lines[p.line]), p.col)
+		return cells{point{p.line, from}, point{p.line, to}}, ok
+	case byParagraph:
+		blank := func(i int) bool { return strings.TrimSpace(ansi.Strip(t.lines[i])) == "" }
+		if blank(p.line) {
+			return cells{}, false
+		}
+		first, last := p.line, p.line
+		for first > 0 && !blank(first-1) {
+			first--
+		}
+		for last < len(t.lines)-1 && !blank(last+1) {
+			last++
+		}
+		return cells{point{first, 0}, point{last, width}}, true
+	}
+	return cells{p, p}, true
+}
+
+// wordAt returns the first and last cells of the word covering cell col of
+// line, as shown. A word is a run of letters and digits along with the
+// punctuation that joins the parts of a name, a path, or a URL, so one double
+// click takes "fmt.Println" or "https://go.dev/doc" whole. Punctuation that
+// ends a sentence is left off the end.
+func wordAt(line string, col int) (from, to int, ok bool) {
+	type cluster struct {
+		text        string
+		start, cols int
+	}
+	var clusters []cluster
+	at := -1
+	for i, c := 0, 0; i < len(line); {
+		text, w := ansi.FirstGraphemeCluster(line[i:], ansi.GraphemeWidth)
+		if c <= col && col < c+w {
+			at = len(clusters)
+		}
+		clusters = append(clusters, cluster{text, c, w})
+		i, c = i+len(text), c+w
+	}
+	isWord := func(i int) bool {
+		r := []rune(clusters[i].text)[0]
+		return unicode.IsLetter(r) || unicode.IsDigit(r) || strings.ContainsRune("_-./:@~+#%&=?$", r)
+	}
+	if at < 0 || !isWord(at) {
+		return 0, 0, false
+	}
+	first, last := at, at
+	for first > 0 && isWord(first-1) {
+		first--
+	}
+	for last < len(clusters)-1 && isWord(last+1) {
+		last++
+	}
+	hasText := false
+	for i := first; i <= last; i++ {
+		if r := []rune(clusters[i].text)[0]; unicode.IsLetter(r) || unicode.IsDigit(r) {
+			hasText = true
+		}
+	}
+	for hasText && last > at && strings.ContainsRune(".,:;!?", []rune(clusters[last].text)[0]) {
+		last--
+	}
+	return clusters[first].start, clusters[last].start + clusters[last].cols - 1, true
+}
+
 // highlight paints the selected cells of line i in reverse video, as plain
-// text: a selection shows where it runs, not the styles under it.
+// text: a selection shows where it runs, not the styles under it. Only the
+// line's text is painted, so the slab's margins and padding, a line's
+// indentation, and a blank line stay as they are.
 func (t *transcript) highlight(i int, line string, width int) string {
 	if t.selection == nil {
 		return line
@@ -170,17 +321,20 @@ func (t *transcript) highlight(i int, line string, width int) string {
 	if i < start.line || i > end.line {
 		return line
 	}
-	from, to := 0, width
+	plain := ansi.Strip(line)
+	text := strings.TrimRight(plain, " ")
+	from := len(text) - len(strings.TrimLeft(text, " "))
+	to := ansi.StringWidth(text)
 	if i == start.line {
-		from = start.col
+		from = max(from, start.col)
 	}
 	if i == end.line {
-		to = end.col + 1
+		to = min(to, end.col+1)
 	}
 	if from >= to {
 		return line
 	}
-	return ansi.Cut(line, 0, from) + selectedStyle.Render(ansi.Strip(ansi.Cut(line, from, to))) + ansi.Cut(line, to, width)
+	return ansi.Cut(line, 0, from) + selectedStyle.Render(ansi.Cut(plain, from, to)) + ansi.Cut(line, to, width)
 }
 
 // region is a run of transcript lines shown by one chunk, the banner, or the
@@ -225,15 +379,17 @@ type selectedPart struct {
 	reply    string
 	width    int
 	from, to point
-	// shown is the selected text as shown, for anything but a reply.
+	// shown is the selected text as shown. It is what is copied of anything
+	// but a reply, and of a reply's text the renderer adds, such as a link's
+	// destination, which has no source to cut out.
 	shown string
 	// prompt marks the user's own words, quoted when a selection holds more.
 	prompt bool
 }
 
-// selectedParts splits the selection by the message each line shows.
-func (t *transcript) selectedParts(width int) []selectedPart {
-	start, end := t.selection.span()
+// selectedParts splits the cells from start to end by the message each line
+// shows.
+func (t *transcript) selectedParts(start, end point, width int) []selectedPart {
 	var parts []selectedPart
 	for _, r := range t.regions() {
 		last := r.first + r.n - 1
@@ -247,14 +403,16 @@ func (t *transcript) selectedParts(width int) []selectedPart {
 		if to.line > last {
 			to = point{last, width}
 		}
+		shown := t.shownText(from, to)
 		if r.block >= 0 && t.blocks[r.block].kind == blockAssistant {
 			parts = append(parts, selectedPart{
 				reply: t.blocks[r.block].text, width: width,
 				from: point{from.line - r.first, from.col}, to: point{to.line - r.first, to.col},
+				shown: shown,
 			})
 			continue
 		}
-		if shown := t.shownText(from, to); shown != "" {
+		if shown != "" {
 			parts = append(parts, selectedPart{shown: shown, prompt: r.block >= 0 && t.blocks[r.block].kind == blockUser})
 		}
 	}
@@ -314,6 +472,15 @@ func (p selectedPart) text() string {
 	if p.reply == "" {
 		return p.shown
 	}
+	if excerpt := p.excerpt(); excerpt != "" {
+		return excerpt
+	}
+	return p.shown
+}
+
+// excerpt returns the Markdown behind a reply's selected cells, or "" when
+// they hold no text from its source.
+func (p selectedPart) excerpt() string {
 	lines := markdown.RenderWithSource(p.reply, markdown.Theme{}, markdownContentWidth(p.width))
 	if p.from.line >= len(lines) {
 		return ""

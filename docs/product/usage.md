@@ -83,15 +83,20 @@ clipboard of the machine it runs on with `pbcopy`, `wl-copy`, `xclip`, or
 `xsel`, which covers a local terminal without OSC 52, such as macOS Terminal.
 
 Dragging over the transcript selects text, and releasing the button copies it
-the same way. A reply is copied as the Markdown behind the selection, with the
+the same way and clears the selection. A double click copies a word, and a
+triple click the paragraph around it; dragging on from either grows the
+selection a word or a paragraph at a time. A word takes in the punctuation
+inside a name, a path, or a URL, so `fmt.Println` or a link's address copies
+whole. A reply is copied as the Markdown behind the selection, with the
 formatting it needs to read the same: a bold word copies as `**word**`, lines
 inside a code block copy as the code alone, and a selection that runs into a
 code block or a table takes its fence or its header along. Prompts, tool
 output, and thinking copy as shown, and a prompt is quoted when the selection
 holds more than it. Holding the drag past the top or bottom of the transcript
-scrolls it, and a click without a drag leaves the clipboard alone. kon uses
-the mouse to scroll, so the terminal's own selection needs Shift held while
-dragging (Option in iTerm2).
+scrolls it, faster the further out the pointer is, and the wheel scrolls it
+too. A single click leaves the clipboard alone. kon uses the mouse to scroll,
+so the terminal's own selection needs Shift held while dragging (Option in
+iTerm2).
 
 ## Steering and queueing
 
@@ -236,6 +241,7 @@ directory's permissions rather than running kon as root.
 | Page Up/Page Down | Scroll the transcript |
 | Mouse wheel | Scroll the transcript |
 | Mouse drag | Select transcript text, copying it on release |
+| Double / triple click | Copy the word or paragraph under the pointer |
 | Ctrl+C | Clear the input, or hint at Ctrl+D when it is empty |
 | Ctrl+D | Quit when the input is empty, cancelling active work first |
 | Ctrl+U | Kill from the cursor to the start of the line |

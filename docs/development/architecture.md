@@ -39,17 +39,21 @@ kon owns orchestration, persistence, and compaction.
 
 ## Copying a selection
 
-A drag over the transcript is anchored in transcript lines, so scrolling keeps
-it on the same text, and a rewrap clears it. On release the UI takes, for each
-message the selection touches, the cells it covers. A reply is rendered again
+A selection lasts while the mouse button is held. It is anchored in
+transcript lines, so scrolling keeps it on the same text, and a rewrap clears
+it. It grows by cells from a press, by words from a double click, and by
+paragraphs from a triple click; the UI tells those apart by how soon a press
+follows the last on the same cell. On release the UI takes, for each message
+the selection touches, the cells it covers. A reply is rendered again
 with `markdown.RenderWithSource`, whose lines carry runs tying their text to
 source bytes; the screen never renders with them, since only a selection
 needs them. `markdown.SelectionSource` turns the cells into a source range,
 and `markdown.Excerpt` cuts that range out as Markdown that renders the same:
 it closes the inline elements the range cuts, keeps a cut link's destination,
 restores block markers when the range crosses blocks, and escapes text a cut
-would turn into syntax. That work runs in a command off the update loop, and
-the text goes to the clipboard the way `/copy` sends it.
+would turn into syntax. Cells that hold no source, such as a link's
+destination, copy as shown instead. That work runs in a command off the update
+loop, and the text goes to the clipboard the way `/copy` sends it.
 
 ## CLI surface
 

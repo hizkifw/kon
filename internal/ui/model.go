@@ -138,6 +138,9 @@ type Model struct {
 	// selectEpoch counts drags past the transcript's edge, so a scroll tick
 	// from one that ended stops instead of scrolling on.
 	selectEpoch int
+	// click is the last press on the transcript, to tell double and triple
+	// clicks apart and to start a drag from.
+	click click
 	// killRing holds the last line segment removed by a kill key (Ctrl+U,
 	// Ctrl+K, Ctrl+W) so Ctrl+Y can yank it back, mirroring the shell's kill
 	// and yank commands.
@@ -274,6 +277,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.dragMouse(msg)
 	case tea.MouseReleaseMsg:
 		return m.releaseMouse(msg)
+	case tea.MouseWheelMsg:
+		return m.wheelMouse(msg)
 	case selectScrollMsg:
 		return m.scrollSelection(msg)
 	case selectionTextMsg:
