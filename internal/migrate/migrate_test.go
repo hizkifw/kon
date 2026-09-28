@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -75,27 +76,52 @@ func TestMigrationRetriesWithoutAdvancingVersion(t *testing.T) {
 	}
 }
 
+// Only migration steps read sessions, so a start at the current version must
+// run none of them; otherwise every start would cost a scan of all sessions.
 func TestCurrentVersionDoesNotScanSessions(t *testing.T) {
 	paths := testPaths(t.TempDir())
+	var runs int
+	count := func(context.Context, config.Paths) error {
+		runs++
+		return nil
+	}
+	registry := []Step{testStep{version: 1, name: "baseline", run: count}, testStep{version: 2, name: "next", run: count}}
+	g, err := Enter(context.Background(), paths, registry, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := g.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if runs != 2 {
+		t.Fatalf("first start ran %d steps, want 2", runs)
+	}
+	g, err = Enter(context.Background(), paths, registry, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := g.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if runs != 2 {
+		t.Fatalf("a start at the current version ran %d steps", runs-2)
+	}
+}
+
+// Storage stamped by a newer kon may hold formats this one cannot read, so it
+// must refuse to start rather than use or rewrite that storage.
+func TestNewerStorageVersionIsRefused(t *testing.T) {
+	paths := testPaths(t.TempDir())
+	if err := os.WriteFile(versionPath(paths), []byte("1\n2\n3\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	g, err := Enter(context.Background(), paths, testRegistry(), nil)
-	if err != nil {
-		t.Fatal(err)
+	if err == nil {
+		g.Close()
+		t.Fatal("storage from a newer kon was accepted")
 	}
-	if err := g.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(paths.Sessions, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(paths.Sessions, "old.jsonl"), []byte("not json"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	g, err = Enter(context.Background(), paths, testRegistry(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := g.Close(); err != nil {
-		t.Fatal(err)
+	if !strings.Contains(err.Error(), "newer") {
+		t.Fatalf("Enter error = %v, want a newer-version refusal", err)
 	}
 }
 

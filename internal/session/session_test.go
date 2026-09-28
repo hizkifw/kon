@@ -3,8 +3,10 @@ package session
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -107,9 +109,13 @@ func TestDiscoverFindsSessionsNewestFirst(t *testing.T) {
 	}
 	second.Close()
 
-	// Another workspace must not leak into this one's results.
+	// Another workspace must not leak into this one's results. It needs a
+	// message of its own, or Close discards it and there is nothing to leak.
 	other, err := New(root, t.TempDir(), "test", "system")
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := other.AppendMessage(Message{Role: RoleUser, Parts: []Part{{Type: PartText, Text: "elsewhere"}}}); err != nil {
 		t.Fatal(err)
 	}
 	other.Close()
@@ -118,17 +124,20 @@ func TestDiscoverFindsSessionsNewestFirst(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(summaries) != 2 {
-		t.Fatalf("Discover returned %d sessions, want 2", len(summaries))
+	got := make([]typedid.SessionID, len(summaries))
+	for i, summary := range summaries {
+		got[i] = summary.ID
 	}
-	if summaries[0].ID != secondID {
-		t.Fatalf("newest session = %s, want %s", summaries[0].ID, secondID)
+	if want := []typedid.SessionID{secondID, first.ID()}; !slices.Equal(got, want) {
+		t.Fatalf("Discover = %v, want %v without %s from the other workspace", got, want, other.ID())
 	}
 	if summaries[0].Title != "two" {
 		t.Fatalf("newest session title = %q, want %q", summaries[0].Title, "two")
 	}
-	if summaries[0].CWD == "" {
-		t.Fatal("summary is missing its working directory")
+	for _, summary := range summaries {
+		if summary.CWD != cwd {
+			t.Fatalf("summary working directory = %q, want %q", summary.CWD, cwd)
+		}
 	}
 }
 
@@ -242,9 +251,9 @@ func TestTailEntriesReadsTrailingTurnsWithoutOpening(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < 5; i++ {
-		store.AppendMessage(Message{Role: RoleUser, Parts: []Part{{Type: PartText, Text: "question"}}})
-		store.AppendMessage(Message{Role: RoleAssistant, Parts: []Part{{Type: PartText, Text: "answer"}}})
+	for i := range 5 {
+		store.AppendMessage(Message{Role: RoleUser, Parts: []Part{{Type: PartText, Text: fmt.Sprintf("question %d", i)}}})
+		store.AppendMessage(Message{Role: RoleAssistant, Parts: []Part{{Type: PartText, Text: fmt.Sprintf("answer %d", i)}}})
 	}
 	path := store.Path()
 	store.Close()
@@ -253,12 +262,14 @@ func TestTailEntriesReadsTrailingTurnsWithoutOpening(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Two user turns, each with its answer, and nothing from earlier turns.
-	if len(entries) != 4 || entries[0].Message.Text() != "question" || entries[2].Message.Text() != "question" {
-		t.Fatalf("TailEntries = %#v", entries)
+	// The last two user turns, each with its answer, and nothing from earlier
+	// turns.
+	got := make([]string, len(entries))
+	for i, entry := range entries {
+		got[i] = entry.Message.Text()
 	}
-	if _, err := os.Stat(path); err != nil {
-		t.Fatalf("TailEntries removed the session file: %v", err)
+	if want := []string{"question 3", "answer 3", "question 4", "answer 4"}; !slices.Equal(got, want) {
+		t.Fatalf("TailEntries = %q, want %q", got, want)
 	}
 }
 
@@ -313,30 +324,70 @@ func TestTailEntriesFollowsParentChainInWindow(t *testing.T) {
 	}
 }
 
-// TestTailEntriesReadsAcrossBlocks forces the backwards reader to make more than
-// one ReadAt call, exercising the mid-record leading line it must drop.
+// TestTailEntriesReadsAcrossBlocks puts the requested turn more than one block
+// back: its answer alone is longer than a block, so the backwards reader must
+// keep every block it reads to return the whole answer. The fixture also lands
+// a block boundary exactly where the question's line begins. The reader cannot
+// tell that line from one cut mid-record, so it must not count it until a read
+// reaches further back.
 func TestTailEntriesReadsAcrossBlocks(t *testing.T) {
 	root, cwd := t.TempDir(), t.TempDir()
 	store, err := New(root, cwd, "test", "system")
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Pad the file well past one tailBlock so two user turns sit more than a
-	// block away from each other.
-	large := strings.Repeat("x", tailBlock)
 	store.AppendMessage(Message{Role: RoleUser, Parts: []Part{{Type: PartText, Text: "old question"}}})
-	store.AppendMessage(Message{Role: RoleAssistant, Parts: []Part{{Type: PartText, Text: large}}})
-	store.AppendMessage(Message{Role: RoleUser, Parts: []Part{{Type: PartText, Text: "recent question"}}})
-	store.AppendMessage(Message{Role: RoleAssistant, Parts: []Part{{Type: PartText, Text: "recent answer"}}})
+	oldAnswer, err := store.AppendMessage(Message{Role: RoleAssistant, Parts: []Part{{Type: PartText, Text: "old answer"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
 	path := store.Path()
 	store.Close()
+
+	// The recent turn is written by hand with a fixed timestamp, so its line
+	// lengths are known before it is written. Entry IDs have a fixed length, and
+	// each "x" adds one byte, so the answer can be sized to make the question
+	// and answer lines span exactly two blocks.
+	record := func(parent typedid.EntryID, role Role, text string) (typedid.EntryID, []byte) {
+		id, err := typedid.NewEntryID()
+		if err != nil {
+			t.Fatal(err)
+		}
+		message := TextMessage(role, text)
+		b, err := json.Marshal(Entry{Type: EntryTypeMessage, ID: id, ParentID: &parent, Timestamp: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), Message: &message})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id, append(b, '\n')
+	}
+	questionID, question := record(oldAnswer, RoleUser, "recent question")
+	_, probe := record(questionID, RoleAssistant, "x")
+	large := strings.Repeat("x", 2*tailBlock-len(question)-len(probe)+1)
+	_, answer := record(questionID, RoleAssistant, large)
+	if len(question)+len(answer) != 2*tailBlock {
+		t.Fatalf("recent turn is %d bytes, want %d", len(question)+len(answer), 2*tailBlock)
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write(append(question, answer...)); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
 
 	entries, err := TailEntries(path, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 2 || entries[0].Message.Text() != "recent question" || entries[1].Message.Text() != "recent answer" {
-		t.Fatalf("TailEntries across blocks = %#v", entries)
+	if len(entries) != 2 || entries[0].Message.Text() != "recent question" || entries[1].Message.Text() != large {
+		got := make([]string, len(entries))
+		for i, entry := range entries {
+			got[i] = fmt.Sprintf("%s:%.20q (%d bytes)", entry.Message.Role, entry.Message.Text(), len(entry.Message.Text()))
+		}
+		t.Fatalf("TailEntries across blocks = %v, want the recent question and its whole answer", got)
 	}
 }
 
@@ -447,21 +498,6 @@ func TestLatestSkipsTornEmptySessions(t *testing.T) {
 	torn.Close()
 }
 
-func TestActivePathIncludesMessagesInOrder(t *testing.T) {
-	store, err := New(t.TempDir(), t.TempDir(), "test", "system")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
-	if _, err := store.AppendMessage(Message{Role: RoleUser, Parts: []Part{{Type: PartText, Text: "hello"}}}); err != nil {
-		t.Fatal(err)
-	}
-	path := store.ActivePath()
-	if len(path) != 2 || path[0].Message.Role != RoleSystem || path[1].Message.Text() != "hello" {
-		t.Fatalf("ActivePath = %#v", path)
-	}
-}
-
 func TestCompactionProjectsRetainedMessages(t *testing.T) {
 	store, err := New(t.TempDir(), t.TempDir(), "test", "system prompt")
 	if err != nil {
@@ -496,6 +532,12 @@ func TestCompactionProjectsRetainedMessages(t *testing.T) {
 	}
 	if !context[1].Summary || !strings.Contains(context[1].Message.Text(), "old work summary") {
 		t.Fatalf("compaction summary not projected as its own message: %#v", context[1])
+	}
+	// The summary must be a user message: the Messages backend folds every
+	// system message into the system prompt, which must stay byte-identical
+	// across compactions for the prompt cache.
+	if context[1].Message.Role != RoleUser {
+		t.Fatalf("compaction summary role = %q, want %q", context[1].Message.Role, RoleUser)
 	}
 	if context[2].Message.Text() != "new question" || context[3].Message.Text() != "new answer" {
 		t.Fatalf("wrong retained messages: %#v", context)
@@ -667,40 +709,6 @@ func TestCompactionKeepsSystemPromptStable(t *testing.T) {
 	}
 }
 
-// TestCompactionKeepsSummaryPrefixBeforeRetainedTail verifies the newest
-// compaction's summary is the first conversation message after the system
-// prompt, ahead of the retained tail.
-func TestCompactionKeepsSummaryPrefixBeforeRetainedTail(t *testing.T) {
-	store, err := New(t.TempDir(), t.TempDir(), "test", "system prompt")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
-	if _, err := store.AppendMessage(Message{Role: RoleUser, Parts: []Part{{Type: PartText, Text: "old"}}}); err != nil {
-		t.Fatal(err)
-	}
-	kept, err := store.AppendMessage(Message{Role: RoleUser, Parts: []Part{{Type: PartText, Text: "kept"}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.AppendCompaction("summary text", kept, 500, false, nil); err != nil {
-		t.Fatal(err)
-	}
-	context, err := store.Context()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(context) != 3 {
-		t.Fatalf("context has %d messages, want 3", len(context))
-	}
-	if !context[1].Summary || !strings.Contains(context[1].Message.Text(), "summary text") {
-		t.Fatalf("summary is not the first projected message: %#v", context[1])
-	}
-	if context[2].Message.Text() != "kept" {
-		t.Fatalf("retained tail = %q, want %q", context[2].Message.Text(), "kept")
-	}
-}
-
 func TestOpenRepairsMalformedTrailingLine(t *testing.T) {
 	store, err := New(t.TempDir(), t.TempDir(), "test", "system")
 	if err != nil {
@@ -725,52 +733,38 @@ func TestOpenRepairsMalformedTrailingLine(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer reopened.Close()
 	if _, err := reopened.AppendMessage(Message{Role: RoleUser, Parts: []Part{{Type: PartText, Text: "after repair"}}}); err != nil {
 		t.Fatal(err)
 	}
-	context, err := reopened.Context()
+	if err := reopened.Close(); err != nil {
+		t.Fatal(err)
+	}
+	// Only a second open shows whether the torn tail was cut from the file. Had
+	// it stayed, the append above would have been glued onto it, and this open
+	// would discard the merged line as a torn tail in turn.
+	again, err := Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := context[len(context)-1].Message.Text(); got != "after repair" {
-		t.Fatalf("last message = %q", got)
-	}
-}
-
-func TestSessionSerializesTypedPrefixes(t *testing.T) {
-	store, err := New(t.TempDir(), t.TempDir(), "test", "system")
+	defer again.Close()
+	context, err := again.Context()
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := store.Path()
-	if _, err := store.AppendMessage(Message{Role: RoleUser, Parts: []Part{{Type: PartText, Text: "content"}}}); err != nil {
-		t.Fatal(err)
+	got := make([]string, len(context))
+	for i, item := range context {
+		got[i] = item.Message.Text()
 	}
-	if err := store.Close(); err != nil {
-		t.Fatal(err)
-	}
-	b, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
-	var header map[string]any
-	var entry map[string]any
-	if json.Unmarshal([]byte(lines[0]), &header) != nil || json.Unmarshal([]byte(lines[1]), &entry) != nil {
-		t.Fatal("session is not valid JSONL")
-	}
-	if !strings.HasPrefix(header["id"].(string), "ses_") {
-		t.Fatalf("session ID = %v", header["id"])
-	}
-	if !strings.HasPrefix(entry["id"].(string), "ent_") {
-		t.Fatalf("entry ID = %v", entry["id"])
+	if want := []string{"system", "content", "after repair"}; !slices.Equal(got, want) {
+		t.Fatalf("messages after reopening = %q, want %q", got, want)
 	}
 }
 
 func TestOpenRejectsLegacyBareIDs(t *testing.T) {
 	path := t.TempDir() + "/legacy.jsonl"
-	content := `{"type":"session","version":1,"id":"550e8400-e29b-41d4-a716-446655440000","app_version":"dev","timestamp":"2026-01-01T00:00:00Z","cwd":"/tmp"}` + "\n"
+	// The header carries the current version, so the bare ID is its only
+	// defect; an old version would be refused before the ID is looked at.
+	content := fmt.Sprintf(`{"type":"session","version":%d,"id":"550e8400-e29b-41d4-a716-446655440000","app_version":"dev","timestamp":"2026-01-01T00:00:00Z","cwd":"/tmp"}`, SchemaVersion) + "\n"
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}

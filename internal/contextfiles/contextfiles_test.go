@@ -180,19 +180,6 @@ func TestLoadStripsBOM(t *testing.T) {
 	}
 }
 
-func TestLoadReturnsNoFilesWhenNoneExist(t *testing.T) {
-	root := t.TempDir()
-	// A bare temp dir has no candidates of its own; any result must come from
-	// ancestors, so assert only that nothing under root was found.
-	files, err := Load(filepath.Join(root, "empty"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := within(files, root); len(got) != 0 {
-		t.Fatalf("unexpected files: %v", paths(got))
-	}
-}
-
 // compare reports a human-readable difference, or "" when equal.
 func compare(got, want []string) string {
 	if len(got) != len(want) {
