@@ -4,8 +4,10 @@
 // OpenAI-compatible model in process and drives a built kon binary through
 // fixed scenarios: long streamed replies of different markdown shapes and
 // long tool loops. Headless scenarios run `kon run` and read the child's
-// rusage. TUI scenarios, enabled with -tui, run kon in a private tmux server
-// and sample /proc once a second, so they need Linux and tmux.
+// rusage. The first-paint scenario launches the full-screen UI on a
+// pseudo-terminal and times it to its first frame, so it needs Linux. TUI
+// scenarios, enabled with -tui, run kon in a private tmux server and sample
+// /proc once a second, so they need Linux and tmux.
 //
 //	make build && go run ./scripts/loadtest [-tui] [-run regexp]
 package main
@@ -41,14 +43,18 @@ type reply struct {
 }
 
 type scenario struct {
-	name  string
-	tui   bool
-	secs  int // TUI sampling window
-	reply reply
+	name     string
+	tui      bool
+	secs     int // TUI sampling window
+	launches int // times a first-paint scenario starts the UI
+	reply    reply
 }
 
 var scenarios = []scenario{
 	{name: "startup", reply: reply{chunks: 10}},
+	// What a person waits for after typing kon: exec to the first frame of
+	// the full-screen UI. One launch is noisy, so it reports the median.
+	{name: "first-paint", launches: 50},
 	{name: "stream-doc-50k", reply: reply{chunks: 50_000}},
 	{name: "stream-doc-200k", reply: reply{chunks: 200_000}},
 	{name: "stream-code-50k", reply: reply{chunks: 50_000, shape: "code"}},
@@ -103,11 +109,18 @@ func main() {
 		if !filter.MatchString(s.name) || s.tui && !*tui {
 			continue
 		}
+		if s.launches > 0 && runtime.GOOS != "linux" {
+			fmt.Printf("%-18s skipped: needs Linux\n", s.name)
+			continue
+		}
 		mock.reply.Store(&s.reply)
 		var r result
-		if s.tui {
+		switch {
+		case s.launches > 0:
+			r, err = runFirstPaint(*kon, env, root, s.launches)
+		case s.tui:
 			r, err = runTUI(*kon, env, root, s)
-		} else {
+		default:
 			r, err = runHeadless(*kon, env, root)
 		}
 		if err != nil {
@@ -139,8 +152,9 @@ func isolate(root, url string) ([]string, error) {
 type result struct {
 	wall, cpu time.Duration
 	maxRSS    int64 // bytes
-	// detail is the user/sys split for a headless run, or the CPU percent of
-	// each sampled second for a TUI run.
+	// detail is the user/sys split for a headless run, the spread of a
+	// first-paint run, or the CPU percent of each sampled second for a TUI
+	// run.
 	detail string
 }
 

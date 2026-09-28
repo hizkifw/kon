@@ -33,8 +33,8 @@ as `BenchmarkDecodeChatStream` does with `ns/delta`.
 ## Load test
 
 ```sh
-make loadtest        # headless scenarios
-make loadtest TUI=1  # also the full-screen UI, which needs Linux and tmux
+make loadtest        # headless scenarios, and first paint on Linux
+make loadtest TUI=1  # also the full-screen UI under load, which needs tmux
 ```
 
 `scripts/loadtest` builds nothing itself; the make target builds `bin/kon`
@@ -45,6 +45,13 @@ another binary, such as a release build, against the same load.
 
 - **Headless** scenarios run `kon run` to completion and report wall time, CPU
   time split into user and sys, and peak RSS from the child's rusage.
+- **First paint** launches the full-screen UI 50 times, each on a fresh
+  pseudo-terminal, and times each launch from exec until the prompt
+  placeholder reaches the terminal. It kills kon there, so CPU and peak RSS
+  cover only the work before the first frame. It reports medians, with the
+  fastest launch and the 90th percentile. It needs Linux, for the pty
+  ioctls, but not tmux: reading the pty directly keeps a multiplexer's redraw
+  out of the number.
 - **TUI** scenarios start kon in a private tmux server, send one prompt, and
   sample `/proc` once a second. They report the CPU percent of each second, so a
   per-frame cost that grows with the reply shows up as a rising row rather than
