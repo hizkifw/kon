@@ -22,6 +22,13 @@ import (
 
 const streamFrameInterval = 50 * time.Millisecond
 
+// catalogDelay holds the catalog load until the first frame is on screen.
+// Init runs before Bubble Tea writes that frame, on its first render tick,
+// and nothing reports when it has. Decoding the catalog allocates about
+// 30 MB, and the garbage collection that starts slowed the first frame by
+// 15 ms at the 90th percentile when the two overlapped.
+const catalogDelay = 100 * time.Millisecond
+
 type Runtime interface {
 	Models() []app.Model
 	State() app.State
@@ -210,14 +217,14 @@ func New(ctx context.Context, cwd, configPath string, runtime Runtime, historySt
 // the active model's display name and context window can be refreshed.
 type catalogLoadedMsg struct{}
 
-// Init loads the catalog in the background so the first frame never waits
-// for it.
+// Init loads the catalog in the background once the first frame is out, so
+// the frame never waits for it or shares the CPU with it.
 func (m Model) Init() tea.Cmd {
 	runtime := m.runtime
-	commands := []tea.Cmd{m.input.Focus(), func() tea.Msg {
+	commands := []tea.Cmd{m.input.Focus(), tea.Tick(catalogDelay, func(time.Time) tea.Msg {
 		runtime.LoadCatalog()
 		return catalogLoadedMsg{}
-	}, waitNotice(runtime.Notices())}
+	}), waitNotice(runtime.Notices())}
 	if m.follow != nil {
 		commands = append(commands, followTick(m.followEpoch))
 	}

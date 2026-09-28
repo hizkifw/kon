@@ -70,6 +70,7 @@ Intel i5-8500T, 4 cores, Linux:
 | Scenario | Wall | CPU | Peak RSS | Notes |
 | --- | ---: | ---: | ---: | --- |
 | `startup` | 21 ms | 9 ms | 10.9 MB | one short reply, including process start |
+| `first-paint` | 27 ms | 18 ms | 15.9 MB | exec to the first frame; fastest 26.5 ms, p90 29 ms |
 | `stream-doc-50k` | 0.67 s | 0.64 s | 17.8 MB | 50k deltas as fast as the socket allows |
 | `stream-doc-200k` | 2.4 s | 2.3 s | 26.8 MB | linear in reply length |
 | `stream-code-50k` | 0.64 s | 0.59 s | 17.7 MB | |
@@ -82,6 +83,30 @@ Intel i5-8500T, 4 cores, Linux:
 | `tui-paragraph` | 15 s | 11% rising to 31% | 36 MB | tail re-parse grows with the reply |
 | `tui-code` | 15 s | 11% rising to 21% | 35 MB | same, inside one fence |
 | `tui-tools` | 8 s | up to 130% while running | 52 MB | 100 tool turns, then idle |
+
+### First paint
+
+The `first-paint` row above gives the median of seven load test runs, each
+itself the median of 50 launches; its fastest launch and p90 are medians of
+the seven runs too. Every run's median was 27 or 28 ms.
+
+The rest of this section was measured on a 4-core Intel Xeon at 2.8 GHz, a
+Linux cloud VM. There `startup` takes 13 ms and `first-paint` 33 ms, with
+28 ms of CPU and 16.1 MB peak RSS; its fastest launch took 29 ms and its p90
+was 36 ms.
+
+Tracing one launch shows where the time goes. kon is in `main` after about
+5 ms and hands the model to Bubble Tea at about 7 ms; the first view is
+rendered by about 12 ms. Bubble Tea v2 writes only on its 60 fps frame ticker,
+though, so nothing leaves the process until the first tick, 16.7 ms after the
+renderer starts, at about 26 ms. Drawing that first frame then takes 4 to
+8 ms inside the renderer.
+
+First paint was 39 ms, with a p90 of 50 ms, 72 ms of CPU, and 22.9 MB peak RSS,
+while `Init` started the background catalog load at once. Decoding the bundled
+catalog allocates about 30 MB, and the garbage collection that started ran
+beside the first frame and stretched its draw to as much as 20 ms. The UI now
+waits 100 ms (`catalogDelay` in `internal/ui`) before starting the load.
 
 Startup was 50 ms until `go-runewidth` v0.0.30, whose predecessors built a
 width table for every Unicode code point in their package `init`; check

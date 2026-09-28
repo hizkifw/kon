@@ -235,11 +235,12 @@ checks the chosen provider on user request and caches returned model IDs in
 profiles, cached discovery, and bundled catalog metadata into `/model` choices.
 Derived names are `<provider-id>/<model-id>` and are never materialized as
 config profiles. The catalog is never loaded before the first frame: the UI
-starts a background load after it renders, then refreshes the header's display
-name and the status bar's context window. The load happens at most once; the
-picker, `/login`, or a first request that arrives earlier waits for that same
-load, and a derived model's capabilities are always resolved before its first
-request. Neither startup nor model switching contacts a provider.
+starts a background load 100 ms after it starts, once that frame is out, then
+refreshes the header's display name and the status bar's context window. The
+load happens at most once; the picker, `/login`, or a first request that
+arrives earlier waits for that same load, and a derived model's capabilities
+are always resolved before its first request. Neither startup nor model
+switching contacts a provider.
 
 ## Context
 

@@ -372,6 +372,8 @@ func TestInitLoadsCatalogAndRefreshesHeader(t *testing.T) {
 	runtime.state.Active = app.Model{Name: "fw/deepseek", ConnectionID: "fw", DisplayName: "deepseek"}
 	m.syncRuntimeState()
 	var loaded tea.Msg
+	var loadedAfter time.Duration
+	start := time.Now()
 	cmds := []tea.Cmd{m.Init()}
 	for len(cmds) > 0 {
 		cmd := cmds[0]
@@ -383,11 +385,14 @@ func TestInitLoadsCatalogAndRefreshesHeader(t *testing.T) {
 		case tea.BatchMsg:
 			cmds = append(cmds, msg...)
 		case catalogLoadedMsg:
-			loaded = msg
+			loaded, loadedAfter = msg, time.Since(start)
 		}
 	}
 	if loaded == nil || runtime.catalogLoads != 1 {
 		t.Fatalf("Init did not load the catalog: loads=%d", runtime.catalogLoads)
+	}
+	if loadedAfter < catalogDelay {
+		t.Fatalf("catalog loaded %s after Init, before the first frame's %s allowance", loadedAfter, catalogDelay)
 	}
 	runtime.state.Active = app.Model{Name: "fw/deepseek", ConnectionID: "fw", DisplayName: "DeepSeek V4 Pro", ContextWindow: 128_000}
 	updated, _ := m.Update(loaded)
