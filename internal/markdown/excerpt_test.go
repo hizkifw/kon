@@ -161,7 +161,10 @@ func TestExcerptLists(t *testing.T) {
 		{"nested siblings dedented", "- top\n  - a⟦a\n  - b⟧b", "- a\n- b"},
 		{"nested into outer", "- top\n  - nes⟦ted\n- ne⟧xt", "- ted\n- ne"},
 		{"deeply nested", "- a\n  - b\n    - c⟦c\n    - d⟧d", "- c\n- d"},
-		{"continuation paragraph", "- item\n\n  more ⟦text\n\n- ne⟧xt", "text\n\n- ne"},
+		{"continuation paragraph", "- item\n\n  more ⟦text\n\n- ne⟧xt", "- text\n\n- ne"},
+		// Without its marker, the text would be a paragraph that "3." cannot
+		// interrupt.
+		{"continuation before a later item", "1. first\n2. second\n\n   more ⟦text\n3. th⟧ird", "2. text\n3. th"},
 		{"inside one task", "- [ ] do ⟦this⟧", "this"},
 		{"across tasks", "- [ ] do ⟦this\n- [x] do⟧ that", "- [ ] this\n- [x] do"},
 	})
@@ -190,7 +193,7 @@ func TestExcerptCodeBlocks(t *testing.T) {
 		// A shorter fence inside is content, so the closing fence must match
 		// the opening one.
 		{"longer fence", "Before ⟦x\n\n````md\n```\nin⟧ner\n```\n````", "x\n\n````md\n```\nin\n````"},
-		{"inside a list item", "- step:\n\n  ```sh\n  make ⟦check\n  ```\n- ne⟧xt", "```sh\ncheck\n```\n- ne"},
+		{"inside a list item", "- step:\n\n  ```sh\n  make ⟦check\n  ```\n- ne⟧xt", "- ```sh\n  check\n  ```\n- ne"},
 		{"out of one in a quote", "> ```sh\n> make ⟦check\n> ```\n\nThen⟧ push", "> ```sh\n> check\n> ```\n\nThen"},
 		{"into indented code", "Text ⟦here\n\n    code li⟧ne", "here\n\n    code li"},
 		{"out of indented code", "    code ⟦line\n\nText⟧", "    line\n\nText"},

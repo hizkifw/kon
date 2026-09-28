@@ -470,8 +470,9 @@ func (x *excerpter) across(first, last leaf, start, end int) string {
 		// A selection that starts on the line of the text, markers
 		// included, gets those markers back.
 		from = max(start, first.s)
-		head, indent = x.containerMarkers(first.node, from)
-		marker := x.leafMarker(first)
+		var rest string
+		head, rest, indent = x.containerMarkers(first.node, from)
+		marker := x.leafMarker(first, rest)
 		head += marker
 		if isProse(first.node) {
 			lead, from = x.openAt(first.node, from, end)
@@ -573,40 +574,43 @@ func (x *excerpter) codeSpan(el element, s, e int) string {
 	return fence + text + fence
 }
 
-// containerMarkers returns the quote and list markers that begin the line
-// holding at, and the indentation of the list items whose markers sit on
-// earlier lines. Those are left out, and their indentation is taken off the
-// lines after it so a nested item does not turn into a code block.
-func (x *excerpter) containerMarkers(n ast.Node, at int) (markers string, indent int) {
+// containerMarkers returns the quote and list markers that put the line
+// holding at back inside the containers around n, and the prefix a later line
+// needs to stay inside them. The list item around n keeps its marker even on
+// a line after its first: dropped, it would leave its text a paragraph that a
+// later item such as "3." cannot interrupt. An outer item keeps its marker
+// only when it begins on that line. Otherwise it is left out, and its
+// indentation is taken off the lines after it, so a nested item does not
+// turn into a code block.
+func (x *excerpter) containerMarkers(n ast.Node, at int) (first, rest string, indent int) {
 	line := lineStartBefore(x.src, at)
 	var outer []ast.Node
+	var item ast.Node
 	for p := n.Parent(); p != nil; p = p.Parent() {
 		outer = append(outer, p)
+		if _, ok := p.(*ast.ListItem); ok && item == nil {
+			item = p
+		}
 	}
 	for i := len(outer) - 1; i >= 0; i-- {
 		switch v := outer[i].(type) {
 		case *ast.Blockquote:
-			markers += "> "
+			first += "> "
+			rest += "> "
 		case *ast.ListItem:
-			if lineStartBefore(x.src, v.Pos()) == line {
-				markers += itemMarker(v) + taskMarker(v)
-			} else {
+			switch {
+			case lineStartBefore(x.src, v.Pos()) == line:
+				first += itemMarker(v) + taskMarker(v)
+			case v == item:
+				first += itemMarker(v)
+			default:
 				indent += v.Offset
+				continue
 			}
+			rest += strings.Repeat(" ", v.Offset)
 		}
 	}
-	return markers, indent
-}
-
-// quoteMarkers returns a "> " for each quote around n.
-func quoteMarkers(n ast.Node) string {
-	markers := ""
-	for p := n.Parent(); p != nil; p = p.Parent() {
-		if _, ok := p.(*ast.Blockquote); ok {
-			markers += "> "
-		}
-	}
-	return markers
+	return first, rest, indent
 }
 
 // itemMarker returns a list item's bullet, or its number in an ordered list.
@@ -641,8 +645,10 @@ func taskMarker(item *ast.ListItem) string {
 	return "[ ] "
 }
 
-// leafMarker returns the syntax a leaf needs ahead of text cut from it.
-func (x *excerpter) leafMarker(l leaf) string {
+// leafMarker returns the syntax a leaf needs ahead of text cut from it. rest
+// is the prefix that keeps a line after the first inside the leaf's
+// containers.
+func (x *excerpter) leafMarker(l leaf, rest string) string {
 	switch v := l.node.(type) {
 	case *ast.Heading:
 		// A setext heading is marked by the underline below it, which the
@@ -652,8 +658,8 @@ func (x *excerpter) leafMarker(l leaf) string {
 		}
 	case *ast.FencedCodeBlock:
 		// The fence has a line of its own, so the code after it needs the
-		// quote markers again to stay in the quote.
-		return x.fenceLine(l) + "\n" + quoteMarkers(l.node)
+		// container prefix again to stay in the quote or list item.
+		return x.fenceLine(l) + "\n" + rest
 	case *ast.CodeBlock:
 		return "    "
 	}
