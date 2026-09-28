@@ -65,6 +65,7 @@ func (m *Model) applySpend(msg spendMsg) tea.Cmd {
 
 // resetSpend starts counting subagent spend again for a session just opened.
 func (m *Model) resetSpend() tea.Cmd {
+	m.sideSpent = 0
 	m.spendEpoch++
 	m.subagentSpent = 0
 	return m.loadSpend()

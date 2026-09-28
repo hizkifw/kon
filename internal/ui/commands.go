@@ -18,6 +18,8 @@ import (
 type argument struct {
 	name     string
 	optional bool
+	// rest keeps a free-form final argument, including its internal whitespace.
+	rest     bool
 	complete func(m Model, prefix string) []menuItem
 }
 
@@ -109,6 +111,9 @@ func (r *registry) parse(text string) (parsedCommand, error) {
 		return parsedCommand{}, fmt.Errorf("unknown command: %s", fields[0])
 	}
 	args := fields[1:]
+	if len(command.arguments) == 1 && command.arguments[0].rest && len(args) > 0 {
+		args = []string{strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(text), fields[0]))}
+	}
 	if len(args) > len(command.arguments) {
 		return parsedCommand{}, usageError(command.usage())
 	}
@@ -223,6 +228,14 @@ func usageError(usage string) error { return fmt.Errorf("usage: %s", usage) }
 // defaultRegistry registers kon's built-in slash commands.
 func defaultRegistry() *registry {
 	registry := newRegistry()
+	registry.register(slashCommand{
+		name:      "btw",
+		summary:   "ask a side question without changing the conversation",
+		arguments: []argument{{name: "question", rest: true}},
+		run: func(m Model, args []string) (tea.Model, tea.Cmd) {
+			return m.startSideChat(args[0])
+		},
+	})
 	registry.register(slashCommand{
 		name:    "new",
 		aliases: []string{"clear"},

@@ -33,6 +33,7 @@ type Runtime interface {
 	Models() []app.Model
 	State() app.State
 	Run(context.Context, string, *agent.Inbox, func(agent.Event)) error
+	SideChat(context.Context, string, func(agent.Event)) error
 	Compact(context.Context, func(agent.Event)) error
 	SwitchModel(string) error
 	// CycleEffort advances the active model's reasoning effort and returns the
@@ -111,6 +112,9 @@ type Model struct {
 	busy            bool
 	runCancel       context.CancelFunc
 	runEvents       chan tea.Msg
+	side            *sideChat
+	sideEpoch       int
+	sideSpent       float64
 	// interruptPresses counts consecutive Esc presses while a run is in
 	// flight, so the harness can escalate: the first press cancels the run
 	// (interrupting a running command), the second kills it.
@@ -268,6 +272,8 @@ func (m Model) Init() tea.Cmd {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var commands []tea.Cmd
 	switch msg := msg.(type) {
+	case sideEventMsg:
+		return m.updateSideChat(msg)
 	case tea.WindowSizeMsg:
 		// Anchor the bottom edge across the resize, so a reader at the bottom
 		// keeps the last line in view. A width change rewraps the transcript,
@@ -294,6 +300,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case flashDoneMsg:
 		return m.flashDone(msg)
 	case tea.PasteMsg:
+		if m.side != nil {
+			return m, nil
+		}
 		if m.search != nil {
 			return m.pasteSearch(msg), nil
 		}
@@ -373,6 +382,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.retitleModelChanges()
 		return m, nil
 	case tea.KeyPressMsg:
+		if m.side != nil {
+			return m.sideKey(msg.String())
+		}
 		if m.login != nil {
 			return m.updateLogin(msg)
 		}

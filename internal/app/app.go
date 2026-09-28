@@ -93,6 +93,8 @@ type Runtime struct {
 	phase      Phase
 	runCancel  context.CancelFunc
 	runDone    chan struct{}
+	sideCancel context.CancelFunc
+	sideDone   chan struct{}
 	// jobs supervises each open store's background commands. A store gets its
 	// supervisor with its first runner and loses it, killing whatever still
 	// runs, when the store closes. notices carries their exit notices to the
@@ -703,10 +705,17 @@ func (r *Runtime) Close() error {
 	}
 	r.phase = PhaseClosed
 	cancel, done := r.runCancel, r.runDone
+	sideCancel, sideDone := r.sideCancel, r.sideDone
 	r.mu.Unlock()
+	if sideCancel != nil {
+		sideCancel()
+	}
 	if done != nil {
 		cancel()
 		<-done
+	}
+	if sideDone != nil {
+		<-sideDone
 	}
 
 	r.mu.Lock()
@@ -820,7 +829,7 @@ func (r *Runtime) mutable() error {
 	if r.phase == PhaseClosed {
 		return ErrClosed
 	}
-	if r.phase == PhaseRunning {
+	if r.phase == PhaseRunning || r.sideDone != nil {
 		return ErrBusy
 	}
 	return nil
