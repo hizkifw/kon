@@ -262,8 +262,18 @@ func (t *transcript) selectedParts(width int) []selectedPart {
 }
 
 // shownText returns the text shown from cell from to cell to, both included,
-// without the indentation all its lines share, which is the slab's.
+// without the indentation the lines share, which is the slab's rather than
+// the text's. It is measured on the whole lines, so a line cut inside that
+// indentation or right after it loses only what it still holds of it.
 func (t *transcript) shownText(from, to point) string {
+	indent := -1
+	for i := from.line; i <= to.line; i++ {
+		if line := strings.TrimRight(ansi.Strip(t.lines[i]), " "); line != "" {
+			if n := len(line) - len(strings.TrimLeft(line, " ")); indent < 0 || n < indent {
+				indent = n
+			}
+		}
+	}
 	var lines []string
 	for i := from.line; i <= to.line; i++ {
 		a, b := 0, len(t.lines[i])
@@ -273,19 +283,9 @@ func (t *transcript) shownText(from, to point) string {
 		if i == to.line {
 			b = to.col + 1
 		}
-		lines = append(lines, strings.TrimRight(ansi.Cut(ansi.Strip(t.lines[i]), a, b), " "))
-	}
-	indent := -1
-	for _, l := range lines {
-		if l != "" {
-			n := len(l) - len(strings.TrimLeft(l, " "))
-			if indent < 0 || n < indent {
-				indent = n
-			}
-		}
-	}
-	for i, l := range lines {
-		lines[i] = l[min(len(l), max(indent, 0)):]
+		line := strings.TrimRight(ansi.Cut(ansi.Strip(t.lines[i]), a, b), " ")
+		spaces := len(line) - len(strings.TrimLeft(line, " "))
+		lines = append(lines, line[min(max(indent-a, 0), spaces):])
 	}
 	return strings.Trim(strings.Join(lines, "\n"), "\n")
 }

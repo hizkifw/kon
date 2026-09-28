@@ -95,6 +95,18 @@ func TestDragFromAPromptQuotesIt(t *testing.T) {
 	}
 }
 
+func TestToolOutputCopiesAsShownWithoutTheSlabIndent(t *testing.T) {
+	m := newTestModel(t)
+	m.transcript.add(toolDoneBlock("read", `{"path":"/tmp/a.go"}`, "func main() {\n\tif true {\n\t}\n}", false, "/tmp"))
+	m.refreshTranscript(true)
+	x, y := cellOf(t, m, "func main")
+	endX, endY := cellOf(t, m, "if true")
+	_, cmd := drag(m, x, y, endX+len("if true {")-1, endY)
+	if got, want := selectedText(t, cmd), "func main() {\n    if true {"; got != want {
+		t.Fatalf("copied %q, want %q", got, want)
+	}
+}
+
 func TestClickWithoutDragCopiesNothing(t *testing.T) {
 	m := selectionModel(t)
 	x, y := cellOf(t, m, "fmt.Println")
