@@ -62,18 +62,14 @@ type storedProvider struct {
 }
 
 type Model struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Family      string `json:"family"`
-	Attachment  bool   `json:"attachment"`
-	Reasoning   bool   `json:"reasoning"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Reasoning bool   `json:"reasoning"`
 	// ReasoningOptions lists the reasoning controls the model accepts. Only
 	// the "effort" kind is used by kon; toggle and budget_tokens are kept so
 	// the cached catalog stays a faithful projection of upstream.
 	ReasoningOptions []ReasoningOption `json:"reasoning_options,omitempty"`
 	ToolCall         bool              `json:"tool_call"`
-	StructuredOutput bool              `json:"structured_output"`
 	Modalities       Modalities        `json:"modalities"`
 	Limit            Limit             `json:"limit"`
 	Cost             Cost              `json:"cost"`

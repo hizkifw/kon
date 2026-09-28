@@ -78,7 +78,12 @@ func run() error {
 		return err
 	}
 	defer os.Remove(tmp.Name())
-	zw := gzip.NewWriter(tmp)
+	// The snapshot is embedded in the binary, so spend the time once here.
+	zw, err := gzip.NewWriterLevel(tmp, gzip.BestCompression)
+	if err != nil {
+		tmp.Close()
+		return err
+	}
 	bundled := struct {
 		FetchedAt time.Time       `json:"fetched_at"`
 		Catalog   json.RawMessage `json:"catalog"`
@@ -115,9 +120,8 @@ func project(raw []byte) ([]byte, error) {
 	}
 	providerFields := map[string]bool{"id": true, "name": true, "api": true, "npm": true, "env": true, "models": true}
 	modelFields := map[string]bool{
-		"id": true, "name": true, "description": true, "family": true,
-		"attachment": true, "reasoning": true, "reasoning_options": true, "tool_call": true,
-		"structured_output": true, "modalities": true, "limit": true, "cost": true,
+		"id": true, "name": true, "reasoning": true, "reasoning_options": true,
+		"tool_call": true, "modalities": true, "limit": true, "cost": true,
 	}
 	for _, provider := range providers {
 		var models map[string]map[string]json.RawMessage
