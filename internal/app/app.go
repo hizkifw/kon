@@ -32,6 +32,9 @@ var (
 	// ErrReadOnly refuses a change to a session followed while another kon
 	// has it open; see TakeOver.
 	ErrReadOnly = errors.New("session is read-only while it is open in another session")
+	// ErrIncognito refuses to open a saved session from an incognito
+	// runtime, which would go on writing to it.
+	ErrIncognito = errors.New("an incognito session cannot resume saved sessions")
 )
 
 type Model struct {
@@ -102,6 +105,8 @@ type Runtime struct {
 	// effort. Both come from Options and are never written to the config.
 	pinned bool
 	effort string
+	// incognito keeps every session this runtime creates in memory only.
+	incognito bool
 
 	createSession func() (*session.Store, error)
 	openSession   func(string) (*session.Store, error)
@@ -173,10 +178,16 @@ type Options struct {
 	// Parent records the session that started this one as a subagent. It
 	// applies only to a new session.
 	Parent typedid.SessionID
+	// Incognito keeps every session in memory: nothing is saved, and no saved
+	// session can be resumed.
+	Incognito bool
 }
 
 // Start builds a runtime on a new or resumed session.
 func Start(cfg config.Config, paths config.Paths, cwd, version string, opts Options) (*Runtime, error) {
+	if opts.Incognito && opts.Resume {
+		return nil, ErrIncognito
+	}
 	name := cfg.DefaultModel
 	if opts.Model != "" {
 		if _, ok := cfg.ResolveModel(opts.Model); !ok {
@@ -185,11 +196,14 @@ func Start(cfg config.Config, paths config.Paths, cwd, version string, opts Opti
 		name = opts.Model
 	}
 	r := &Runtime{config: cfg, paths: paths, cwd: cwd, providerModels: loadProviderModels(paths.ProviderModels), pinned: opts.Model != "", effort: opts.Effort,
-		jobs: map[*session.Store]*tools.Jobs{}, notices: make(chan string, 64)}
+		incognito: opts.Incognito, jobs: map[*session.Store]*tools.Jobs{}, notices: make(chan string, 64)}
 	r.createSession = func() (*session.Store, error) {
 		prompt, err := r.systemPrompt()
 		if err != nil {
 			return nil, err
+		}
+		if opts.Incognito {
+			return session.NewEphemeral(cwd, version, prompt)
 		}
 		return session.NewChild(paths.Sessions, cwd, version, prompt, opts.Parent)
 	}
@@ -269,7 +283,7 @@ func (r *Runtime) jobsFor(store *session.Store) *tools.Jobs {
 		r.jobs = map[*session.Store]*tools.Jobs{}
 	}
 	notices := r.notices
-	jobs := tools.NewJobs(store.JobsDir(), store.ID().String(), func(notice string) {
+	jobs := tools.NewJobs(store.JobsDir(), store.ID().String(), r.incognito, func(notice string) {
 		// A frontend that is not listening, like kon run, must not stall the
 		// job's goroutine; the job's files still record how it ended.
 		select {
@@ -542,19 +556,26 @@ func (r *Runtime) SwitchModel(name string) error {
 // Sessions returns the persisted sessions for this workspace, newest first.
 // The UI uses it to list candidates for "/resume".
 func (r *Runtime) Sessions() ([]session.Summary, error) {
+	if r.incognito {
+		return nil, ErrIncognito
+	}
 	return session.Discover(r.paths.Sessions, r.cwd)
 }
 
+// Incognito reports whether this runtime keeps its sessions in memory only.
+func (r *Runtime) Incognito() bool { return r.incognito }
+
 // SessionID is the identifier of the live session, or the zero ID when none is
-// open. A session that is still empty is excluded: it is discarded on close
-// rather than kept as a resume target, so it is never reported.
+// open. A session that is still empty, or incognito, is excluded: it is
+// discarded on close rather than kept as a resume target, so it is never
+// reported.
 func (r *Runtime) SessionID() typedid.SessionID {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.view != nil {
 		return r.view.ID()
 	}
-	if r.store == nil || r.store.Empty() {
+	if r.store == nil || r.store.Empty() || r.incognito {
 		return typedid.SessionID{}
 	}
 	return r.store.ID()
@@ -609,6 +630,9 @@ func (r *Runtime) Resume(id typedid.SessionID) error {
 	defer r.mu.Unlock()
 	if err := r.mutable(); err != nil {
 		return err
+	}
+	if r.incognito {
+		return ErrIncognito
 	}
 	summary, err := session.Find(r.paths.Sessions, r.cwd, id)
 	if err != nil {

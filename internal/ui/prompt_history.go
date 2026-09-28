@@ -3,6 +3,8 @@ package ui
 import "github.com/hizkifw/kon/internal/history"
 
 type promptHistory struct {
+	// store records each prompt for later launches. Without one, as in an
+	// incognito session, prompts are recalled only until kon exits.
 	store    *history.Store
 	entries  []history.Entry
 	position int
@@ -14,8 +16,10 @@ func newPromptHistory(store *history.Store, entries []history.Entry) promptHisto
 }
 
 func (h *promptHistory) append(cwd, text string) error {
-	if err := h.store.Append(cwd, text); err != nil {
-		return err
+	if h.store != nil {
+		if err := h.store.Append(cwd, text); err != nil {
+			return err
+		}
 	}
 	h.entries = append(h.entries, history.Entry{CWD: cwd, Text: text})
 	h.position = len(h.entries)

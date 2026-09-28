@@ -47,11 +47,12 @@ func (c command) help() string {
 // from the registry so it cannot drift from the commands kon actually accepts.
 func rootUsage() string {
 	var b strings.Builder
-	b.WriteString("usage: kon [--resume [<id>]] [--help] [--version]\n")
+	b.WriteString("usage: kon [--resume [<id>] | --incognito] [--help] [--version]\n")
 	b.WriteString("       kon <command> [flags]\n\n")
 	b.WriteString("Start a full-screen kon agent session in the current directory.\n\n")
 	b.WriteString("  --resume, -r          resume the most recent session in this directory\n")
 	b.WriteString("  --resume=<id>         resume a specific session\n")
+	b.WriteString("  --incognito           start a session that is never saved\n")
 	b.WriteString("  --help, -h            show this help\n")
 	b.WriteString("  --version             print the version\n\n")
 	b.WriteString("commands:\n")
@@ -59,7 +60,9 @@ func rootUsage() string {
 		fmt.Fprintf(&b, "  %-8s %s\n", cmd.name, cmd.summary)
 	}
 	b.WriteString("\nRun \"kon <command> --help\" for command flags.\n\n")
-	b.WriteString("On exit, kon prints the session ID so the session can be resumed later.")
+	b.WriteString("On exit, kon prints the session ID so the session can be resumed later.\n")
+	b.WriteString("An incognito session keeps its conversation and prompts in memory only,\n")
+	b.WriteString("so there is nothing to resume.")
 	return b.String()
 }
 

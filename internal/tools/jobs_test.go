@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -25,7 +26,7 @@ func readJobFile(t *testing.T, dir string, id, name string) string {
 func TestJobRecordsExitAndNotifies(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "s.jsonl.jobs")
 	notices := make(chan string, 1)
-	jobs := NewJobs(dir, "ses_x", func(n string) { notices <- n })
+	jobs := NewJobs(dir, "ses_x", false, func(n string) { notices <- n })
 	defer jobs.Close()
 	id, _, err := jobs.Start("echo hello; echo $KON_SESSION; exit 3", t.TempDir())
 	if err != nil || id != 1 {
@@ -53,7 +54,7 @@ func TestJobRecordsExitAndNotifies(t *testing.T) {
 func TestCloseKillsRunningJobsWithoutNotice(t *testing.T) {
 	dir := t.TempDir()
 	notified := false
-	jobs := NewJobs(dir, "ses_x", func(string) { notified = true })
+	jobs := NewJobs(dir, "ses_x", false, func(string) { notified = true })
 	if _, _, err := jobs.Start("sleep 30", t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +80,7 @@ func TestReopenedJobsMarkLostAndContinueNumbering(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "1", "exit"), []byte("0\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	jobs := NewJobs(dir, "ses_x", nil)
+	jobs := NewJobs(dir, "ses_x", false, nil)
 	defer jobs.Close()
 	if got := readJobFile(t, dir, "1", "exit"); got != "0" {
 		t.Fatalf("finished job rewritten: %q", got)
@@ -95,7 +96,7 @@ func TestReopenedJobsMarkLostAndContinueNumbering(t *testing.T) {
 func TestShellBackgroundStartsJobAndSharesEnv(t *testing.T) {
 	dir := t.TempDir()
 	jobsDir := filepath.Join(dir, "jobs")
-	jobs := NewJobs(jobsDir, "ses_x", nil)
+	jobs := NewJobs(jobsDir, "ses_x", false, nil)
 	defer jobs.Close()
 	executor := New(dir, false, jobs)
 	result, failed := executor.Execute(context.Background(), "shell", raw(map[string]any{"command": "sleep 5", "timeout": 0}), nil)
@@ -135,11 +136,30 @@ func TestCappedWriterMarksTruncation(t *testing.T) {
 	}
 }
 
+func TestIncognitoJobsExportIncognito(t *testing.T) {
+	t.Setenv("KON_INCOGNITO", "")
+	for _, incognito := range []bool{false, true} {
+		jobs := NewJobs(t.TempDir(), "ses_x", incognito, nil)
+		env := jobs.Env()
+		if got := slices.Contains(env, "KON_INCOGNITO=1"); got != incognito {
+			t.Fatalf("incognito=%v: env = %v", incognito, env)
+		}
+		for _, v := range env {
+			name, value, _ := strings.Cut(v, "=")
+			t.Setenv(name, value)
+		}
+		if Incognito() != incognito {
+			t.Fatalf("incognito=%v: a subagent reads Incognito() = %v", incognito, !incognito)
+		}
+		jobs.Close()
+	}
+}
+
 func TestJobsExportDepthAndJobDirectory(t *testing.T) {
 	t.Setenv("KON_DEPTH", "1")
 	dir := t.TempDir()
 	exited := make(chan string, 1)
-	jobs := NewJobs(dir, "ses_x", func(n string) { exited <- n })
+	jobs := NewJobs(dir, "ses_x", false, func(n string) { exited <- n })
 	defer jobs.Close()
 	if env := strings.Join(jobs.Env(), " "); !strings.Contains(env, "KON_DEPTH=2") {
 		t.Fatalf("env = %s", env)
@@ -164,7 +184,7 @@ func TestJobsExportDepthAndJobDirectory(t *testing.T) {
 func TestUserKillIsNamedInTheNotice(t *testing.T) {
 	dir := t.TempDir()
 	notices := make(chan string, 1)
-	jobs := NewJobs(dir, "ses_x", func(n string) { notices <- n })
+	jobs := NewJobs(dir, "ses_x", false, func(n string) { notices <- n })
 	defer jobs.Close()
 	id, _, err := jobs.Start("sleep 30", t.TempDir())
 	if err != nil {
@@ -189,7 +209,7 @@ func TestUserKillIsNamedInTheNotice(t *testing.T) {
 func TestSubagentNoticeQuotesWholeAnswer(t *testing.T) {
 	dir := t.TempDir()
 	notices := make(chan string, 1)
-	jobs := NewJobs(dir, "ses_x", func(n string) { notices <- n })
+	jobs := NewJobs(dir, "ses_x", false, func(n string) { notices <- n })
 	defer jobs.Close()
 	// The turn log goes to output; the final message to the answer file.
 	command := `for i in $(seq 40); do echo "log line $i"; done; printf 'first line\nsecond line' > "$KON_JOB/answer"`

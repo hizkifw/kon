@@ -176,7 +176,7 @@ func runRun(args []string) error {
 		}
 		runtime, err := app.Start(cfg, paths, cwd, buildinfo.Version(), app.Options{
 			Resume: parsed.resume, SessionID: parsed.resumeID, Model: parsed.model, Effort: parsed.effort,
-			Parent: parentSession(),
+			Parent: parentSession(), Incognito: tools.Incognito(),
 		})
 		if err != nil {
 			return err

@@ -48,6 +48,9 @@ type Runtime interface {
 	Sessions() ([]session.Summary, error)
 	SessionID() typedid.SessionID
 	SessionHistory() []session.Entry
+	// Incognito reports that sessions are kept in memory only, which the
+	// banner shows.
+	Incognito() bool
 	// Follow reads what another kon has appended to a session this one
 	// follows read-only; TakeOver makes this kon its writer once it is free.
 	Follow() (app.Followed, error)
@@ -189,11 +192,15 @@ func New(ctx context.Context, cwd, configPath string, runtime Runtime, historySt
 	if !state.Ready() && !state.Following() {
 		status = "needs configuration"
 	}
+	mark := welcomeBanner
+	if runtime.Incognito() {
+		mark = incognitoBanner
+	}
 	model := Model{
 		ctx: ctx, viewport: vp, input: input, history: newPromptHistory(historyStore, entries),
 		runtime: runtime, commands: defaultRegistry(), inbox: &agent.Inbox{},
 		active: state.Active, cwd: cwd, configPath: configPath,
-		transcript: transcript{cwd: cwd, banner: welcomeBanner},
+		transcript: transcript{cwd: cwd, banner: mark},
 		status:     status, contextTokens: -1, terminalFocused: true,
 	}
 	// A resumed session opens with its conversation already in the transcript.

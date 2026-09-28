@@ -163,7 +163,7 @@ type transcript struct {
 	// never a block, so it stays out of session records, but it renders as a
 	// stable prefix above the conversation even on a resumed session. Its
 	// rendering depends only on the mark and the width, so it is memoized.
-	banner      string
+	banner      banner
 	bannerCache string
 	bannerWidth int
 	bannerValid bool

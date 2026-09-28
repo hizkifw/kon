@@ -94,9 +94,22 @@ A release tag's message becomes the GitHub release notes, so tag it properly.
 2. Format the tag as semver with a `v` prefix, e.g. `v0.1.4`.
 3. Write the tag message as a summary of the changes between the previous
    tag and this one; `gh release create` in `.github/workflows/release.yml`
-   uses it as the release description. Write it for kon's users, grouping
-   related commits, and create the tag with
-   `git tag -a --cleanup=whitespace -F <file>`: the default cleanup strips
-   every line starting with `#`, which drops Markdown headings.
-4. Do not push the tag. Pushing publishes the release, so leave that to a
+   uses it as the release description. Write it for kon's users, using this
+   format:
+
+   ```
+   vX.Y.Z
+
+   ## Section
+
+   - **Headline**: short description
+   - **Headline**: short description
+   ```
+
+   The first line is the version, each `##` section groups related commits,
+   and each bullet pairs a bold headline with a short description.
+4. Create the tag with `git tag -a --cleanup=whitespace -F <file>`: the
+   default cleanup strips every line starting with `#`, which drops Markdown
+   headings.
+5. Do not push the tag. Pushing publishes the release, so leave that to a
    person.

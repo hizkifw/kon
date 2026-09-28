@@ -22,6 +22,8 @@ app runtime ────── agent runner ───── provider layer
 2. Create a cwd-scoped session and persist the exact system prompt. With
    `--resume`, open the newest existing session for the directory (or a named
    one) instead of creating a session, and replay its active path for display.
+   With `--incognito`, the session is `session.NewEphemeral`: the same store
+   and append path, writing to a discarded file, with images held in memory.
 3. Render the alternate-screen TUI. No provider request occurs during startup.
 4. Persist a submitted user message before starting network work.
 5. Stream one assistant message. A completed message is persisted atomically as
@@ -114,7 +116,9 @@ closed, and only sessions in the working directory's session folder are
 eligible. A session another kon holds is opened as a read-only `session.View`
 in the following phase. The UI polls it off the update loop through
 `Runtime.Follow`, and `Runtime.TakeOver` turns it into a store once the lock is
-free. Every write refuses with `ErrReadOnly` until then.
+free. Every write refuses with `ErrReadOnly` until then. An incognito runtime
+creates only ephemeral sessions, reports no resumable session ID, and refuses
+to list or resume saved sessions with `ErrIncognito`.
 
 The UI and runtime communicate through typed events and operations. Typed
 transcript blocks own their rendering, prompt history owns recall state,
@@ -145,7 +149,8 @@ so the view shows the command is alive and how much budget remains; the finished
 result replaces it with the exit-code status. A
 presentation-only welcome banner leads every transcript as a stable prefix above
 the conversation; the banner is not a block and never reaches session records or
-model context, so it stays at the top across messages and resumed sessions.
+model context, so it stays at the top across messages and resumed sessions. An
+incognito runtime gets a faint, dashed variant of it.
 Streaming deltas are accumulated immediately but
 viewport rebuilds are capped at 20 frames per second. The runner owns no
 terminal state, and the UI owns no provider or session serialization.
@@ -352,9 +357,12 @@ the compact `12.4k`/`1.0m` rendering, so every displayed figure matches.
   pushes it into the inbox during a run or starts a run with it when idle.
 - A subagent is a background job running `kon run`; there is no subagent
   concept in the agent loop. The shell exports `KON_SESSION`, `KON_JOBS`, and
-  an incremented `KON_DEPTH` to every command and `KON_JOB` to each job. `kon
-  run` records `KON_SESSION` as its session's parent, writes its session ID
-  into `KON_JOB`, and refuses to start past a fixed depth. Ctrl+C never interrupts;
+  an incremented `KON_DEPTH` to every command and `KON_JOB` to each job, plus
+  `KON_INCOGNITO` beneath an incognito session. `kon run` records
+  `KON_SESSION` as its session's parent, writes its session ID into `KON_JOB`,
+  keeps its session in memory under `KON_INCOGNITO`, and refuses to start past
+  a fixed depth. An ephemeral session's jobs use a temporary directory that
+  closing the store removes. Ctrl+C never interrupts;
   it clears the input, or hints at Ctrl+D to exit when the input is empty.
 
 ## Dependency policy

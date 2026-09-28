@@ -43,7 +43,10 @@ const maxAnswerBytes = 64 << 10
 type Jobs struct {
 	dir     string
 	session string
-	notify  func(string)
+	// incognito marks jobs of a session kept only in memory, whose kon run
+	// subagents must not save theirs either.
+	incognito bool
+	notify    func(string)
 
 	mu      sync.Mutex
 	next    int
@@ -55,11 +58,12 @@ type Jobs struct {
 	wg         sync.WaitGroup
 }
 
-// NewJobs supervises jobs under dir for the session with the given ID. notify
-// receives a notice for the model whenever a job exits on its own; it is
-// called from the job's goroutine and must not block.
-func NewJobs(dir, session string, notify func(string)) *Jobs {
-	j := &Jobs{dir: dir, session: session, notify: notify, next: 1, running: map[int]*exec.Cmd{}, userKilled: map[int]bool{}}
+// NewJobs supervises jobs under dir for the session with the given ID, which
+// is incognito when it is kept only in memory. notify receives a notice for
+// the model whenever a job exits on its own; it is called from the job's
+// goroutine and must not block.
+func NewJobs(dir, session string, incognito bool, notify func(string)) *Jobs {
+	j := &Jobs{dir: dir, session: session, incognito: incognito, notify: notify, next: 1, running: map[int]*exec.Cmd{}, userKilled: map[int]bool{}}
 	j.recover()
 	return j
 }
@@ -85,13 +89,22 @@ func (j *Jobs) recover() {
 }
 
 // Env is the environment every shell command runs with, so a command can find
-// the jobs directory and a nested `kon run` its parent session and depth.
+// the jobs directory and a nested `kon run` its parent session, depth, and
+// whether it is incognito.
 func (j *Jobs) Env() []string {
 	if j == nil {
 		return nil
 	}
-	return []string{"KON_JOBS=" + j.dir, "KON_SESSION=" + j.session, "KON_DEPTH=" + strconv.Itoa(Depth()+1)}
+	env := []string{"KON_JOBS=" + j.dir, "KON_SESSION=" + j.session, "KON_DEPTH=" + strconv.Itoa(Depth()+1)}
+	if j.incognito {
+		env = append(env, "KON_INCOGNITO=1")
+	}
+	return env
 }
+
+// Incognito reports whether this process runs beneath an incognito session,
+// whose subagents keep their sessions in memory as well.
+func Incognito() bool { return os.Getenv("KON_INCOGNITO") == "1" }
 
 // Depth is how many kon agents this process runs beneath: 0 for one started
 // by a person, and one more for each kon run started from an agent's shell.

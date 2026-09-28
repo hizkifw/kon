@@ -1,6 +1,7 @@
 package session
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -30,7 +31,12 @@ func (s *Store) blobDir() string { return s.path + ".blobs" }
 
 // JobsDir is where the session's background jobs keep their files. The
 // session only names it; internal/tools owns what goes inside.
-func (s *Store) JobsDir() string { return s.path + ".jobs" }
+func (s *Store) JobsDir() string {
+	if s.ephemeral() {
+		return s.scratch
+	}
+	return s.path + ".jobs"
+}
 
 // SaveImage writes an image before its session entry can refer to it. Equal
 // bytes share one file within a session, and the JSONL keeps only the hash.
@@ -45,6 +51,10 @@ func (s *Store) SaveImage(data []byte, mime string) (Part, error) {
 	}
 	digest := sha256.Sum256(data)
 	hash := hex.EncodeToString(digest[:])
+	if s.ephemeral() {
+		s.images[hash] = bytes.Clone(data)
+		return Part{Type: PartImage, ImageHash: hash, ImageMIME: mime}, nil
+	}
 	dir := s.blobDir()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return Part{}, fmt.Errorf("create image blob directory: %w", err)
@@ -88,6 +98,15 @@ func (s *Store) SaveImage(data []byte, mime string) (Part, error) {
 func (s *Store) ReadImage(hash string) ([]byte, error) {
 	if !validImageHash(hash) {
 		return nil, errors.New("invalid image blob hash")
+	}
+	if s.ephemeral() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		data, ok := s.images[hash]
+		if !ok {
+			return nil, errors.New("image blob not found")
+		}
+		return data, nil
 	}
 	f, err := os.Open(filepath.Join(s.blobDir(), hash))
 	if err != nil {

@@ -33,6 +33,24 @@ nothing is sent. `/model` and effort changes wait until you have taken over;
 Sessions are plain JSONL files under `~/.local/share/kon/sessions/` by default.
 On Windows, kon uses `%LOCALAPPDATA%\kon\sessions\`.
 
+### Incognito
+
+`kon --incognito` starts a session that is never saved. The conversation lives
+in memory and is gone when kon exits, and its prompts are not added to the
+Up-arrow history, though earlier prompts can still be recalled. The banner is
+drawn as a faint, dashed outline so the mode is obvious, and on exit kon prints
+`incognito session discarded; nothing to resume` instead of a resume hint.
+
+`--incognito` cannot be combined with `--resume`, and `/resume` refuses to open
+a saved session from an incognito one. `/new` starts another incognito session.
+Subagents inherit the mode through `KON_INCOGNITO`, so their sessions are not
+saved either. Background jobs still write their output files, because the agent
+reads them with ordinary commands, but into a private temporary directory that
+is removed when the session ends.
+
+Incognito covers sessions and prompt history only. `/login`, `/model`, and
+effort changes still save to the config, and prompts still go to your provider.
+
 ## Commands
 
 Type `/` at the start of the prompt to see the available commands.
@@ -233,7 +251,8 @@ agent, quoting the job's last lines of output: at its next step if it is
 working, or by starting a turn if it is idle.
 
 Each job is a directory of plain files beside the session, at
-`<session>.jsonl.jobs/<id>/`: `cmd`, `pid`, `output` (combined stdout and
+`<session>.jsonl.jobs/<id>/` (an incognito session uses a temporary directory
+instead): `cmd`, `pid`, `output` (combined stdout and
 stderr, capped at 16 MiB), and `exit` once it has finished. Every shell
 command, foreground or background, gets `KON_JOBS` (that directory) and
 `KON_SESSION` (the session ID) in its environment, so the agent can list jobs

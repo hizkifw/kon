@@ -836,3 +836,57 @@ func testStore(t *testing.T) *session.Store {
 	t.Cleanup(func() { _ = store.Close() })
 	return store
 }
+
+func TestIncognitoSavesNothingAndResumesNothing(t *testing.T) {
+	dir := t.TempDir()
+	paths := config.Paths{Sessions: filepath.Join(dir, "sessions"), ConfigFile: filepath.Join(dir, "config.json")}
+	cwd := t.TempDir()
+	saved, err := session.New(paths.Sessions, cwd, "test", "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := saved.AppendMessage(session.TextMessage(session.RoleUser, "saved")); err != nil {
+		t.Fatal(err)
+	}
+	saved.Close()
+
+	if _, err := Start(configured("model"), paths, cwd, "test", Options{Incognito: true, Resume: true}); !errors.Is(err, ErrIncognito) {
+		t.Fatalf("incognito resume: err = %v, want ErrIncognito", err)
+	}
+	runtime, err := Start(configured("model"), paths, cwd, "test", Options{Incognito: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+	if !runtime.Incognito() {
+		t.Fatal("runtime does not report incognito")
+	}
+	if _, err := runtime.store.AppendMessage(session.TextMessage(session.RoleUser, "secret")); err != nil {
+		t.Fatal(err)
+	}
+	if id := runtime.SessionID(); !id.IsZero() {
+		t.Fatalf("incognito session reports resumable ID %s", id)
+	}
+	if env := runtime.jobs[runtime.store].Env(); !slices.Contains(env, "KON_INCOGNITO=1") {
+		t.Fatalf("shell env = %v, want subagents kept incognito", env)
+	}
+	if _, err := runtime.Sessions(); !errors.Is(err, ErrIncognito) {
+		t.Fatalf("Sessions: err = %v, want ErrIncognito", err)
+	}
+	if err := runtime.Resume(saved.ID()); !errors.Is(err, ErrIncognito) {
+		t.Fatalf("Resume: err = %v, want ErrIncognito", err)
+	}
+	if err := runtime.NewSession(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.store.AppendMessage(session.TextMessage(session.RoleUser, "another secret")); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.Close(); err != nil {
+		t.Fatal(err)
+	}
+	summaries, err := session.Discover(paths.Sessions, cwd)
+	if err != nil || len(summaries) != 1 || summaries[0].ID != saved.ID() {
+		t.Fatalf("Discover = (%#v, %v), want only the saved session", summaries, err)
+	}
+}
