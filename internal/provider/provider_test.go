@@ -1,77 +1,48 @@
 package provider
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/hizkifw/kon/internal/session"
 	"github.com/hizkifw/kon/internal/typedid"
 )
 
+// TestAssistantAssemblesDurableMessage checks what the client adds to a
+// response, the role and the model that wrote it, and that everything else
+// passes through as the backend assembled it.
 func TestAssistantAssemblesDurableMessage(t *testing.T) {
 	client := &Client{modelID: typedid.ExternalModelID("gpt-4o")}
 	response := Response{
 		Parts: []session.Part{
-			{Type: session.PartReasoning, Text: "let me look"},
 			{Type: session.PartText, Text: "checking"},
+			{Type: session.PartReasoning, Text: "thought", ProviderOptions: json.RawMessage(`{"signature":"opaque-value"}`)},
 			{Type: session.PartToolCall, ToolCallID: "call-1", ToolName: "read", ToolInput: json.RawMessage(`{"path":"x"}`)},
 		},
-		Finish: "tool_calls",
-		Usage:  &session.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15, CachedTokens: 4},
+		Finish:          "tool_calls",
+		Usage:           &session.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15, CachedTokens: 4},
+		ProviderOptions: json.RawMessage(`{"reasoning_field":"reasoning"}`),
 	}
 	message, err := client.assistant(response)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if message.Role != session.RoleAssistant || message.Text() != "checking" || message.Model.String() != "gpt-4o" || message.Finish != "tool_calls" {
-		t.Fatalf("message = %#v", message)
+	if message.Role != session.RoleAssistant || message.Model.String() != "gpt-4o" {
+		t.Fatalf("role = %q, model = %q", message.Role, message.Model)
 	}
-	if message.Usage == nil || message.Usage.PromptTokens != 10 || message.Usage.CachedTokens != 4 {
-		t.Fatalf("usage = %#v", message.Usage)
-	}
-	if calls := message.ToolCalls(); len(calls) != 1 || calls[0].ID.String() != "call-1" || calls[0].Type != "function" {
-		t.Fatalf("tool calls = %#v", calls)
-	}
-	// Reasoning is persisted first so a turn replays in generation order.
-	want := []string{session.PartReasoning, session.PartText, session.PartToolCall}
-	if len(message.Parts) != len(want) {
-		t.Fatalf("parts = %#v", message.Parts)
-	}
-	for i, kind := range want {
-		if message.Parts[i].Type != kind {
-			t.Fatalf("parts = %#v", message.Parts)
-		}
-	}
-	if message.Parts[0].Text != "let me look" || message.Parts[2].ToolCallID.String() != "call-1" || string(message.Parts[2].ToolInput) != `{"path":"x"}` {
-		t.Fatalf("parts = %#v", message.Parts)
+	want := session.Message{Role: message.Role, Model: message.Model, Parts: response.Parts, Finish: response.Finish, Usage: response.Usage, ProviderOptions: response.ProviderOptions}
+	if !reflect.DeepEqual(message, want) {
+		t.Fatalf("message = %#v, want the response unchanged", message)
 	}
 	if err := message.Validate(); err != nil {
 		t.Fatalf("assembled message is invalid: %v", err)
-	}
-}
-
-func TestAssistantKeepsInterleavedPartsAndProviderMetadata(t *testing.T) {
-	client := &Client{modelID: typedid.ExternalModelID("model")}
-	metadata := json.RawMessage(`{"signature":"opaque-value"}`)
-	parts := []session.Part{
-		{Type: session.PartText, Text: "first"},
-		{Type: session.PartReasoning, Text: "thought", ProviderOptions: metadata},
-		{Type: session.PartToolCall, ToolCallID: "call-1", ToolName: "read", ToolInput: json.RawMessage(`{}`)},
-		{Type: session.PartText, Text: "last"},
-	}
-	options := json.RawMessage(`{"reasoning_field":"reasoning"}`)
-	message, err := client.assistant(Response{Parts: parts, ProviderOptions: options})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(message.ProviderOptions) != string(options) {
-		t.Fatalf("message metadata = %s, want %s", message.ProviderOptions, options)
-	}
-	if message.Text() != "firstlast" || len(message.Parts) != 4 || message.Parts[1].Type != session.PartReasoning || string(message.Parts[1].ProviderOptions) != string(metadata) || message.Parts[3].Text != "last" {
-		t.Fatalf("ordered parts changed: %#v", message.Parts)
 	}
 }
 
@@ -111,6 +82,34 @@ func TestAssistantOrPartialPersistsInterruptedTurn(t *testing.T) {
 	}
 	if len(message.Parts) != 2 || message.Parts[0].Type != session.PartReasoning || message.Parts[1].Type != session.PartText {
 		t.Fatalf("partial parts = %#v", message.Parts)
+	}
+	if err := message.Validate(); err != nil {
+		t.Fatalf("partial message is invalid: %v", err)
+	}
+}
+
+// TestStreamInterruptedTurnDropsToolCalls covers a stream cut off after a
+// tool call arrived. The call never runs, so it has no result, and replaying
+// it unanswered would get the next request rejected; the text is kept.
+func TestStreamInterruptedTurnDropsToolCalls(t *testing.T) {
+	events := sse(`{"choices":[{"index":0,"delta":{"content":"let me read"}}]}`) +
+		sse(`{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call-1","type":"function","function":{"name":"read","arguments":"{\"path\":\"x\"}"}}]}}]}`)
+	model := newTestModel(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, events)
+	})
+	client := &Client{model: model, modelID: typedid.ExternalModelID("test-model")}
+	message, err := client.Stream(context.Background(), []session.Message{session.TextMessage(session.RoleUser, "hi")}, nil, func(Event) {})
+	if err == nil {
+		t.Fatal("truncated stream was reported as complete")
+	}
+	if !message.Interrupted || message.Text() != "let me read" {
+		t.Fatalf("partial message = %#v", message)
+	}
+	for _, part := range message.Parts {
+		if part.Type == session.PartToolCall {
+			t.Fatalf("partial kept an unanswered tool call: %#v", message.Parts)
+		}
 	}
 	if err := message.Validate(); err != nil {
 		t.Fatalf("partial message is invalid: %v", err)
@@ -200,13 +199,16 @@ func TestRejectedFieldRequiresRejectionSignal(t *testing.T) {
 	}
 }
 
+// TestAPIErrorMessage checks what the error reports, not its wording: the
+// status, then the server's parsed message when it sent one, otherwise the raw
+// body without the whitespace around it.
 func TestAPIErrorMessage(t *testing.T) {
-	structured := &APIError{Status: 400, Message: "bad model"}
-	if got := structured.Error(); got != "provider returned status 400: bad model" {
-		t.Fatalf("Error() = %q", got)
+	structured := &APIError{Status: 400, Message: "bad model", Body: `{"error":{"message":"bad model"}}`}
+	if got := structured.Error(); !strings.Contains(got, "400") || !strings.HasSuffix(got, "bad model") {
+		t.Fatalf("Error() = %q, want the status and the parsed message", got)
 	}
 	raw := &APIError{Status: 500, Body: " upstream exploded \n"}
-	if got := raw.Error(); got != "provider returned status 500: upstream exploded" {
-		t.Fatalf("Error() = %q", got)
+	if got := raw.Error(); !strings.Contains(got, "500") || !strings.HasSuffix(got, "upstream exploded") {
+		t.Fatalf("Error() = %q, want the status and the trimmed body", got)
 	}
 }

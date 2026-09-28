@@ -48,8 +48,8 @@ func TestReplayShowsModelSwitchesButNotTheStartingModel(t *testing.T) {
 	}
 	m := New(context.Background(), "/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
 	got := modelBlocks(&m.transcript)
-	want := " Model changed to fireworks-ai · DeepSeek V4.1 Flash · default"
-	if len(got) != 1 || got[0] != want {
+	want := "fireworks-ai · DeepSeek V4.1 Flash · default"
+	if len(got) != 1 || !strings.HasSuffix(got[0], " "+want) {
 		t.Fatalf("replayed model changes = %q, want [%q]", got, want)
 	}
 }
@@ -71,8 +71,8 @@ func TestReplayedModelChangeIsRetitledWhenTheCatalogLoads(t *testing.T) {
 	runtime.models = []app.Model{{Name: "fireworks-ai/deepseek", ConnectionID: "fireworks-ai", DisplayName: "DeepSeek V4"}}
 	updated, _ := m.Update(catalogLoadedMsg{})
 	m = updated.(Model)
-	want := " Model changed to fireworks-ai · DeepSeek V4"
-	if got := modelBlocks(&m.transcript); len(got) != 1 || got[0] != want {
+	want := "fireworks-ai · DeepSeek V4"
+	if got := modelBlocks(&m.transcript); len(got) != 1 || !strings.HasSuffix(got[0], " "+want) {
 		t.Fatalf("after the catalog = %q, want %q", got, want)
 	}
 	if rendered := strings.Join(m.transcript.linesFor(m.width), "\n"); !strings.Contains(rendered, "DeepSeek V4") {

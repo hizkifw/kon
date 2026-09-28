@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -105,11 +106,9 @@ func TestMessagesRequestShape(t *testing.T) {
 		{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartReasoning, Text: "half a thought"}}},
 		session.TextMessage(session.RoleUser, "next"),
 	}
-	var body messagesRequest
+	var body []byte
 	model := newMessagesTestModel(t, func(w http.ResponseWriter, r *http.Request) {
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			t.Error(err)
-		}
+		body, _ = io.ReadAll(r.Body)
 		_, _ = io.WriteString(w, sse(`{"type":"content_block_start","index":0,"content_block":{"type":"text","text":"ok"}}`)+sse(`{"type":"message_delta","delta":{"stop_reason":"end_turn"}}`)+sse(`{"type":"message_stop"}`))
 	})
 	model.effort = "xhigh"
@@ -117,48 +116,43 @@ func TestMessagesRequestShape(t *testing.T) {
 	if _, err := model.Stream(context.Background(), conversation, tools, nil); err != nil {
 		t.Fatal(err)
 	}
-	if len(body.System) != 1 || body.System[0].Text != "system prompt" || body.System[0].CacheControl == nil {
-		t.Fatalf("system = %#v", body.System)
-	}
-	if body.Thinking == nil || body.Thinking.Type != "adaptive" || body.OutputConfig == nil || body.OutputConfig.Effort != "xhigh" || body.MaxTokens != defaultMessagesMaxTokens {
-		t.Fatalf("thinking = %#v, output = %#v, max = %d", body.Thinking, body.OutputConfig, body.MaxTokens)
-	}
-	if len(body.Tools) != 1 || string(body.Tools[0].InputSchema) != `{"type":"object"}` {
-		t.Fatalf("tools = %#v", body.Tools)
-	}
-	roles := []string{}
-	for _, m := range body.Messages {
-		roles = append(roles, m.Role)
-	}
-	if strings.Join(roles, ",") != "user,assistant,user" {
-		t.Fatalf("roles = %v", roles)
-	}
-	assistant := body.Messages[1].Content
-	if len(assistant) != 4 || assistant[0].Type != "thinking" || assistant[0].Thinking == nil || *assistant[0].Thinking != "" || assistant[0].Signature != "sig==" {
-		t.Fatalf("assistant = %#v", assistant)
-	}
-	// Both results, the steer, and the next prompt share one user turn, results
-	// first, and the conversation's last block carries the moving breakpoint.
-	turn := body.Messages[2].Content
-	kinds := []string{}
-	for _, block := range turn {
-		kinds = append(kinds, block.Type)
-	}
-	if strings.Join(kinds, ",") != "tool_result,tool_result,text,text" || turn[0].ToolUseID != "a" || turn[0].Content[0].Text != "A" {
-		t.Fatalf("user turn = %#v", turn)
-	}
-	if turn[3].CacheControl == nil || turn[2].CacheControl != nil {
-		t.Fatal("the cache breakpoint is not on the last block alone")
-	}
+	// The signed thinking goes back with its empty text and the unsigned one
+	// is left out. Both results, the steer, and the next prompt share one user
+	// turn, results first, and the conversation's last block carries the
+	// moving breakpoint. A streamed turn asks for the default output budget,
+	// whatever it is tuned to.
+	assertWireJSON(t, body, fmt.Sprintf(`{
+		"model": "claude-test",
+		"max_tokens": %d,
+		"system": [{"type": "text", "text": "system prompt", "cache_control": {"type": "ephemeral"}}],
+		"messages": [
+			{"role": "user", "content": [{"type": "text", "text": "task"}]},
+			{"role": "assistant", "content": [
+				{"type": "thinking", "thinking": "", "signature": "sig=="},
+				{"type": "text", "text": "reading both"},
+				{"type": "tool_use", "id": "a", "name": "read", "input": {"path": "a"}},
+				{"type": "tool_use", "id": "b", "name": "read", "input": {"path": "b"}}
+			]},
+			{"role": "user", "content": [
+				{"type": "tool_result", "tool_use_id": "a", "content": [{"type": "text", "text": "A"}]},
+				{"type": "tool_result", "tool_use_id": "b", "content": [{"type": "text", "text": "B"}]},
+				{"type": "text", "text": "steer: use v2"},
+				{"type": "text", "text": "next", "cache_control": {"type": "ephemeral"}}
+			]}
+		],
+		"tools": [{"name": "read", "description": "read a file", "input_schema": {"type": "object"}}],
+		"thinking": {"type": "adaptive", "display": "summarized"},
+		"output_config": {"effort": "xhigh"},
+		"stream": true
+	}`, defaultMessagesMaxTokens))
 }
 
 func TestMessagesLearnsFromRejections(t *testing.T) {
-	var bodies []messagesRequest
+	var bodies [][]byte
 	var betas []string
 	requests := 0
 	model := newMessagesTestModel(t, func(w http.ResponseWriter, r *http.Request) {
-		var body messagesRequest
-		_ = json.NewDecoder(r.Body).Decode(&body)
+		body, _ := io.ReadAll(r.Body)
 		bodies = append(bodies, body)
 		requests++
 		betas = append(betas, r.Header.Get("anthropic-beta"))
@@ -180,10 +174,18 @@ func TestMessagesLearnsFromRejections(t *testing.T) {
 	if _, err := model.Stream(context.Background(), []session.Message{session.TextMessage(session.RoleUser, "hi")}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	last := bodies[len(bodies)-1]
-	if len(bodies) != 4 || last.MaxTokens != 8192 || last.Thinking.Type != "enabled" || last.Thinking.BudgetTokens != 4096 || betas[3] != thinkingBindingBeta {
-		t.Fatalf("requests = %d, last = %#v, betas = %q", len(bodies), last, betas)
+	if len(bodies) != 4 || betas[3] != thinkingBindingBeta {
+		t.Fatalf("requests = %d, betas = %q", len(bodies), betas)
 	}
+	// The last request fits the reported output limit and budgets thinking
+	// within it, since the model predates adaptive thinking.
+	assertWireJSON(t, bodies[3], `{
+		"model": "claude-test",
+		"max_tokens": 8192,
+		"messages": [{"role": "user", "content": [{"type": "text", "text": "hi", "cache_control": {"type": "ephemeral"}}]}],
+		"thinking": {"type": "enabled", "budget_tokens": 4096},
+		"stream": true
+	}`)
 	// What was learned sticks: the next request is right the first time.
 	bodies = nil
 	if _, err := model.Stream(context.Background(), []session.Message{session.TextMessage(session.RoleUser, "again")}, nil, nil); err != nil || len(bodies) != 1 {

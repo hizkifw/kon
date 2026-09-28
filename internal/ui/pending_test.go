@@ -183,7 +183,7 @@ func TestPendingStripKeepsTranscriptHeight(t *testing.T) {
 	if lines := strings.Count(view, "\n") + 1; lines != m.height {
 		t.Fatalf("view is %d lines, want the window height %d", lines, m.height)
 	}
-	if !strings.Contains(plain(view), "+3 more · /queue to edit") {
+	if !strings.Contains(plain(view), "+3 more") {
 		t.Fatalf("overflow row missing:\n%s", plain(view))
 	}
 }

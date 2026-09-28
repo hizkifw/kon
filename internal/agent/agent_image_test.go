@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -132,7 +133,9 @@ func TestRunPersistsImagePartsFromRead(t *testing.T) {
 	if err != nil || string(data) != string(pngHeader) {
 		t.Fatalf("stored image = %x, %v", data, err)
 	}
-	if tool.Text() == "" || strings.Contains(tool.Text(), "base64") {
-		t.Fatalf("tool content should describe, not inline, the image: %q", tool.Text())
+	// The image travels as the part above, so the text must describe it without
+	// carrying it. Inlined bytes would appear as their base64 encoding.
+	if text := tool.Text(); text == "" || strings.Contains(text, base64.StdEncoding.EncodeToString(pngHeader)) {
+		t.Fatalf("tool content should describe, not inline, the image: %q", text)
 	}
 }

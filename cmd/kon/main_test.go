@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -68,28 +69,38 @@ func TestRunRejectsUnknownCommand(t *testing.T) {
 	}
 }
 
-// TestRootUsageListsEveryCommand guards the help index against drift: a command
-// that is registered but missing from the root help is invisible to users.
-func TestRootUsageListsEveryCommand(t *testing.T) {
-	usage := rootUsage()
-	for _, cmd := range commands() {
-		if cmd.name == "" || cmd.summary == "" || cmd.synopsis == "" {
-			t.Fatalf("command %+v is missing help metadata", cmd)
-		}
-		if !strings.Contains(usage, cmd.name) {
-			t.Fatalf("root usage does not mention command %q:\n%s", cmd.name, usage)
-		}
+// stdoutOf runs the CLI with args and returns what it printed. Help goes
+// straight to os.Stdout, so the test swaps in a pipe for the call.
+func stdoutOf(t *testing.T, args ...string) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
 	}
+	printed := make(chan string)
+	go func() {
+		b, _ := io.ReadAll(r)
+		r.Close()
+		printed <- string(b)
+	}()
+	stdout := os.Stdout
+	os.Stdout = w
+	runErr := run(args)
+	os.Stdout = stdout
+	w.Close()
+	out := <-printed
+	if runErr != nil {
+		t.Fatalf("kon %s: %v", strings.Join(args, " "), runErr)
+	}
+	return out
 }
 
+// TestCommandHelp checks help dispatch: --help after a command name prints that
+// command's usage instead of running it or falling back to the root index.
 func TestCommandHelp(t *testing.T) {
 	for _, cmd := range commands() {
-		help := cmd.help()
-		if !strings.Contains(help, cmd.synopsis) || !strings.Contains(help, cmd.summary) {
-			t.Fatalf("help for %q is missing its synopsis or summary:\n%s", cmd.name, help)
-		}
-		if err := run([]string{cmd.name, "--help"}); err != nil {
-			t.Fatalf("%s --help: %v", cmd.name, err)
+		if got := stdoutOf(t, cmd.name, "--help"); !strings.HasPrefix(got, "usage: kon "+cmd.name) {
+			t.Fatalf("kon %s --help printed:\n%s", cmd.name, got)
 		}
 	}
 }

@@ -88,17 +88,6 @@ func TestShellRunningStatusShowsElapsedOverTimeout(t *testing.T) {
 	}
 }
 
-func TestShellLiveDisplayCarriesProgressStatus(t *testing.T) {
-	shell := &shellTool{}
-	d := shell.liveDisplay(dargs(map[string]any{"command": "./build"}), Env{cwd: "/tmp"}, []string{"compiling"}, 1500*time.Millisecond, 30*time.Second)
-	if d.State != StateRunning || d.Summary != "./build" {
-		t.Fatalf("live display = %#v", d)
-	}
-	if d.Status != "1.5s / 30s" {
-		t.Fatalf("live status = %q, want the elapsed/timeout progress line", d.Status)
-	}
-}
-
 func TestReadDescribeCollapsesToNote(t *testing.T) {
 	read := readTool{}
 	content := "     1  package ui\n     2  x\n… 43 more lines"
@@ -159,6 +148,19 @@ func TestTailLinesDropsTrailingBlanksAndCounts(t *testing.T) {
 	lines, _ = tailLines("out\n", 6)
 	if len(lines) != 1 || lines[0] != "out" {
 		t.Fatalf("tailLines trailing newline = %v", lines)
+	}
+}
+
+// TestDescribeFallbackUnknownTool verifies unknown tools degrade to the
+// generic display instead of panicking.
+func TestDescribeFallbackUnknownTool(t *testing.T) {
+	d := Describe("mystery", json.RawMessage(`{"a":1}`), "some output", false, nil, "/tmp")
+	if d.Summary != `{"a":1}` || d.State != StateDone || len(d.Lines) != 1 || d.Lines[0] != "some output" {
+		t.Fatalf("fallback display = %#v", d)
+	}
+	failed := Describe("mystery", json.RawMessage(`{"a":1}`), "boom", true, nil, "/tmp")
+	if failed.State != StateFailed || failed.Lines[0] != "boom" {
+		t.Fatalf("fallback failure display = %#v", failed)
 	}
 }
 

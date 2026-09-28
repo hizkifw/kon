@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 
@@ -80,18 +79,5 @@ func TestToolOutputEventWithoutRunningToolIsDropped(t *testing.T) {
 	}
 	if !strings.Contains(got, "exit 0") {
 		t.Fatalf("done display lost: %q", got)
-	}
-}
-
-// TestDescribeFallbackUnknownTool verifies unknown tools degrade to the
-// generic display instead of panicking.
-func TestDescribeFallbackUnknownTool(t *testing.T) {
-	d := tools.Describe("mystery", json.RawMessage(`{"a":1}`), "some output", false, nil, "/tmp")
-	if d.Summary != `{"a":1}` || d.State != tools.StateDone || len(d.Lines) != 1 || d.Lines[0] != "some output" {
-		t.Fatalf("fallback display = %#v", d)
-	}
-	failed := tools.Describe("mystery", json.RawMessage(`{"a":1}`), "boom", true, nil, "/tmp")
-	if failed.State != tools.StateFailed || failed.Lines[0] != "boom" {
-		t.Fatalf("fallback failure display = %#v", failed)
 	}
 }

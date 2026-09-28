@@ -12,7 +12,9 @@ type Count int
 // String renders the count compactly, such as 950, 12.4k, or 1.0m, which is how
 // every token figure is shown to the user.
 func (c Count) String() string {
-	if c >= 1_000_000 {
+	// Counts that round up to a thousand k are shown as millions, so 999,999
+	// reads 1.0m rather than 1000.0k.
+	if c >= 999_950 {
 		return fmt.Sprintf("%.1fm", float64(c)/1_000_000)
 	}
 	if c >= 1_000 {

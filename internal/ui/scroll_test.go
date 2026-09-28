@@ -59,17 +59,22 @@ func TestScrollViewPaging(t *testing.T) {
 
 func TestScrollViewWheel(t *testing.T) {
 	s := scrollViewWith(100, 10)
+	// Starting mid-content keeps both directions clear of the clamps, so a
+	// notch down must move further into the content and a notch up must undo
+	// exactly that. How many lines a notch covers is a tuning choice left open.
+	s.SetYOffset(50)
 	s.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
-	if s.YOffset() != s.mouseDelta {
-		t.Fatalf("wheel down offset = %d, want %d", s.YOffset(), s.mouseDelta)
+	down := s.YOffset()
+	if down <= 50 {
+		t.Fatalf("wheel down offset = %d, want past 50", down)
 	}
 	s.Update(tea.MouseWheelMsg{Button: tea.MouseWheelUp})
-	if s.YOffset() != 0 {
-		t.Fatalf("wheel up offset = %d, want 0", s.YOffset())
+	if s.YOffset() != 50 {
+		t.Fatalf("wheel up offset = %d after wheel down to %d, want 50", s.YOffset(), down)
 	}
 	// Non-wheel messages are ignored.
 	s.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	if s.YOffset() != 0 {
+	if s.YOffset() != 50 {
 		t.Fatalf("key press scrolled the view to %d", s.YOffset())
 	}
 }

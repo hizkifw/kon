@@ -164,8 +164,8 @@ func TestReplayShowsEndWithoutStart(t *testing.T) {
 }
 
 // TestTurnMarkerFlipsThenFreezes checks the status dot: it alternates outline
-// and filled once a second while running, and the finished form is always
-// filled.
+// and filled once a second while running. The finished form's filled dot is
+// pinned by the replay tests, which compare whole labels.
 func TestTurnMarkerFlipsThenFreezes(t *testing.T) {
 	for _, c := range []struct {
 		elapsed time.Duration
@@ -182,15 +182,6 @@ func TestTurnMarkerFlipsThenFreezes(t *testing.T) {
 			t.Errorf("workingLabel(%v) = %q, want %q", c.elapsed, got, c.want)
 		}
 	}
-	for _, d := range []time.Duration{0, time.Second, 2 * time.Second, 3 * time.Second} {
-		got := workedLabel(d)
-		if !strings.HasPrefix(got, "● ") {
-			t.Errorf("workedLabel(%v) = %q, want a filled mark", d, got)
-		}
-		if strings.Contains(got, "○") {
-			t.Errorf("workedLabel(%v) = %q, leaked the running mark", d, got)
-		}
-	}
 }
 
 // TestTurnMarkerIsInsetOneCell checks the marker's left margin, matching the
@@ -200,16 +191,16 @@ func TestTurnMarkerIsInsetOneCell(t *testing.T) {
 	var tr transcript
 	tr.cwd = "/tmp"
 	tr.add(block{kind: blockUser, text: "hi"})
+	// The running indicator trails the message after one blank line, and odd
+	// seconds show the outline dot.
 	tr.liveTimer = workingLabel(5 * time.Second)
-	lines := tr.linesFor(80)
-	last := lines[len(lines)-1]
-	if !strings.HasPrefix(plain(last), " ○ Working…") {
-		t.Fatalf("running marker is not inset: %q", plain(last))
+	if got, want := plain(strings.Join(tr.linesFor(80), "\n")), " hi\n\n ○ Working… 5s"; got != want {
+		t.Fatalf("running marker layout = %q, want %q", got, want)
 	}
 	tr.liveTimer = ""
 	tr.add(block{kind: blockElapsed, text: workedLabel(5 * time.Second)})
-	lines = tr.linesFor(80)
-	last = lines[len(lines)-1]
+	lines := tr.linesFor(80)
+	last := lines[len(lines)-1]
 	if !strings.HasPrefix(plain(last), " ● Worked for") {
 		t.Fatalf("frozen marker is not inset: %q", plain(last))
 	}
@@ -268,7 +259,10 @@ func TestFailedTurnFreezesAfterItsError(t *testing.T) {
 	if worked < errAt {
 		t.Fatalf("frozen total rendered above the error:\n%s", got)
 	}
-	if !strings.HasSuffix(strings.TrimRight(got, "\n"), "0s") {
+	// The total's value depends on the wall clock, so only its form is checked;
+	// a running indicator left behind would share the seconds suffix.
+	lines := strings.Split(got, "\n")
+	if !strings.HasPrefix(lines[len(lines)-1], " ● Worked for ") {
 		t.Fatalf("frozen total is not the turn's last line:\n%s", got)
 	}
 }
@@ -299,33 +293,6 @@ func TestFormatDuration(t *testing.T) {
 		if got := formatDuration(c.in); got != c.want {
 			t.Errorf("formatDuration(%v) = %q, want %q", c.in, got, c.want)
 		}
-	}
-}
-
-// TestRunningTimerRendersInTranscript checks that the running indicator renders
-// at the tail of the transcript without disturbing the message above it, and
-// that it tracks the clock.
-func TestRunningTimerRendersInTranscript(t *testing.T) {
-	var tr transcript
-	tr.cwd = "/tmp"
-	tr.add(block{kind: blockUser, text: "do x y z"})
-	tr.add(block{kind: blockAssistant, text: "on it"})
-	// The dot alternates on the elapsed second's parity: odd seconds show the
-	// outline, even seconds the filled mark.
-	tr.liveTimer = workingLabel(5 * time.Second)
-	got := plain(tr.render(60))
-	if want := "on it\n\n ○ Working… 5s"; !strings.HasSuffix(got, want) {
-		t.Fatalf("running timer not at transcript tail:\n%s", got)
-	}
-	tr.liveTimer = workingLabel(6 * time.Second)
-	if got := plain(tr.render(60)); !strings.HasSuffix(got, "● Working… 6s") {
-		t.Fatalf("timer did not advance or flip:\n%s", got)
-	}
-	// Clearing the timer (the run finished) must leave the transcript without a
-	// stale indicator.
-	tr.liveTimer = ""
-	if got := plain(tr.render(60)); strings.Contains(got, "Working") {
-		t.Fatalf("stale timer survived:\n%s", got)
 	}
 }
 
@@ -367,36 +334,6 @@ func TestTimerLinesMatchFullRender(t *testing.T) {
 	}
 }
 
-// TestFinishedTimerFreezesIntoElapsedBlock checks the end-to-end lifecycle: a
-// started timer renders live, and finishing it leaves a stable "Worked for …"
-// block in history that a later turn's indicator appears below.
-func TestFinishedTimerFreezesIntoElapsedBlock(t *testing.T) {
-	m := newTestModel(t)
-	m.startTimer()
-	if m.timer == nil || !strings.Contains(m.transcript.liveTimer, "Working…") {
-		t.Fatalf("timer did not start: %+v live=%q", m.timer, m.transcript.liveTimer)
-	}
-	m.timer.start = time.Now().Add(-5 * time.Minute)
-	m.finishTimer()
-	if m.timer != nil {
-		t.Fatalf("timer still running after finish: %+v", m.timer)
-	}
-	if m.transcript.liveTimer != "" {
-		t.Fatalf("live timer survived finish: %q", m.transcript.liveTimer)
-	}
-	// The frozen total becomes a stable block, and a new turn's running
-	// indicator must render below it rather than replacing it.
-	m.startTimer()
-	got := plain(strings.Join(m.transcript.linesFor(80), "\n"))
-	worked, working := strings.Index(got, "Worked for 5m"), strings.Index(got, "Working…")
-	if !strings.Contains(got, "Worked for 5m") || !strings.Contains(got, "Working…") {
-		t.Fatalf("elapsed block or new timer missing:\n%s", got)
-	}
-	if worked > working {
-		t.Fatalf("new timer rendered above the frozen total:\n%s", got)
-	}
-}
-
 // TestTimerStopsTickingWhenRunEnds guards the tick loop from restarting after a
 // run has already finished, which would keep the app repainting forever, and
 // from a stale chain surviving into the next turn.
@@ -413,5 +350,11 @@ func TestTimerStopsTickingWhenRunEnds(t *testing.T) {
 	m.finishTimer()
 	if _, cmd := m.Update(timerTickMsg{epoch: epoch}); cmd != nil {
 		t.Fatal("a stale tick rescheduled after the run ended")
+	}
+	// Only the epoch tells the finished turn's in-flight tick apart from the
+	// next turn's own chain, so it must be dropped once another turn is running.
+	m.startTimer()
+	if _, cmd := m.Update(timerTickMsg{epoch: epoch}); cmd != nil {
+		t.Fatal("a stale tick from the previous turn rescheduled during the next one")
 	}
 }

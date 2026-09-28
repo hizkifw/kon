@@ -49,8 +49,11 @@ test-race:
 
 check: fmt-check vet test
 
-smoke: build
-	bin/kon --version
+# smoke builds with a version of its own so a broken -X target, which the
+# linker ignores silently, shows up as the default "dev".
+smoke:
+	$(MAKE) build VERSION=v0.0.0-smoke
+	test "$$(bin/kon --version)" = "kon v0.0.0-smoke"
 
 bench:
 	go test -run '^$$' -bench . -benchmem ./...

@@ -160,18 +160,26 @@ func TestCompactRunsWithoutAContextWindow(t *testing.T) {
 }
 
 func TestCompactOnAShortSessionHasNothingToCompact(t *testing.T) {
-	store := newUsageStore(t)
-	appendMessage(t, store, session.TextMessage(session.RoleUser, "hi"))
-	appendMessage(t, store, session.TextMessage(session.RoleAssistant, "hello"))
-	limits := testLimits
-	limits.ContextWindow = 100_000
-	fake := &scriptedProvider{}
-	runner := New(limits, fake, store, tools.New(t.TempDir(), false, nil))
-	if err := runner.Compact(context.Background(), func(Event) {}); !errors.Is(err, ErrNothingToCompact) {
-		t.Fatalf("Compact = %v, want ErrNothingToCompact", err)
-	}
-	if fake.completes != 0 {
-		t.Fatal("a summary was requested for a session with nothing to fold")
+	// A fresh session holds only its system prompt, so compaction must not
+	// look for a message after it.
+	for name, history := range map[string][]session.Message{
+		"fresh": nil,
+		"short": {session.TextMessage(session.RoleUser, "hi"), session.TextMessage(session.RoleAssistant, "hello")},
+	} {
+		store := newUsageStore(t)
+		for _, message := range history {
+			appendMessage(t, store, message)
+		}
+		limits := testLimits
+		limits.ContextWindow = 100_000
+		fake := &scriptedProvider{}
+		runner := New(limits, fake, store, tools.New(t.TempDir(), false, nil))
+		if err := runner.Compact(context.Background(), func(Event) {}); !errors.Is(err, ErrNothingToCompact) {
+			t.Fatalf("%s: Compact = %v, want ErrNothingToCompact", name, err)
+		}
+		if fake.completes != 0 {
+			t.Fatalf("%s: a summary was requested for a session with nothing to fold", name)
+		}
 	}
 }
 
@@ -203,5 +211,37 @@ func TestOverflowCompactsWithoutAContextWindow(t *testing.T) {
 	}
 	if !hasCompaction(store) || fake.streams != 2 {
 		t.Fatalf("compacted = %v, streams = %d; want a compaction and one retry", hasCompaction(store), fake.streams)
+	}
+}
+
+// overflowingProvider reports a full context on every stream, as a server does
+// for a request no compaction shrinks enough. Its summaries always succeed, so
+// each forced compaction makes progress and only the retry bound ends the run.
+type overflowingProvider struct {
+	t       *testing.T
+	streams int
+}
+
+func (p *overflowingProvider) Stream(context.Context, []session.Message, []session.ToolDefinition, func(provider.Event)) (session.Message, error) {
+	p.streams++
+	// An unbounded retry would never return, so the fake ends the test itself.
+	if p.streams > 10 {
+		p.t.Fatalf("Run retried a context overflow %d times", p.streams)
+	}
+	return session.Message{}, &provider.APIError{Status: 400, Code: "context_length_exceeded", Message: "context length exceeded"}
+}
+
+func (p *overflowingProvider) Complete(context.Context, []session.Message, []session.ToolDefinition, tokens.Count) (session.Message, error) {
+	return session.TextMessage(session.RoleAssistant, "summary"), nil
+}
+
+func TestOverflowIsRetriedOnlyOnce(t *testing.T) {
+	store := newUsageStore(t)
+	longSession(t, store)
+	fake := &overflowingProvider{t: t}
+	runner := New(smallKeep(), fake, store, tools.New(t.TempDir(), false, nil))
+	err := runner.Run(context.Background(), "next", nil, func(Event) {})
+	if !provider.IsContextOverflow(err) || fake.streams != 2 {
+		t.Fatalf("Run = %v after %d streams; want the overflow after one retry", err, fake.streams)
 	}
 }

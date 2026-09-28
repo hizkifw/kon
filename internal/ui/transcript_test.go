@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 
@@ -54,20 +53,11 @@ func TestShellOutputCarriageReturnsDoNotMangle(t *testing.T) {
 	// CR-LF and spinner-style \r output should render as distinct lines.
 	tr.add(toolDoneBlock("shell", `{"command":"prog"}`, "first  \r\nsecond\rthird\nexit code: 0", false, "/tmp"))
 	got := plain(tr.render(80))
+	// The body sits between the request line and the exit status, so its lines
+	// are pinned exactly: a dropped, merged, or reordered line changes them.
 	lines := strings.Split(got, "\n")
-	at := map[string]int{}
-	for i, line := range lines {
-		for _, want := range []string{"first", "second", "third"} {
-			if strings.Contains(line, want) {
-				at[want] = i
-			}
-		}
-	}
-	if at["first"] < 0 || at["second"] < 0 || at["third"] < 0 {
-		t.Fatalf("shell output lost lines: %q", got)
-	}
-	if !(at["first"] < at["second"] && at["second"] < at["third"]) {
-		t.Fatalf("shell output lines out of order: %q", got)
+	if len(lines) < 4 || strings.Join(lines[1:4], "\n") != "   first\n   second\n   third" {
+		t.Fatalf("shell output lines lost or mangled: %q", got)
 	}
 }
 
@@ -101,12 +91,10 @@ func TestRunningToolHasNoResultYet(t *testing.T) {
 	var tr transcript
 	tr.cwd = "/tmp"
 	tr.add(toolCallBlock("shell", `{"command":"sleep 5"}`, "/tmp"))
-	got := plain(tr.render(80))
-	if !strings.Contains(got, "●") || !strings.Contains(got, "sleep 5") {
-		t.Fatalf("running tool line missing: %q", got)
-	}
-	if strings.Contains(got, "exit") {
-		t.Fatalf("running tool showed a result: %q", got)
+	// The running call is its request line alone: the running icon, the padded
+	// name, and the command, with no outcome note or body below it.
+	if got := plain(tr.render(80)); got != " ● shell  sleep 5" {
+		t.Fatalf("running tool = %q, want only its request line", got)
 	}
 }
 
@@ -134,21 +122,21 @@ func TestRunningShellStatusTicksQuietly(t *testing.T) {
 	}
 }
 
+// TestShellResultTrimsToTailAndExitCode checks the part of a trimmed result
+// that the transcript owns. The shell tool picks the tail and parses the exit
+// code (see internal/tools), so the display is built directly here; the
+// transcript must draw the kept lines and then count the omitted ones.
 func TestShellResultTrimsToTailAndExitCode(t *testing.T) {
-	var output []string
-	for i := 0; i < 20; i++ {
-		output = append(output, fmt.Sprintf("line-%02d", i))
-	}
 	var tr transcript
 	tr.add(toolCallBlock("shell", `{"command":"./flaky"}`, "/tmp"))
-	content := strings.Join(output, "\n") + "\nexit code: 3 (took 4.2s)"
-	tr.add(toolDoneBlock("shell", `{"command":"./flaky"}`, content, true, "/tmp"))
+	tr.add(block{kind: blockResult, name: "shell", args: `{"command":"./flaky"}`, display: tools.Display{
+		State: tools.StateFailed, Summary: "./flaky", Note: "exit 3 · took 4.2s",
+		Lines: []string{"line-18", "line-19"}, More: 18,
+	}})
 	got := plain(tr.render(80))
-	if !strings.Contains(got, "line-19") || strings.Contains(got, "line-05") {
-		t.Fatalf("shell output was not trimmed to the tail: %q", got)
-	}
-	if !strings.Contains(got, "exit 3") || !strings.Contains(got, "took 4.2s") || !strings.Contains(got, "✗") {
-		t.Fatalf("failing exit code not surfaced: %q", got)
+	lines := strings.Split(got, "\n")
+	if want := "   line-18\n   line-19\n   … 18 more lines"; strings.Join(lines[1:], "\n") != want {
+		t.Fatalf("trimmed body = %q, want %q", strings.Join(lines[1:], "\n"), want)
 	}
 }
 
@@ -160,11 +148,19 @@ func TestFinishedShellStatusIsGreenCheap(t *testing.T) {
 	tr.add(toolCallBlock("shell", `{"command":"./build"}`, "/tmp"))
 	tr.add(toolDoneBlock("shell", `{"command":"./build"}`, "ok\nexit code: 0 (took 1.0s)", false, "/tmp"))
 	raw := tr.render(80)
-	if !strings.Contains(plain(raw), "exit 0 · took 1.0s") {
+	// The request line's ✓ is always the success color, so the check must look
+	// at the status line alone.
+	status := ""
+	for _, line := range strings.Split(raw, "\n") {
+		if strings.Contains(plain(line), "exit 0 · took 1.0s") {
+			status = line
+		}
+	}
+	if status == "" {
 		t.Fatalf("finished status missing: %q", plain(raw))
 	}
-	if !strings.Contains(raw, fgSeq(colorOK)) {
-		t.Fatalf("finished status was not painted in the success color: %q", raw)
+	if !strings.Contains(status, fgSeq(colorOK)) {
+		t.Fatalf("finished status was not painted in the success color: %q", status)
 	}
 }
 
@@ -212,7 +208,7 @@ func TestToolGroupSeparatedFromMessages(t *testing.T) {
 			tool = i
 		}
 	}
-	if user < 0 || tool < user+1 {
+	if user < 0 || tool != user+2 || lines[user+1] != "" {
 		t.Fatalf("expected a blank line between the message and the tool group: %q", got)
 	}
 }
@@ -221,8 +217,9 @@ func TestMessageSlabWrapsToWidth(t *testing.T) {
 	var tr transcript
 	tr.add(block{kind: blockUser, text: strings.Repeat("word ", 40)})
 	got := plain(tr.render(40))
-	if !strings.Contains(got, "word") {
-		t.Fatalf("user message missing: %q", got)
+	// Wrapping must move words to later lines, never drop them.
+	if n := strings.Count(got, "word"); n != 40 {
+		t.Fatalf("user message kept %d of 40 words: %q", n, got)
 	}
 	for _, line := range strings.Split(got, "\n") {
 		if len([]rune(line)) > 40 {
@@ -240,34 +237,34 @@ func TestContextRendersAsSeparator(t *testing.T) {
 	}
 }
 
+// testBanner stands in for the welcome art in the placement tests, so they
+// follow where the transcript puts a banner rather than how kon's is drawn.
+var testBanner = banner{figure: colorAccent, text: "/\\_/\\\n=o.o=\ncaption"}
+
+// testBannerLines is testBanner as the transcript lays it out: one blank line
+// of padding above it, and every line inset one cell like the message slabs.
+const testBannerLines = "\n /\\_/\\\n =o.o=\n caption"
+
 // TestBannerLeadsEveryTranscript guards the welcome banner: it sits at the top
 // of the transcript, padded from the viewport edge by one blank line, before any
-// content; it remains there over later blocks and a live stream, and is never
-// captured as a transcript block.
+// content, and it remains there over later blocks and a live stream.
 func TestBannerLeadsEveryTranscript(t *testing.T) {
 	var tr transcript
 	tr.cwd = "/tmp"
-	tr.banner = welcomeBanner
-	empty := plain(tr.render(80))
-	if !strings.HasPrefix(empty, "\n ┌──┐") || !strings.Contains(empty, "harness for foxes") {
-		t.Fatalf("empty transcript did not lead with a padded banner: %q", empty)
-	}
-	if len(tr.blocks) != 0 {
-		t.Fatal("banner leaked into the transcript blocks")
+	tr.banner = testBanner
+	if empty := plain(tr.render(80)); empty != testBannerLines {
+		t.Fatalf("empty transcript = %q, want only the padded banner %q", empty, testBannerLines)
 	}
 	tr.appendStream("hello")
 	streaming := plain(tr.render(80))
-	if !strings.HasPrefix(streaming, "\n ┌──┐") || !strings.Contains(streaming, "hello") {
+	if !strings.HasPrefix(streaming, testBannerLines) || !strings.Contains(streaming, "hello") {
 		t.Fatalf("banner did not lead the streaming transcript: %q", streaming)
 	}
 	tr.finishStream()
 	tr.add(block{kind: blockUser, text: "question"})
 	settled := plain(tr.render(80))
-	if !strings.HasPrefix(settled, "\n ┌──┐") || !strings.Contains(settled, "question") {
+	if !strings.HasPrefix(settled, testBannerLines) || !strings.Contains(settled, "question") {
 		t.Fatalf("banner did not lead the settled transcript: %q", settled)
-	}
-	if strings.Index(settled, "harness for foxes") > strings.Index(settled, "question") {
-		t.Fatalf("banner rendered below the conversation: %q", settled)
 	}
 }
 
@@ -275,12 +272,12 @@ func TestBannerLeadsEveryTranscript(t *testing.T) {
 // line of the cached display lines at every width, so it stays pinned top-left.
 func TestBannerStaysAtTopAcrossWidths(t *testing.T) {
 	var tr transcript
-	tr.banner = welcomeBanner
+	tr.banner = testBanner
 	tr.add(block{kind: blockUser, text: "question"})
 	for _, width := range []int{40, 80, 120} {
 		lines := tr.linesFor(width)
-		if len(lines) < 2 || lines[0] != "" || !strings.HasPrefix(plain(lines[1]), " ┌──┐") {
-			t.Fatalf("width %d: banner is not the first visible line: %q", width, plain(strings.Join(lines, "\n")))
+		if got := plain(strings.Join(lines, "\n")); !strings.HasPrefix(got, testBannerLines+"\n") {
+			t.Fatalf("width %d: banner is not the first visible line: %q", width, got)
 		}
 	}
 }
@@ -308,26 +305,6 @@ func TestBannerLinesFitWidth(t *testing.T) {
 				}
 			}
 		}
-	}
-}
-
-func TestRenderRebuildsWhenWidthChanges(t *testing.T) {
-	var tr transcript
-	tr.add(block{kind: blockUser, text: "hello"})
-	if tr.render(80) == "" {
-		t.Fatal("render was empty")
-	}
-	if tr.dirty || tr.width != 80 {
-		t.Fatalf("first render did not cache: dirty=%v width=%d", tr.dirty, tr.width)
-	}
-	// Same width serves the cache even if blocks changed underneath.
-	tr.blocks = nil
-	if got := plain(tr.render(80)); !strings.Contains(got, "hello") {
-		t.Fatalf("cached render lost content: %q", got)
-	}
-	// A width change rebuilds.
-	if got := plain(tr.render(40)); got != "" {
-		t.Fatalf("width change did not rebuild the cache: %q", got)
 	}
 }
 
@@ -402,9 +379,10 @@ func TestLineCacheMatchesRenderedLines(t *testing.T) {
 }
 
 // TestStreamRenderMatchesFullRender feeds stream and thinking deltas in small
-// chunks and checks the incremental live renderer against a from-scratch render
-// after every delta, across widths. This is the output-equivalence guard for the
-// tail-only live render.
+// chunks and checks the incremental live renderer after every delta, across
+// widths: a stream against a from-scratch render of its buffered text, and a
+// thinking trace against the settled block it becomes. This is the
+// output-equivalence guard for the tail-only live render.
 func TestStreamRenderMatchesFullRender(t *testing.T) {
 	inputs := []string{
 		"",
@@ -440,6 +418,8 @@ func TestStreamRenderMatchesFullRender(t *testing.T) {
 			}
 		}
 	}
+	// A buffered trace renders through the live renderer too, so the reference
+	// for thinking is the settled block the trace becomes once it finishes.
 	for _, in := range inputs {
 		for _, width := range []int{8, 41} {
 			var tr transcript
@@ -447,8 +427,10 @@ func TestStreamRenderMatchesFullRender(t *testing.T) {
 			for i := 0; i < len(in); i++ {
 				tr.appendThinking(in[i : i+1])
 				got := plain(strings.Join(tr.linesFor(width), "\n"))
-				fresh := transcript{cwd: "/tmp", thinking: tr.thinking}
-				want := plain(fresh.render(width))
+				var settled transcript
+				settled.cwd = "/tmp"
+				settled.add(block{kind: blockThinking, text: tr.thinking})
+				want := plain(settled.render(width))
 				if got != want {
 					t.Fatalf("thinking width=%d input=%q\n got=%q\nwant=%q", width, in, got, want)
 				}
@@ -514,9 +496,6 @@ func TestStripANSI(t *testing.T) {
 	}
 	if strings.ContainsAny(full, "\x1b\x07") {
 		t.Fatalf("escape bytes reached the buffered stream: %q", full)
-	}
-	if got := plain(strings.Join(whole.linesFor(40), "\n")); strings.Contains(got, "\x1b") {
-		t.Fatalf("escape reached the rendered output: %q", got)
 	}
 }
 

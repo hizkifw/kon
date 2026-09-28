@@ -3,6 +3,7 @@ package ui
 import (
 	"image/color"
 	"strings"
+	"unicode"
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -264,13 +265,11 @@ func osc8Link(target string) string {
 	return "\x1b]8;;" + oscSafe(target) + "\x1b\\"
 }
 
-// oscSafe removes control characters (C0 and DEL) from an OSC 8 target.
+// oscSafe removes control characters (C0, DEL, and C1, whose ST and CSI also
+// end or start sequences) from an OSC 8 target.
 func oscSafe(s string) string {
-	if strings.IndexFunc(s, func(r rune) bool { return r < 0x20 || r == 0x7f }) < 0 {
-		return s
-	}
 	return strings.Map(func(r rune) rune {
-		if r < 0x20 || r == 0x7f {
+		if unicode.IsControl(r) {
 			return -1
 		}
 		return r

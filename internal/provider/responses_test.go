@@ -44,14 +44,14 @@ var responsesStream = strings.Join([]string{
 }, "")
 
 func TestResponsesStreamAssemblesItems(t *testing.T) {
-	var body responsesRequest
+	var body []byte
 	var auth string
 	model := newResponsesTestModel(t, func(w http.ResponseWriter, r *http.Request) {
 		auth = r.Header.Get("Authorization")
 		if r.URL.Path != "/responses" {
 			t.Errorf("path = %s", r.URL.Path)
 		}
-		_ = json.NewDecoder(r.Body).Decode(&body)
+		body, _ = io.ReadAll(r.Body)
 		_, _ = io.WriteString(w, responsesStream)
 	})
 	var events []Event
@@ -59,9 +59,19 @@ func TestResponsesStreamAssemblesItems(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if auth != "Bearer sk-test" || body.Store || !body.Stream || body.Reasoning == nil || body.Reasoning.Effort != "high" || body.Reasoning.Summary != "auto" || len(body.Include) != 1 {
-		t.Fatalf("auth = %q, request = %#v", auth, body)
+	if auth != "Bearer sk-test" {
+		t.Fatalf("auth = %q", auth)
 	}
+	// A stateless request must ask for the encrypted reasoning, since the
+	// server keeps no copy to continue from on the next turn.
+	assertWireJSON(t, body, `{
+		"model": "gpt-test",
+		"input": [{"role": "user", "content": "hi"}],
+		"reasoning": {"effort": "high", "summary": "auto"},
+		"include": ["reasoning.encrypted_content"],
+		"store": false,
+		"stream": true
+	}`)
 	if len(response.Parts) != 3 {
 		t.Fatalf("parts = %#v", response.Parts)
 	}
