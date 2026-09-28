@@ -43,13 +43,18 @@ Each package owns one boundary. Do not reach across them.
 | --- | --- | --- |
 | `cmd/kon` | startup wiring and CLI metadata | business logic |
 | `internal/ui` | terminal state and presentation | HTTP or JSONL encoding |
+| `internal/markdown` | Markdown to styled, wrapped lines, streaming, and selections cut back out as Markdown | colors, terminal output, or transcript state |
 | `internal/headless` | `kon run` output: streamed text or JSON events, one run per process | terminal state or session policy |
 | `internal/app` | live runner/store lifecycle and model switching | terminal presentation |
 | `internal/agent` | model/tool loop and compaction policy | terminal rendering |
 | `internal/provider` | provider `Model` backends and durable-message conversion | session policy |
 | `internal/provider/wire` | the wire-format table: names, default endpoints, and dialect facts | HTTP, backends, or service quirks |
 | `internal/login` | `/login` choices per service and connection verification | wire backends or config writes |
+| `internal/catalog` | models.dev metadata: the bundled snapshot and its cached refresh | which provider APIs kon supports |
+| `internal/catalog/generate` | refreshing the bundled snapshot, run only by `go generate` | anything a normal build runs |
 | `internal/session` | domain messages and append-only context tree | provider requests |
+| `internal/migrate` | storage upgrade locking, version tracking, and the `Step` interface | the concrete steps |
+| `internal/migrations` | the concrete, ordered storage upgrade steps | locking or version tracking |
 | `internal/tools` | tool registry, bounded tool schemas and execution | agent orchestration |
 | `internal/web` | `kon tool` web access: fetching pages as Markdown | tool schemas or agent state |
 | `internal/typedid` | identifier construction and parsing | storage or provider policy |
