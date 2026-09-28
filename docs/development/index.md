@@ -110,13 +110,20 @@ Product pages live in `docs/product` and are embedded in the binary. `kon docs`
 extracts only those Markdown files to a content-versioned directory under the
 data path. Development pages stay in `docs/development` and are not embedded.
 
-`scripts/release.sh VERSION` cross-builds every target and writes `dist/`:
+`scripts/release.sh VERSION [OS/ARCH...]` cross-builds every target, or the
+ones named, and writes `dist/`:
 
 ```text
 kon_<version>_<os>_<arch>.tar.gz   linux and darwin, containing kon/, README, LICENSE, THIRD_PARTY_NOTICES
 kon_<version>_<os>_<arch>.zip      windows, same contents with kon.exe
-checksums.txt                      sha256 of every archive
+checksums.txt                      sha256 of every archive, written by scripts/checksums.sh
 ```
+
+CI builds each target in a job of its own with the same script, so every push
+checks that each target builds and fits the size limit. On a version tag the
+archives carry the tag's version, and once the tests pass the release job
+publishes them with a `checksums.txt` written over all of them, without
+building again.
 
 Each complete release archive must be at most 10 MiB. The installer extracts
 it once, leaving the executable uncompressed for subsequent launches.

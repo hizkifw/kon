@@ -202,7 +202,8 @@ marker and its own registry decide what runs. If it fails, the next launch
 retries the same retry-safe steps, so the binary is never rolled back.
 
 The old binary relies on three things in every later release: the asset names
-and checksum format written by `scripts/release.sh`, `--version` printing
+written by `scripts/release.sh` and the checksum format written by
+`scripts/checksums.sh`, `--version` printing
 `kon <tag>`, and `upgrade --finalize` being accepted with no other arguments.
 Changing any of them breaks upgrades from earlier releases.
 

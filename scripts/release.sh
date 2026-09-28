@@ -3,13 +3,19 @@ set -eu
 
 # kon upgrade in every published release builds these asset names and parses
 # checksums.txt. Changing either breaks upgrades from those releases.
+#
+# With no targets it builds all of them. CI builds each in a job of its own,
+# and on a version tag publishes those archives rather than building again,
+# with checksums.txt written over all of them by checksums.sh.
 
-if [ "$#" -ne 1 ]; then
-  echo "usage: $0 vX.Y.Z" >&2
+if [ "$#" -lt 1 ]; then
+  echo "usage: $0 vX.Y.Z [os/arch...]" >&2
   exit 2
 fi
 
 version=$1
+shift
+targets=${*:-linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64}
 case "$version" in
   v[0-9]*.[0-9]*.[0-9]*) ;;
   *) echo "version must look like v0.1.0" >&2; exit 2 ;;
@@ -22,7 +28,7 @@ cd "$root"
 rm -rf "$dist"
 mkdir -p "$stage"
 
-for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+for target in $targets; do
   os=${target%/*}
   arch=${target#*/}
   name="kon_${version#v}_${os}_${arch}"
@@ -49,5 +55,5 @@ for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 wi
 done
 
 rm -rf "$stage"
-(cd "$dist" && sha256sum ./*.tar.gz ./*.zip > checksums.txt)
+"$root/scripts/checksums.sh" "$dist"
 echo "release archives written to $dist"

@@ -207,7 +207,7 @@ func (u *Updater) fetch(ctx context.Context, rawURL string, limit int64) ([]byte
 	return body, nil
 }
 
-// checksum finds name in sha256sum output. release.sh writes paths as
+// checksum finds name in sha256sum output. checksums.sh writes paths as
 // "./name", so a leading "./" is ignored.
 func checksum(sums []byte, name string) (string, error) {
 	for line := range strings.Lines(string(sums)) {

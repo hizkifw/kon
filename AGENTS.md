@@ -98,8 +98,8 @@ A release tag's message becomes the GitHub release notes, so tag it properly.
    version that does not collide with either.
 2. Format the tag as semver with a `v` prefix, e.g. `v0.1.4`.
 3. Write the tag message as a summary of the changes between the previous
-   tag and this one; `gh release create` in `.github/workflows/release.yml`
-   uses it as the release description. Write it for kon's users, using this
+   tag and this one; `gh release create` in the release job of
+   `.github/workflows/ci.yml` uses it as the release description. Write it for kon's users, using this
    format:
 
    ```
