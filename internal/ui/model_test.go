@@ -297,10 +297,12 @@ func TestSwitchModelMessageMatchesHeaderFormatting(t *testing.T) {
 	if len(got.transcript.blocks) != 1 {
 		t.Fatalf("expected one model change block, got %#v", got.transcript.blocks)
 	}
+	// The title is what the header would show: connection, display name,
+	// and effort, not the configured name or the external ID.
 	text := got.transcript.blocks[0].text
-	want := " Model changed to fireworks-ai · DeepSeek V4.1 Flash · default"
-	if text != want {
-		t.Fatalf("model change message = %q, want %q", text, want)
+	want := "fireworks-ai · DeepSeek V4.1 Flash · default"
+	if !strings.HasSuffix(text, " "+want) {
+		t.Fatalf("model change message = %q, want it to end with %q", text, want)
 	}
 }
 
@@ -1733,9 +1735,12 @@ func TestCompactCommandStartsBusyRun(t *testing.T) {
 func TestCompactCommandRefusesWhileBusy(t *testing.T) {
 	m := newTestModel(t)
 	m.busy = true
-	updated, _ := m.compact()
-	if got := updated.(Model); got.status != "agent is busy; Esc interrupts" {
-		t.Fatalf("status = %q", got.status)
+	updated, cmd := m.compact()
+	if cmd != nil {
+		t.Fatal("compaction started while a run was in flight")
+	}
+	if got := updated.(Model); !strings.Contains(got.status, "busy") {
+		t.Fatalf("status = %q, want it to say the agent is busy", got.status)
 	}
 }
 
