@@ -360,9 +360,9 @@ the compact `12.4k`/`1.0m` rendering, so every displayed figure matches.
   an incremented `KON_DEPTH` to every command and `KON_JOB` to each job, plus
   `KON_INCOGNITO` beneath an incognito session. `kon run` records
   `KON_SESSION` as its session's parent, writes its session ID into `KON_JOB`,
-  keeps its session in memory under `KON_INCOGNITO`, and refuses to start past
-  a fixed depth. An ephemeral session's jobs use a temporary directory that
-  closing the store removes. Ctrl+C never interrupts;
+  keeps its session in memory with `--incognito` or under `KON_INCOGNITO`, and
+  refuses to start past a fixed depth. An ephemeral session's jobs use a
+  temporary directory that closing the store removes. Ctrl+C never interrupts;
   it clears the input, or hints at Ctrl+D to exit when the input is empty.
 
 ## Dependency policy

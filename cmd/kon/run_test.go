@@ -23,6 +23,10 @@ func TestParseRunArgsStopsAtTheMessage(t *testing.T) {
 	if err != nil || parsed.format != headless.FormatJSON || strings.Join(parsed.message, " ") != "-h means help" {
 		t.Fatalf("parsed = %+v, %v", parsed, err)
 	}
+	parsed, err = parseRunArgs([]string{"--incognito", "keep", "this", "quiet"})
+	if err != nil || !parsed.incognito || strings.Join(parsed.message, " ") != "keep this quiet" {
+		t.Fatalf("parsed = %+v, %v", parsed, err)
+	}
 }
 
 func TestParseRunArgsRejectsBadFlags(t *testing.T) {
@@ -31,6 +35,7 @@ func TestParseRunArgsRejectsBadFlags(t *testing.T) {
 		{"--model"},
 		{"--format", "yaml", "hi"},
 		{"--resume=not-a-session", "hi"},
+		{"--incognito", "-r", "hi"},
 	} {
 		if _, err := parseRunArgs(args); err == nil {
 			t.Fatalf("%q parsed without error", args)

@@ -43,8 +43,9 @@ drawn as a faint, dashed outline so the mode is obvious, and on exit kon prints
 
 `--incognito` cannot be combined with `--resume`, and `/resume` refuses to open
 a saved session from an incognito one. `/new` starts another incognito session.
-Subagents inherit the mode through `KON_INCOGNITO`, so their sessions are not
-saved either. Background jobs still write their output files, because the agent
+`kon run --incognito` does the same for a single scripted prompt; see
+[scripting](#scripting). Subagents inherit the mode through `KON_INCOGNITO`,
+so their sessions are not saved either. Background jobs still write their output files, because the agent
 reads them with ordinary commands, but into a private temporary directory that
 is removed when the session ends.
 
@@ -124,10 +125,11 @@ the resume hint there. A pipe or log file gets only the conversation.
 | `--effort <level>` | Use this reasoning effort for this run. It must be one of the model's levels. |
 | `--resume`, `-r` | Continue the most recent session in this directory. |
 | `--resume=<id>` | Continue a specific session. |
+| `--incognito` | Keep this run's session in memory; it is never saved and cannot be resumed. |
 | `--format text\|json` | Stream text (the default), or write one JSON event per line. |
 
 Each run is an ordinary session that you can resume later, in `kon run` or in
-the full-screen UI. It never writes `config.json`, and its prompts are not added
+the full-screen UI, unless it is incognito. It never writes `config.json`, and its prompts are not added
 to the Up-arrow history. A session that another kon has open cannot be
 continued: `kon run --resume` exits with an error instead of following it.
 

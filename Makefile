@@ -70,14 +70,14 @@ release:
 
 # kon itself tags the release, following the Releases section of AGENTS.md.
 tag:
-	go run ./cmd/kon run $(if $(MODEL),--model $(MODEL)) \
+	go run ./cmd/kon run --incognito $(if $(MODEL),--model $(MODEL)) \
 	  "Tag the next $(BUMP) release of kon, following the Releases section of AGENTS.md. Do not push the tag."
 
 # kon reviews the changes, runs the checks, and commits them.
 # The guard and the run share one shell, so a clean tree really stops here.
 commit:
 	@if [ -z "$$(git status --porcelain)" ]; then echo "nothing to commit"; exit 0; fi; \
-	go run ./cmd/kon run $(if $(MODEL),--model $(MODEL)) \
+	go run ./cmd/kon run --incognito $(if $(MODEL),--model $(MODEL)) \
 	  "Review the uncommitted changes, run make check, and if it passes commit the changes. Write the commit message in the style of recent commits. Do not push."
 
 clean:

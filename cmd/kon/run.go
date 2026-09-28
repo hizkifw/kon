@@ -35,6 +35,7 @@ func runCommand() command {
 			"  --effort <level>       use this reasoning effort for this run\n" +
 			"  --resume, -r           continue the most recent session in this directory\n" +
 			"  --resume=<id>          continue a specific session\n" +
+			"  --incognito            keep this run's session in memory; it is never saved\n" +
 			"  --format text|json     stream text (default), or write one JSON event per line\n" +
 			"  --stdin                append stdin to the message\n\n" +
 			"Exit status is 0 when the turn completes, 1 on error, 2 on a usage error,\n" +
@@ -49,6 +50,7 @@ type runArgs struct {
 	model, effort string
 	resume        bool
 	resumeID      typedid.SessionID
+	incognito     bool
 	format        headless.Format
 	// stdin appends stdin to a message given as arguments. Without it stdin
 	// is read only when there is no message, so a caller that leaves stdin
@@ -87,6 +89,8 @@ func parseRunArgs(args []string) (runArgs, error) {
 			}
 		case arg == "--stdin":
 			parsed.stdin = true
+		case arg == "--incognito":
+			parsed.incognito = true
 		case name == "--resume" && hasInline:
 			parsed.resume = true
 			parsed.resumeID, err = typedid.ParseSessionID(inline)
@@ -114,6 +118,11 @@ func parseRunArgs(args []string) (runArgs, error) {
 }
 
 func (a runArgs) check() error {
+	// Continuing a saved session would write to it, which incognito promises
+	// not to do.
+	if a.incognito && a.resume {
+		return errors.New("--incognito cannot be combined with --resume")
+	}
 	if a.format != headless.FormatText && a.format != headless.FormatJSON {
 		return fmt.Errorf("--format must be text or json, not %q", a.format)
 	}
@@ -176,7 +185,8 @@ func runRun(args []string) error {
 		}
 		runtime, err := app.Start(cfg, paths, cwd, buildinfo.Version(), app.Options{
 			Resume: parsed.resume, SessionID: parsed.resumeID, Model: parsed.model, Effort: parsed.effort,
-			Parent: parentSession(), Incognito: tools.Incognito(),
+			// A subagent of an incognito session is incognito too.
+			Parent: parentSession(), Incognito: parsed.incognito || tools.Incognito(),
 		})
 		if err != nil {
 			return err
