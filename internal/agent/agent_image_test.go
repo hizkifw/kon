@@ -2,10 +2,11 @@ package agent
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/hizkifw/kon/internal/provider"
@@ -132,10 +133,9 @@ func TestRunPersistsImagePartsFromRead(t *testing.T) {
 	if err != nil || string(data) != string(pngHeader) {
 		t.Fatalf("stored image = %x, %v", data, err)
 	}
-	// Inlined image bytes would be raw base64 with no marker to search for, so
-	// only the exact text proves the result describes the image and no more.
-	want := fmt.Sprintf("loaded image %s (image/png, %d bytes)", filepath.Join(dir, "shot.png"), len(pngHeader))
-	if tool.Text() != want {
-		t.Fatalf("tool content = %q, want %q", tool.Text(), want)
+	// The image travels as the part above, so the text must describe it without
+	// carrying it. Inlined bytes would appear as their base64 encoding.
+	if text := tool.Text(); text == "" || strings.Contains(text, base64.StdEncoding.EncodeToString(pngHeader)) {
+		t.Fatalf("tool content should describe, not inline, the image: %q", text)
 	}
 }

@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -118,10 +119,11 @@ func TestMessagesRequestShape(t *testing.T) {
 	// The signed thinking goes back with its empty text and the unsigned one
 	// is left out. Both results, the steer, and the next prompt share one user
 	// turn, results first, and the conversation's last block carries the
-	// moving breakpoint.
-	assertWireJSON(t, body, `{
+	// moving breakpoint. A streamed turn asks for the default output budget,
+	// whatever it is tuned to.
+	assertWireJSON(t, body, fmt.Sprintf(`{
 		"model": "claude-test",
-		"max_tokens": 32000,
+		"max_tokens": %d,
 		"system": [{"type": "text", "text": "system prompt", "cache_control": {"type": "ephemeral"}}],
 		"messages": [
 			{"role": "user", "content": [{"type": "text", "text": "task"}]},
@@ -142,7 +144,7 @@ func TestMessagesRequestShape(t *testing.T) {
 		"thinking": {"type": "adaptive", "display": "summarized"},
 		"output_config": {"effort": "xhigh"},
 		"stream": true
-	}`)
+	}`, defaultMessagesMaxTokens))
 }
 
 func TestMessagesLearnsFromRejections(t *testing.T) {

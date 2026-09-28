@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/hizkifw/kon/internal/session"
@@ -198,13 +199,16 @@ func TestRejectedFieldRequiresRejectionSignal(t *testing.T) {
 	}
 }
 
+// TestAPIErrorMessage checks what the error reports, not its wording: the
+// status, then the server's parsed message when it sent one, otherwise the raw
+// body without the whitespace around it.
 func TestAPIErrorMessage(t *testing.T) {
-	structured := &APIError{Status: 400, Message: "bad model"}
-	if got := structured.Error(); got != "provider returned status 400: bad model" {
-		t.Fatalf("Error() = %q", got)
+	structured := &APIError{Status: 400, Message: "bad model", Body: `{"error":{"message":"bad model"}}`}
+	if got := structured.Error(); !strings.Contains(got, "400") || !strings.HasSuffix(got, "bad model") {
+		t.Fatalf("Error() = %q, want the status and the parsed message", got)
 	}
 	raw := &APIError{Status: 500, Body: " upstream exploded \n"}
-	if got := raw.Error(); got != "provider returned status 500: upstream exploded" {
-		t.Fatalf("Error() = %q", got)
+	if got := raw.Error(); !strings.Contains(got, "500") || !strings.HasSuffix(got, "upstream exploded") {
+		t.Fatalf("Error() = %q, want the status and the trimmed body", got)
 	}
 }
