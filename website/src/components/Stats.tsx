@@ -2,7 +2,7 @@ import { binaryMb, downloadMb, nativeBuilds, startupMs, startupRssMb } from "@/l
 
 const STATS = [
   { label: "Startup", value: `${startupMs} ms`, detail: "launch to first frame" },
-  { label: "Binary", value: `${binaryMb} MB`, detail: `about ${downloadMb} MB to download` },
+  { label: "Binary", value: `${binaryMb} MB`, detail: `${downloadMb} MB to download` },
   { label: "Memory at startup", value: `${startupRssMb} MB`, detail: "peak resident set at first frame" },
   { label: "Native builds", value: `${nativeBuilds}`, detail: "Windows, macOS, and Linux on x64 and ARM64" },
 ];

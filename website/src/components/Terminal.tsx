@@ -2,7 +2,6 @@
 
 import { Fragment, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { Banner } from "./Banner";
-import { startupMs } from "@/lib/site";
 
 export type Platform = "windows" | "unix";
 
@@ -112,14 +111,6 @@ export function Terminal({ platform }: { platform: Platform }) {
           platform={platform}
           title={launched ? "kon" : platform === "windows" ? "PowerShell" : "zsh"}
         >
-          {launched && (
-            <span
-              title="From kon's startup benchmark. The demo itself is scripted."
-              className="rounded-full border border-accent/40 bg-accent/10 px-2 py-0.5 font-mono text-[11px] whitespace-nowrap text-accent-bright"
-            >
-              startup {startupMs} ms
-            </span>
-          )}
           {done && !reduced && (
             <button
               type="button"

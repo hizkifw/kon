@@ -34,7 +34,8 @@ own docs:
 | 27 ms startup, 16 MB memory | the `first-paint` scenario of `make loadtest`, in `docs/development/benchmarking.md` |
 | 12 MB binary, 5 MB download | a `-s -w` release build, as `scripts/release.sh` makes it |
 | 6 native builds | the target list in `scripts/release.sh` |
-| about 30 ms off every launch, streaming throughput | `docs/development/benchmarking.md` and commit `acab5ff` |
+| streaming throughput | `docs/development/benchmarking.md` |
+| 11 µs frames at any session length | Phase 2b of `docs/development/rendering-performance.md` |
 | Windows behavior | `docs/product/usage.md`, `docs/development/index.md`, `docs/development/session-format.md`, `docs/development/architecture.md` |
 | Incognito behavior | the Incognito and Scripting sections of `docs/product/usage.md` |
 

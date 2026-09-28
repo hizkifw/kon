@@ -6,27 +6,15 @@ import screenshot from "@/assets/kon-windows-terminal.png";
 const POINTS = [
   {
     title: "A native `kon.exe`",
-    body: "x64 and ARM64 builds of the same code as every other platform. No WSL, no Cygwin, no emulation layer.",
-  },
-  {
-    title: "One-line PowerShell install",
-    body: "`iwr … | iex` verifies the SHA-256, installs to `%LOCALAPPDATA%\\Programs\\kon`, and picks the right architecture, even on older Windows PowerShell.",
+    body: "x64 and ARM64, from the same code as every other platform. No WSL, no emulation layer.",
   },
   {
     title: "A shell tool that knows its shell",
-    body: "Commands run through Git Bash when you have it, then PowerShell, then `cmd.exe`, and kon tells the model which one it got, so it writes commands that run.",
+    body: "Git Bash if you have it, then PowerShell, then `cmd.exe`, and the model knows which one it got.",
   },
   {
-    title: "Windows paths, Windows conventions",
-    body: "Config lives in `%APPDATA%\\kon` and sessions in `%LOCALAPPDATA%\\kon`, where Windows expects them.",
-  },
-  {
-    title: "Built around Windows file locking",
-    body: "Windows locks are mandatory, so each session's lock lives in its own file. A second kon can still preview and follow a live session.",
-  },
-  {
-    title: "Upgrades in place",
-    body: "Windows won't overwrite a running `.exe`. `kon upgrade` renames it aside, swaps in the verified release, and cleans up next time.",
+    title: "Updates itself",
+    body: "`kon upgrade` swaps in the latest verified release. No installer to run again.",
   },
 ];
 
@@ -37,8 +25,7 @@ export function Windows() {
         <SectionHeading eyebrow="Windows" title="First-class on Windows, not ported to it.">
           <p>
             Terminal tools often treat Windows as an afterthought: install WSL, assume a POSIX shell, hope the paths
-            work out. kon is built for Windows with the same care as macOS and Linux, and it knows which one it&rsquo;s
-            running on.
+            work out. kon doesn&rsquo;t.
           </p>
         </SectionHeading>
 
@@ -51,12 +38,10 @@ export function Windows() {
                 className="h-auto w-full"
               />
             </div>
-            <figcaption className="mt-3 text-sm text-faint">
-              kon in Windows Terminal. Every commit also cross-builds for Windows x64 and ARM64.
-            </figcaption>
+            <figcaption className="mt-3 text-sm text-faint">kon in Windows Terminal.</figcaption>
           </figure>
 
-          <dl className="grid grid-cols-1 gap-x-8 gap-y-7 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+          <dl className="grid grid-cols-1 content-center gap-x-8 gap-y-7 sm:grid-cols-3 lg:grid-cols-1">
             {POINTS.map((point) => (
               <div key={point.title} className="border-l-2 border-accent/50 pl-4">
                 <dt className="font-medium text-fg">

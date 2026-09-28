@@ -4,11 +4,11 @@ import { SectionHeading } from "./SectionHeading";
 const FEATURES = [
   {
     title: "Four sharp tools",
-    body: "`read`, `write`, `edit`, and `shell`, after pi's four-tool philosophy. The model spends its context on your code, not on a tool menu.",
+    body: "`read`, `write`, `edit`, and `shell`, after pi. Context goes to your code, not a tool menu.",
   },
   {
     title: "Sessions are plain files",
-    body: "Every conversation is JSONL you can read, grep, and keep. Pick one back up with `kon --resume`.",
+    body: "Every conversation is JSONL you can read and grep. Pick one back up with `kon --resume`.",
   },
   {
     title: "Bring any model",
@@ -16,15 +16,15 @@ const FEATURES = [
   },
   {
     title: "Made for scripts",
-    body: "`kon run` streams one turn to stdout, so `git diff | kon run --stdin review this` just works. Add `--format json` for events.",
+    body: "`git diff | kon run --stdin review this` just works. Add `--format json` for events.",
   },
   {
     title: "Steer while it works",
-    body: "Enter steers the running turn the next time kon calls the model. Tab queues a prompt for when the turn is done.",
+    body: "Enter steers the running turn. Tab queues a prompt for when it's done.",
   },
   {
     title: "Jobs and subagents",
-    body: "Servers, watchers, and long builds run as background jobs. Ask, and kon hands a self-contained task to a subagent.",
+    body: "Servers and long builds run in the background. Ask, and kon hands a task to a subagent.",
   },
 ];
 

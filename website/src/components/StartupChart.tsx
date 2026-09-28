@@ -56,9 +56,8 @@ export function StartupChart() {
         </div>
       </dl>
       <p className="mt-6 border-t border-line pt-4 text-xs leading-relaxed text-faint">
-        kon&rsquo;s time is the first-paint scenario of <code className="font-mono">make loadtest</code>: the median
-        of 50 launches from exec to the first full-screen frame, on {startupMachine}. The 100 ms limit is Jakob
-        Nielsen&rsquo;s; the reaction time is a typical figure.
+        kon&rsquo;s time is the median of 50 launches in <code className="font-mono">make loadtest</code>, on{" "}
+        {startupMachine}.
       </p>
     </figure>
   );

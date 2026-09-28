@@ -6,27 +6,19 @@ import { SectionHeading } from "./SectionHeading";
 const POINTS = [
   {
     title: "No paper trail",
-    body: "The conversation lives in memory and is gone the moment you quit. Nothing joins your saved sessions, so `--resume` has nothing to find.",
-  },
-  {
-    title: "Your Up-arrow keeps quiet",
-    body: "Incognito prompts never reach your prompt history. The ones from before are still there to recall.",
+    body: "The conversation lives in memory and dies when you quit. Your Up-arrow history never hears about it.",
   },
   {
     title: "Sunglasses on",
-    body: "The banner turns into a faint, dashed outline, so you always know which kon is listening.",
+    body: "A faint, dashed banner, so you always know which kon is listening.",
   },
   {
     title: "Accomplices included",
-    body: "Subagents inherit the mode, so delegated work isn't saved either. Background jobs write to a private temp directory that's swept away on exit.",
+    body: "Subagents go incognito too, and background jobs clean up after themselves.",
   },
   {
     title: "Throwaway scripts",
-    body: "`kon run --incognito` sends one prompt from a script and leaves no session behind.",
-  },
-  {
-    title: "No mix-ups",
-    body: "`--incognito` won't combine with `--resume`, and `/resume` declines to open a saved session, so nothing saved gets written to by accident.",
+    body: "`kon run --incognito` sends one prompt and leaves nothing behind.",
   },
 ];
 
@@ -34,26 +26,20 @@ export function Incognito() {
   return (
     <section id="incognito" className="border-t border-line">
       <div className="mx-auto max-w-6xl px-4 py-20 sm:px-6 lg:py-28">
-        <SectionHeading eyebrow="Incognito" title="Leave no paw prints.">
-          <p>
-            Some prompts aren&rsquo;t for the record. What a monad is, for the fifth time this week. Centering that
-            div, again. The side project you&rsquo;ll deny ever starting. Run{" "}
-            <code className="font-mono whitespace-nowrap text-fg">kon --incognito</code> and the fox slips on its sunglasses: the
-            session is never saved, and there&rsquo;s nothing to resume.
-          </p>
-          <p>
-            The fox only covers tracks on your machine, though. Prompts still travel to your model provider, and{" "}
-            <code className="font-mono text-fg">/login</code> and <code className="font-mono text-fg">/model</code>{" "}
-            still save to your config.
-          </p>
-        </SectionHeading>
-
-        <div className="mt-14 grid grid-cols-1 gap-12 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)]">
-          <figure className="lg:order-last">
-            <Window />
+        <div className="grid grid-cols-1 gap-12 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] lg:items-center">
+          {/* The text column dissolves into the grid on narrow screens, so the
+              parting words follow the session instead of preceding it. */}
+          <div className="contents lg:block">
+            <SectionHeading eyebrow="Incognito" title="Leave no paw prints.">
+              <p className="text-pretty">
+                Some prompts aren&rsquo;t for the record. What a monad is, for the fifth time this week. Centering
+                that div, again. Run <code className="font-mono whitespace-nowrap text-fg">kon --incognito</code> and
+                the fox slips on its sunglasses: the session is never saved, and there&rsquo;s nothing to resume.
+              </p>
+            </SectionHeading>
             <div
               aria-label="After quitting, the shell shows: incognito session discarded; nothing to resume."
-              className="mt-4 rounded-xl border border-dashed border-line px-5 py-4 font-mono text-[11px] leading-[1.5] sm:text-[13px]"
+              className="order-last max-w-xl rounded-xl border border-dashed border-line px-5 py-4 font-mono text-[11px] leading-[1.5] sm:text-[13px] lg:mt-10"
             >
               <div aria-hidden className="whitespace-pre">
                 <span className="text-link">~/code/site</span>
@@ -63,24 +49,22 @@ export function Incognito() {
                 <span className="text-muted">incognito session discarded; nothing to resume</span>
               </div>
             </div>
-            <figcaption className="mt-3 text-sm text-faint">
-              A scripted example. The banner and the parting words are kon&rsquo;s own.
-            </figcaption>
-          </figure>
-
-          <dl className="grid grid-cols-1 content-start gap-x-8 gap-y-7 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
-            {POINTS.map((point) => (
-              <div key={point.title} className="border-l-2 border-dashed border-faint/60 pl-4">
-                <dt className="font-medium text-fg">
-                  <Inline text={point.title} />
-                </dt>
-                <dd className="mt-1.5 text-sm leading-relaxed text-muted">
-                  <Inline text={point.body} />
-                </dd>
-              </div>
-            ))}
-          </dl>
+          </div>
+          <Window />
         </div>
+
+        <dl className="mt-14 grid grid-cols-1 gap-x-8 gap-y-7 sm:grid-cols-2 lg:grid-cols-4">
+          {POINTS.map((point) => (
+            <div key={point.title} className="border-l-2 border-dashed border-faint/60 pl-4">
+              <dt className="font-medium text-fg">
+                <Inline text={point.title} />
+              </dt>
+              <dd className="mt-1.5 text-sm leading-relaxed text-muted">
+                <Inline text={point.body} />
+              </dd>
+            </div>
+          ))}
+        </dl>
       </div>
     </section>
   );

@@ -5,19 +5,19 @@ import { startupMs } from "@/lib/site";
 const REASONS = [
   {
     title: "Nothing runs that doesn't have to",
-    body: "kon never checks for updates or refreshes its model catalog on launch. Storage migrations read one small version marker instead of scanning your sessions.",
+    body: "No update check, no catalog refresh, and no scan of your sessions on launch.",
   },
   {
     title: "Native code, no runtime to boot",
-    body: "kon is compiled Go, statically linked. There is no interpreter to start, no JIT to warm up, and no dependency tree to resolve before the first frame.",
+    body: "Statically linked Go. No interpreter to start and no JIT to warm up.",
   },
   {
     title: "Snappy after startup too",
-    body: "Replies stream as they arrive, and redraws are capped at 20 frames a second, so a fast model never outruns your terminal. 50,000 streamed deltas render in 0.67 s.",
+    body: "Replies stream as they arrive, and 50,000 streamed deltas render in 0.67 s.",
   },
   {
-    title: "Milliseconds are tracked",
-    body: "A dependency was quietly building a Unicode table at init. Finding it took about 30 ms off every launch, and the load test is there to catch the next one.",
+    title: "Long sessions stay fast",
+    body: "Redrawing a frame takes 11 µs, however long the conversation gets.",
   },
 ];
 
@@ -27,10 +27,9 @@ export function Speed() {
       <div className="grid grid-cols-1 gap-12 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] lg:items-center">
         <SectionHeading eyebrow="Startup" title="Faster than you can notice.">
           <p>
-            From launching the process to its first frame on screen, kon takes {startupMs} ms. That&rsquo;s under
-            two frames on a 60 Hz screen, and about a quarter of the 100 ms where a delay starts to register.
+            Launch to first frame in {startupMs} ms. No splash screen, no spinner. Type <Kbd>kon</Kbd> and it&rsquo;s
+            there.
           </p>
-          <p>No splash screen, no spinner, nothing to wait for. Type <Kbd>kon</Kbd> and it&rsquo;s there.</p>
         </SectionHeading>
         <StartupChart />
       </div>
@@ -42,16 +41,6 @@ export function Speed() {
             <p className="mt-2 text-sm leading-relaxed text-muted">{reason.body}</p>
           </div>
         ))}
-      </div>
-
-      <div className="mt-8 flex flex-col gap-3 rounded-xl border border-dashed border-line px-5 py-4 text-sm sm:flex-row sm:items-center sm:gap-6">
-        <span className="text-muted">Measure it yourself:</span>
-        <code className="font-mono text-[13px] whitespace-nowrap text-fg">
-          <span className="text-faint select-none">PS&gt; </span>Measure-Command {"{"} kon --version {"}"}
-        </code>
-        <code className="font-mono text-[13px] whitespace-nowrap text-fg">
-          <span className="text-faint select-none">$ </span>time kon --version
-        </code>
       </div>
     </section>
   );

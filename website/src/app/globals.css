@@ -52,6 +52,14 @@ body {
   color: var(--color-fg);
 }
 
+/* Tailwind v4 gives buttons the default cursor; the page's copy button, install
+   tabs, and replay control should all read as clickable. */
+@layer base {
+  button:not(:disabled) {
+    cursor: pointer;
+  }
+}
+
 ::selection {
   background: color-mix(in oklab, var(--color-accent) 45%, transparent);
   color: var(--color-fg);
