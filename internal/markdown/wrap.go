@@ -140,16 +140,18 @@ func displayWidth(s string) int { return ansi.StringWidth(s) }
 // display cells, preserving every character (runs of spaces, indentation).
 // Splits fall between grapheme clusters; a cluster wider than the whole limit
 // is placed alone so progress is guaranteed. Used for code, where collapsing
-// whitespace the way word wrapping does would corrupt the source.
-func hardWrapPieces(p piece, limit int) []Line {
+// whitespace the way word wrapping does would corrupt the source. runs map
+// the piece's text back to the source.
+func hardWrapPieces(p piece, runs []SourceRun, limit int) []Line {
 	if limit < 1 {
 		limit = 1
 	}
 	if displayWidth(p.text) <= limit {
-		return []Line{{Text: p.text, Spans: spanFor(p)}}
+		return []Line{{Text: p.text, Spans: spanFor(p), Runs: runs}}
 	}
 	var out []Line
 	rest := p.text
+	next := 0
 	for rest != "" {
 		chunk := truncateWidth([]byte(rest), limit)
 		if len(chunk) == 0 {
@@ -160,7 +162,10 @@ func hardWrapPieces(p piece, limit int) []Line {
 			}
 			chunk = cluster
 		}
-		out = append(out, Line{Text: string(chunk), Spans: spanFor(piece{text: string(chunk), style: p.style, link: p.link})})
+		at := len(p.text) - len(rest)
+		var chunkRuns []SourceRun
+		chunkRuns, next = appendClipped(nil, runs, next, at, at+len(chunk))
+		out = append(out, Line{Text: string(chunk), Spans: spanFor(piece{text: string(chunk), style: p.style, link: p.link}), Runs: chunkRuns})
 		rest = rest[len(chunk):]
 	}
 	return out

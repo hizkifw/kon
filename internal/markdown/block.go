@@ -552,6 +552,7 @@ const tablePad = 1
 // GFM alignment.
 type tableCell struct {
 	pieces []piece
+	runs   []SourceRun
 	width  int
 	align  extast.Alignment
 }
@@ -584,12 +585,12 @@ func (r *blockRenderer) tableLines(n ast.Node, source []byte) []Line {
 	for row := n.FirstChild(); row != nil; row = row.NextSibling() {
 		tr := tableRow{header: row.Kind() == extast.KindTableHeader}
 		for cell := row.FirstChild(); cell != nil; cell = cell.NextSibling() {
-			pieces := inlinePieces(cell, source, r.theme)
+			pieces, runs := inlinePieces(cell, source, r.theme)
 			align := extast.AlignNone
 			if tc, ok := cell.(*extast.TableCell); ok {
 				align = tc.Alignment
 			}
-			tr.cells = append(tr.cells, tableCell{pieces: pieces, width: piecesWidth(pieces), align: align})
+			tr.cells = append(tr.cells, tableCell{pieces: pieces, runs: runs, width: piecesWidth(pieces), align: align})
 		}
 		if len(tr.cells) > ncols {
 			ncols = len(tr.cells)
@@ -616,7 +617,7 @@ func (r *blockRenderer) tableLines(n ast.Node, source []byte) []Line {
 		height := 1
 		for j := range cellLines {
 			if j < len(row.cells) && len(row.cells[j].pieces) > 0 {
-				cellLines[j] = wrapPieces(row.cells[j].pieces, widths[j])
+				cellLines[j] = wrapPieces(row.cells[j].pieces, row.cells[j].runs, widths[j])
 			} else {
 				cellLines[j] = []Line{Plain("")}
 			}
@@ -631,6 +632,7 @@ func (r *blockRenderer) tableLines(n ast.Node, source []byte) []Line {
 		for li := 0; li < height; li++ {
 			var text strings.Builder
 			var spans []Styled
+			var runs []SourceRun
 			// The tinted region opens with tablePad cells before the first
 			// column; its marker leads the spans so the tint covers them.
 			text.WriteString(strings.Repeat(" ", tablePad))
@@ -644,6 +646,7 @@ func (r *blockRenderer) tableLines(n ast.Node, source []byte) []Line {
 				}
 				lead, trail := cellPadding(widths[j]-displayWidth(cl.Text), row.cellAlign(j))
 				text.WriteString(strings.Repeat(" ", lead))
+				runs = append(runs, shiftRuns(cl.Runs, text.Len())...)
 				text.WriteString(cl.Text)
 				spans = append(spans, cellSpans(marker, cl)...)
 				text.WriteString(strings.Repeat(" ", trail))
@@ -652,7 +655,7 @@ func (r *blockRenderer) tableLines(n ast.Node, source []byte) []Line {
 			// is kept rather than right-trimmed so the tint reaches the table's
 			// right edge.
 			text.WriteString(strings.Repeat(" ", tablePad))
-			out = append(out, Line{Text: text.String(), Spans: spans})
+			out = append(out, Line{Text: text.String(), Spans: spans, Runs: runs})
 		}
 	}
 	return out
@@ -729,13 +732,20 @@ func (r *blockRenderer) tableFlatLines(rows []tableRow) []Line {
 	var out []Line
 	for _, row := range rows {
 		var pieces []piece
+		var runs []SourceRun
+		n := 0
 		for j, c := range row.cells {
 			if j > 0 {
 				pieces = append(pieces, piece{text: "  "})
+				n += 2
 			}
 			pieces = append(pieces, c.pieces...)
+			runs = append(runs, shiftRuns(c.runs, n)...)
+			for _, p := range c.pieces {
+				n += len(p.text)
+			}
 		}
-		lines := wrapPieces(pieces, r.width)
+		lines := wrapPieces(pieces, runs, r.width)
 		if row.header {
 			style := r.theme.Resolve(StyleHeading)
 			for k := range lines {
@@ -792,8 +802,8 @@ func (r *blockRenderer) tableWidths(rows []tableRow, ncols int) []int {
 // line's first span style to the fallback text, so the whole heading picks up
 // the heading look while inline spans keep their own roles.
 func (r *blockRenderer) headingLines(h *ast.Heading, source []byte) []Line {
-	pieces := inlinePieces(h, source, r.theme)
-	lines := wrapPieces(pieces, r.width)
+	pieces, runs := inlinePieces(h, source, r.theme)
+	lines := wrapPieces(pieces, runs, r.width)
 	if len(lines) == 0 {
 		lines = []Line{Plain("")}
 	}
@@ -817,12 +827,19 @@ func (r *blockRenderer) codeLines(segments *text.Segments, source []byte) []Line
 			r.buf = append(bytes.Repeat([]byte{' '}, seg.Padding), r.buf...)
 		}
 		content := strings.TrimSuffix(string(r.buf), "\n")
+		at := 0 // where raw starts in content
 		for _, raw := range strings.Split(content, "\n") {
+			// Padding goldmark adds for a tab's indentation has no source.
+			var runs []SourceRun
+			if from, to := max(at, seg.Padding), at+len(raw); from < to {
+				runs = []SourceRun{exactRun(from-at, seg.Start+from-seg.Padding, to-from)}
+			}
 			// Code hard-wraps at the width rather than overflowing: a caller
 			// painting a fixed-width slab would otherwise truncate the line
 			// and silently drop code. Hard wrapping preserves the line's
 			// characters (indentation, runs of spaces) exactly.
-			out = append(out, hardWrapPieces(piece{text: raw, style: style}, r.width)...)
+			out = append(out, hardWrapPieces(piece{text: raw, style: style}, runs, r.width)...)
+			at += len(raw) + 1
 		}
 	}
 	return out
@@ -891,7 +908,7 @@ func (r *blockRenderer) listLines(l *ast.List, source []byte) []Line {
 			if sub.Kind() == ast.KindList {
 				// Nested list: indent under the parent marker column.
 				for _, nl := range nested.renderBlock(sub, source, 0).lines {
-					out = append(out, Line{Text: "  " + nl.Text, Spans: nl.Spans})
+					out = append(out, Line{Text: "  " + nl.Text, Spans: nl.Spans, Runs: shiftRuns(nl.Runs, 2)})
 				}
 				first = false
 				continue
@@ -907,6 +924,8 @@ func (r *blockRenderer) listLines(l *ast.List, source []byte) []Line {
 					out = append(out, Line{
 						Text:  marker + " " + text,
 						Spans: append([]Styled{{Text: marker, Style: r.theme.Resolve(StyleListBullet)}}, spans...),
+						// The marker, and any checkbox, now lead the text.
+						Runs: shiftRuns(line.Runs, len(marker)+1+len(text)-len(line.Text)),
 					})
 					first = false
 					continue
@@ -914,6 +933,7 @@ func (r *blockRenderer) listLines(l *ast.List, source []byte) []Line {
 				out = append(out, Line{
 					Text:  contIndent + text,
 					Spans: spans,
+					Runs:  shiftRuns(line.Runs, len(contIndent)),
 				})
 			}
 		}
@@ -953,7 +973,7 @@ func quoteLines(inner []block, theme Theme) []Line {
 		}
 		for _, line := range blk.lines {
 			spans := append([]Styled{{Text: bar, Style: mark}}, cloneSpans(line.Spans)...)
-			out = append(out, Line{Text: bar + " " + line.Text, Spans: spans})
+			out = append(out, Line{Text: bar + " " + line.Text, Spans: spans, Runs: shiftRuns(line.Runs, len(bar)+1)})
 		}
 	}
 	return out

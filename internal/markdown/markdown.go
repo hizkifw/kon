@@ -145,6 +145,7 @@ func (s *Stream) reparse() {
 	}
 	for i := range closed {
 		closed[i].end += boundary
+		moveSource(closed[i].lines, boundary)
 	}
 	s.blocks = append(s.blocks, closed...)
 	s.lines = appendBlocks(s.lines, closed)
@@ -165,6 +166,7 @@ func (s *Stream) tailLines() []Line {
 	}
 	r := newBlockRenderer(s.theme, s.width)
 	lines := appendBlocks(nil, r.renderAll(parse(tail), tail))
+	moveSource(lines, s.Boundary())
 	if len(lines) > 0 && len(s.lines) > 0 {
 		lines = append(separatorLines(), lines...)
 	}

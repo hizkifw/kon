@@ -15,12 +15,14 @@ import (
 // the hyperlink destination the run belongs to. breakBefore marks a run that
 // may start a new line (a URL chunk boundary): it forces the pending word to
 // commit first, so the wrapper can break between chunks without inserting a
-// space.
+// space. pos is where the text starts in the whole text being wrapped, which
+// the wrapper tracks so a wrapped line can find its source runs.
 type piece struct {
 	text        string
 	style       Style
 	link        string
 	breakBefore bool
+	pos         int
 }
 
 // unescape resolves backslash escapes, numeric references, and HTML entities
@@ -61,17 +63,47 @@ var lineEndings = strings.NewReplacer("\r\n", " ", "\n", " ")
 // breaks become spaces, hard line breaks become "\n" (a real wrap break), raw
 // HTML renders as its literal source text, and image nodes render their alt
 // text. Every character emitted comes from a Text node's unescaped source or
-// a node's resolved text, so the pieces never contain escape syntax.
-func inlinePieces(n ast.Node, source []byte, theme Theme) []piece {
-	return appendInlinePieces(n, source, theme, StyleNone)
+// a node's resolved text, so the pieces never contain escape syntax. runs map
+// the pieces' text, laid end to end, back to the source.
+func inlinePieces(n ast.Node, source []byte, theme Theme) (pieces []piece, runs []SourceRun) {
+	t := inlineText{source: source, theme: theme}
+	t.walk(n, StyleNone)
+	return t.pieces, t.runs
 }
 
-func appendInlinePieces(n ast.Node, source []byte, theme Theme, style Style) []piece {
-	var out []piece
+// inlineText collects an inline subtree's pieces and the runs that map their
+// text back to the source.
+type inlineText struct {
+	source []byte
+	theme  Theme
+	pieces []piece
+	runs   []SourceRun
+	n      int // bytes of text collected so far
+}
+
+// push appends a piece. A piece the renderer adds itself maps to no source;
+// one that came from the source maps its text with mapText first.
+func (t *inlineText) push(p piece) {
+	t.pieces = append(t.pieces, p)
+	t.n += len(p.text)
+}
+
+// mapText records that n bytes of the next piece's text, from at bytes into
+// it, came from source[src:src+srcLen].
+func (t *inlineText) mapText(at, n, src, srcLen int) {
+	if n > 0 {
+		t.runs = appendRun(t.runs, SourceRun{At: t.n + at, Len: n, Source: src, SourceLen: srcLen})
+	}
+}
+
+func (t *inlineText) walk(n ast.Node, style Style) {
+	theme, source := t.theme, t.source
 	for c := n.FirstChild(); c != nil; c = c.NextSibling() {
 		switch v := c.(type) {
 		case *ast.Text:
-			text := unescape(v.Text(source))
+			raw := v.Segment.Value(source)
+			pad := v.Segment.Padding
+			text := string(raw[:pad]) + t.decode(raw[pad:], pad, v.Segment.Start)
 			switch {
 			case v.HardLineBreak():
 				text += "\n"
@@ -84,68 +116,86 @@ func appendInlinePieces(n ast.Node, source []byte, theme Theme, style Style) []p
 			if text == "" {
 				continue
 			}
-			out = append(out, piece{text: text, style: style})
+			t.push(piece{text: text, style: style})
 		case *ast.String:
 			// Synthetic text (e.g. from linkify); already resolved.
-			out = append(out, piece{text: string(v.Value), style: style})
+			t.push(piece{text: string(v.Value), style: style})
 		case *ast.CodeSpan:
 			// Code spans render their content verbatim (already space-
 			// trimmed per CommonMark), never unescaped. A code span is
 			// inline, so CommonMark turns a line ending inside it to a
 			// space rather than breaking the line.
-			text := lineEndings.Replace(string(v.Text(source)))
-			out = append(out, piece{text: text, style: inner(theme, StyleCodeInline, style)})
+			var text strings.Builder
+			for part := v.FirstChild(); part != nil; part = part.NextSibling() {
+				if seg, ok := part.(*ast.Text); ok {
+					code := lineEndings.Replace(string(seg.Segment.Value(source)))
+					t.mapText(text.Len(), len(code), seg.Segment.Start, seg.Segment.Len())
+					text.WriteString(code)
+				}
+			}
+			t.push(piece{text: text.String(), style: inner(theme, StyleCodeInline, style)})
 		case *ast.Emphasis:
 			s := StyleEmph
 			if v.Level == 2 {
 				s = StyleStrong
 			}
-			out = append(out, appendInlinePieces(c, source, theme, inner(theme, s, style))...)
+			t.walk(c, inner(theme, s, style))
 		case *extast.Strikethrough:
-			out = append(out, appendInlinePieces(c, source, theme, inner(theme, StyleStrikethrough, style))...)
+			t.walk(c, inner(theme, StyleStrikethrough, style))
 		case *ast.Link:
-			dest := string(v.Destination)
-			out = append(out, linkPieces(c, source, theme, style, dest)...)
+			t.link(c, style, string(v.Destination))
 		case *ast.AutoLink:
 			// Autolinks render the URL as its own label; the destination
 			// equals the label, so only one run is emitted, made clickable.
 			label := string(v.Label(source))
-			out = append(out, piece{text: label, style: inner(theme, StyleLink, style), link: string(v.URL(source))})
+			if at := autoLinkLabel(v, source); at >= 0 {
+				t.mapText(0, len(label), at, len(label))
+			}
+			t.push(piece{text: label, style: inner(theme, StyleLink, style), link: string(v.URL(source))})
 		case *ast.Image:
 			// Images render their alt text; the URL is terminal-invisible.
-			out = append(out, appendInlinePieces(c, source, theme, inner(theme, StyleLink, style))...)
+			t.walk(c, inner(theme, StyleLink, style))
 		case *ast.RawHTML:
 			// Raw HTML renders as its literal source text rather than being
 			// interpreted or dropped, so a tag the model wrote still shows.
-			out = append(out, piece{text: string(v.Segments.Value(source)), style: style})
+			at := 0
+			for i := 0; i < v.Segments.Len(); i++ {
+				seg := v.Segments.At(i)
+				t.mapText(at, seg.Len(), seg.Start, seg.Len())
+				at += seg.Len()
+			}
+			t.push(piece{text: string(v.Segments.Value(source)), style: style})
 		default:
-			out = append(out, appendInlinePieces(c, source, theme, style)...)
+			t.walk(c, style)
 		}
 	}
-	return out
 }
 
-// linkPieces renders a link as its label (styled as a link and made
-// clickable) followed by the destination in a faint URL style, unless the
-// label already is the destination (in which case the label alone suffices).
-// The destination is a leading-space-separated parenthesized run so it stays
+// link renders a link as its label (styled as a link and made clickable)
+// followed by the destination in a faint URL style, unless the label already
+// is the destination (in which case the label alone suffices). The
+// destination is a leading-space-separated parenthesized run so it stays
 // clickable and readable in terminals without hyperlink support.
-func linkPieces(link ast.Node, source []byte, theme Theme, style Style, dest string) []piece {
-	label := appendInlinePieces(link, source, theme, inner(theme, StyleLink, style))
+func (t *inlineText) link(n ast.Node, style Style, dest string) {
+	first := len(t.pieces)
+	t.walk(n, inner(t.theme, StyleLink, style))
+	label := t.pieces[first:]
 	if dest != "" {
 		for i := range label {
 			label[i].link = dest
 		}
 	}
 	if dest == "" || labelText(label) == dest {
-		return label
+		return
 	}
 	url := piece{
 		text:  " (" + dest + ")",
-		style: inner(theme, StyleLinkURL, style),
+		style: inner(t.theme, StyleLinkURL, style),
 		link:  dest,
 	}
-	return append(label, urlPieces(url, dest)...)
+	for _, p := range urlPieces(url, dest) {
+		t.push(p)
+	}
 }
 
 // urlPieces splits a displayed URL into chunks that may each start a new line,
@@ -205,7 +255,8 @@ func inner(theme Theme, style, fallback Style) Style {
 
 // proseLines renders a paragraph or text block's inline content with spans.
 func (r *blockRenderer) proseLines(n ast.Node, source []byte) []Line {
-	return wrapPieces(inlinePieces(n, source, r.theme), r.width)
+	pieces, runs := inlinePieces(n, source, r.theme)
+	return wrapPieces(pieces, runs, r.width)
 }
 
 // pieceWidth returns the display width of a piece run.
@@ -224,6 +275,7 @@ func piecesWidth(pieces []piece) int {
 // accounting cannot drift as pieces merge.
 type spanWrapper struct {
 	limit int
+	n     int // bytes of text written so far
 
 	lines [][]piece
 	cur   []piece
@@ -282,6 +334,8 @@ func (w *spanWrapper) Write(pieces []piece) {
 }
 
 func (w *spanWrapper) writePiece(p piece) {
+	p.pos = w.n
+	w.n += len(p.text)
 	if p.breakBefore && p.text != "" {
 		// A break-marked run (a URL chunk) may start a new line. Commit the
 		// pending word; if the chunk would not fit, break the line first
@@ -300,7 +354,7 @@ func (w *spanWrapper) writePiece(p piece) {
 			// width is held back until the next word commits.
 			w.addWord()
 			for rest != "" && (rest[0] == ' ' || rest[0] == '\t') {
-				w.space = append(w.space, piece{text: " ", style: p.style, link: p.link})
+				w.space = append(w.space, piece{text: " ", style: p.style, link: p.link, pos: p.pos + len(p.text) - len(rest)})
 				rest = rest[1:]
 			}
 			continue
@@ -315,7 +369,7 @@ func (w *spanWrapper) writePiece(p piece) {
 		for j < len(rest) && rest[j] != ' ' && rest[j] != '\t' && rest[j] != '\n' {
 			j++
 		}
-		w.writeWordRun(piece{text: rest[:j], style: p.style, link: p.link})
+		w.writeWordRun(piece{text: rest[:j], style: p.style, link: p.link, pos: p.pos + len(p.text) - len(rest)})
 		rest = rest[j:]
 	}
 }
@@ -371,8 +425,8 @@ func (w *spanWrapper) hardSplit() {
 			w.addNewline()
 			continue
 		}
-		w.appendCur(piece{text: cluster, style: p.style, link: p.link})
-		all[0] = piece{text: p.text[len(cluster):], style: p.style, link: p.link}
+		w.appendCur(piece{text: cluster, style: p.style, link: p.link, pos: p.pos})
+		all[0] = piece{text: p.text[len(cluster):], style: p.style, link: p.link, pos: p.pos + len(cluster)}
 		if all[0].text == "" {
 			all = all[1:]
 		}
@@ -396,9 +450,14 @@ func (w *spanWrapper) Lines() [][]piece {
 
 // spanLines converts wrapped pieces into display lines: the line text is the
 // concatenation of piece texts, and spans carry each styled piece's text and
-// target style. Unstyled lines carry no spans.
-func spanLines(pieces [][]piece) []Line {
+// target style. Unstyled lines carry no spans. A wrapped line is one stretch of
+// the whole text, since wrapping only drops the spaces and line breaks
+// between lines, so its runs are the whole text's runs over that stretch.
+func spanLines(pieces [][]piece, runs []SourceRun) []Line {
 	var out []Line
+	// The lines share one array: a run cut by a line break adds one entry.
+	shared := make([]SourceRun, 0, len(runs)+len(pieces))
+	next := 0
 	for _, line := range pieces {
 		var text strings.Builder
 		var spans []Styled
@@ -408,7 +467,13 @@ func spanLines(pieces [][]piece) []Line {
 				spans = append(spans, Styled{Text: p.text, Style: p.style, Link: p.link})
 			}
 		}
-		out = append(out, Line{Text: text.String(), Spans: spans})
+		l := Line{Text: text.String(), Spans: spans}
+		if len(line) > 0 && len(runs) > 0 {
+			from := len(shared)
+			shared, next = appendClipped(shared, runs, next, line[0].pos, line[0].pos+len(l.Text))
+			l.Runs = shared[from:len(shared):len(shared)]
+		}
+		out = append(out, l)
 	}
 	if len(out) == 0 {
 		out = []Line{Plain("")}
@@ -416,9 +481,10 @@ func spanLines(pieces [][]piece) []Line {
 	return out
 }
 
-// wrapPieces wraps styled pieces to limit and returns display lines.
-func wrapPieces(pieces []piece, limit int) []Line {
+// wrapPieces wraps styled pieces to limit and returns display lines, with
+// runs mapping the pieces' text, laid end to end, back to the source.
+func wrapPieces(pieces []piece, runs []SourceRun, limit int) []Line {
 	w := newSpanWrapper(limit)
 	w.Write(pieces)
-	return spanLines(w.Lines())
+	return spanLines(w.Lines(), runs)
 }

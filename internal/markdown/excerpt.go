@@ -190,17 +190,14 @@ func (x *excerpter) childRange(n ast.Node) (s, e int, ok bool) {
 	return s, e, ok
 }
 
-// autoLinkSpan finds an autolink's label, which goldmark keeps without its
-// position, by searching from where the node starts.
+// autoLinkSpan measures an autolink: its label, and the angle brackets
+// around it when it has them.
 func (x *excerpter) autoLinkSpan(v *ast.AutoLink) (span, bool) {
-	label := v.Label(x.src)
-	from := max(0, v.Pos())
-	i := bytes.Index(x.src[from:], label)
-	if len(label) == 0 || i < 0 {
+	s := autoLinkLabel(v, x.src)
+	if s < 0 {
 		return span{}, false
 	}
-	s := from + i
-	e := s + len(label)
+	e := s + len(v.Label(x.src))
 	if s > 0 && x.src[s-1] == '<' && e < len(x.src) && x.src[e] == '>' {
 		return span{s - 1, s, e, e + 1}, true
 	}
