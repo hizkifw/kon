@@ -891,7 +891,7 @@ func (r *blockRenderer) listLines(l *ast.List, source []byte) []Line {
 			if sub.Kind() == ast.KindList {
 				// Nested list: indent under the parent marker column.
 				for _, nl := range nested.renderBlock(sub, source, 0).lines {
-					out = append(out, Line{Text: "  " + nl.Text})
+					out = append(out, Line{Text: "  " + nl.Text, Spans: nl.Spans})
 				}
 				first = false
 				continue

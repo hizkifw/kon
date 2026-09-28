@@ -232,3 +232,19 @@ func linesEqual(lines []Line) string {
 	}
 	return b.String()
 }
+
+// TestNestedListKeepsStyling checks that a nested list item keeps its bullet
+// and inline styling under the indent it gains.
+func TestNestedListKeepsStyling(t *testing.T) {
+	want := []Line{
+		{Text: "• top", Spans: []Styled{{Text: "•", Style: StyleListBullet}}},
+		{Text: "  • nested bold code", Spans: []Styled{
+			{Text: "•", Style: StyleListBullet},
+			{Text: "bold", Style: StyleStrong},
+			{Text: "code", Style: StyleCodeInline},
+		}},
+	}
+	if got := linesEqual(Render("- top\n  - nested **bold** `code`", testTheme, 40)); got != linesEqual(want) {
+		t.Fatalf("\n got=%s\nwant=%s", got, linesEqual(want))
+	}
+}
