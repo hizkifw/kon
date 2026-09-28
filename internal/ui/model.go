@@ -141,6 +141,10 @@ type Model struct {
 	// click is the last press on the transcript, to tell double and triple
 	// clicks apart and to start a drag from.
 	click click
+	// flashing is the passing notice in the status line, nil when there is
+	// none. flashEpoch counts notices, so each clears only itself.
+	flashing   *statusFlash
+	flashEpoch int
 	// killRing holds the last line segment removed by a kill key (Ctrl+U,
 	// Ctrl+K, Ctrl+W) so Ctrl+Y can yank it back, mirroring the shell's kill
 	// and yank commands.
@@ -283,6 +287,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.scrollSelection(msg)
 	case selectionTextMsg:
 		return m.copied(msg)
+	case flashDoneMsg:
+		return m.flashDone(msg)
 	case tea.FocusMsg:
 		m.terminalFocused = true
 	case tea.BlurMsg:

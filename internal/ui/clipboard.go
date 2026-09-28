@@ -54,8 +54,7 @@ func (m Model) copyTranscript(args []string) (tea.Model, tea.Cmd) {
 		m.status = "nothing to copy yet"
 		return m, nil
 	}
-	m.status = "copied " + name
-	return m, copyToClipboard(text)
+	return m, tea.Batch(m.flash("copied "+name), copyToClipboard(text))
 }
 
 // lastReply returns the latest finished assistant message as the Markdown the
