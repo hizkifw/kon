@@ -146,6 +146,7 @@ func (m modelSpec) providerSpec() provider.Spec {
 func (m modelSpec) limits(compaction config.Compaction) agent.Limits {
 	return agent.Limits{
 		ContextWindow:    m.ContextWindowTokens,
+		OutputLimit:      m.MaxOutputTokens,
 		ReserveTokens:    compaction.ReserveTokens,
 		KeepRecentTokens: compaction.KeepRecentTokens,
 	}

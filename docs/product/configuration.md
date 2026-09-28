@@ -11,7 +11,6 @@ The generated file configures no model:
 {
   "default_model": "",
   "models": [],
-  "compaction": {"reserve_tokens": 16384, "keep_recent_tokens": 20000},
   "instructions": ""
 }
 ```
@@ -128,6 +127,17 @@ to show context usage and to compact before the window fills. A value of `0`
 means unknown and disables proactive compaction; in that case kon still
 summarizes after a provider overflow error, and `/compact` still works. The numbers above are examples.
 
+kon sizes compaction from the context window. It keeps room for a reply and
+for the summary, each up to 32K tokens or an eighth of the window, and
+compacts once the context would reach 80% of the window or eat into that room,
+whichever comes first. It then keeps 16% of what the reply room leaves as
+recent context, verbatim. A 200K window compacts at 150K tokens and keeps 28K;
+a 1M window compacts at 800K and keeps about 155K. Set `max_output_tokens` to
+the model's output limit so the summary can use its full room; unknown, the
+summary is held to 8K tokens, a size every model accepts. Catalog models take
+both limits from the catalog. The `compaction` settings override the sizes kon
+derives, for every model.
+
 Set `"vision": true` for a model that accepts image input. The `read` tool
 then attaches PNG, JPEG, GIF, and WebP files up to 5 MB as image content.
 Without this flag, reading an image returns a text notice. Derived models use
@@ -188,8 +198,8 @@ Top level:
 | `reasoning_effort` | string | omitted | Effort last selected with Shift+Tab. Ignored when the model does not list it. |
 | `providers` | array | omitted | Reusable connections; see below. |
 | `models` | array | `[]` | Explicit model profiles; see below. |
-| `compaction.reserve_tokens` | integer | `16384` | Tokens kept free for the next reply. Must be positive. |
-| `compaction.keep_recent_tokens` | integer | `20000` | Recent context kept verbatim when older history is summarized. Must be positive. |
+| `compaction.reserve_tokens` | integer | derived | Tokens kept free below the window: compaction starts once the context would eat into them. Omit it to derive it from the window, as above. |
+| `compaction.keep_recent_tokens` | integer | derived | Recent context kept verbatim when older history is summarized. Omit it to derive it from the window. |
 | `instructions` | string | `""` | Text appended to the system prompt of new sessions. |
 | `context_files` | boolean | `true` | Load `AGENTS.md` and `CLAUDE.md` files; see [Project instructions](#project-instructions). |
 
@@ -214,7 +224,8 @@ Each entry in `models`:
 | `base_url` | string | for `openai-compatible` | API root. `openai` defaults to `https://api.openai.com/v1`, `openrouter` to `https://openrouter.ai/api/v1`, `ollama` to `http://localhost:11434/v1`, `openai-responses` to `https://api.openai.com/v1`, and `anthropic` to `https://api.anthropic.com/v1`. |
 | `api_key` | string | no | Sent as a bearer token, or as `x-api-key` for `anthropic`. |
 | `headers` | object | no | Extra HTTP headers, which may override kon's own. |
-| `context_window_tokens` | integer | no | Context limit. `0` means unknown; otherwise it must exceed both compaction budgets combined. |
+| `context_window_tokens` | integer | no | Context limit. `0` means unknown; otherwise it must exceed the compaction budgets you set, combined. |
+| `max_output_tokens` | integer | no | The most the model writes in one reply. It sizes the compaction summary; `0` or omitted means unknown. |
 | `vision` | boolean | no | Accepts image input. |
 | `reasoning` | boolean | no | Produces reasoning. |
 | `reasoning_efforts` | array of strings | no | Effort levels in Shift+Tab order, without duplicates. |

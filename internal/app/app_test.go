@@ -421,6 +421,32 @@ func TestSubagentUsageReadsChildSessions(t *testing.T) {
 	}
 }
 
+// A derived model's output limit sizes its compaction summary, so it comes
+// from the catalog; an explicit profile states its own.
+func TestDerivedModelTakesItsOutputLimitFromCatalog(t *testing.T) {
+	root := t.TempDir()
+	paths := config.Paths{ConfigFile: filepath.Join(root, "config.json"), Sessions: filepath.Join(root, "sessions")}
+	cfg := config.Default()
+	cfg.Providers = []config.Provider{{ID: "anthropic", Type: "anthropic"}}
+	cfg.Models = []config.Model{{Name: "mine", Type: "anthropic", ModelID: "claude-sonnet-4-5"}}
+	cfg.DefaultModel = "mine"
+	runtime, err := New(cfg, paths, t.TempDir(), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+	metadata, ok := runtime.catalogService().Model("anthropic", "claude-sonnet-4-5")
+	if !ok || metadata.Limit.Output == 0 {
+		t.Fatalf("catalog has no output limit for the model: %+v", metadata)
+	}
+	if derived, _ := runtime.resolveModel("anthropic/claude-sonnet-4-5"); derived.MaxOutputTokens != tokens.Count(metadata.Limit.Output) {
+		t.Fatalf("derived output limit = %d, want the catalog's %d", derived.MaxOutputTokens, metadata.Limit.Output)
+	}
+	if explicit, _ := runtime.resolveModel("mine"); explicit.MaxOutputTokens != 0 {
+		t.Fatalf("explicit profile took the catalog's output limit: %d", explicit.MaxOutputTokens)
+	}
+}
+
 func TestCycleEffortReadsDerivedModelLevelsFromCatalog(t *testing.T) {
 	root := t.TempDir()
 	paths := config.Paths{ConfigFile: filepath.Join(root, "config.json"), Sessions: filepath.Join(root, "sessions")}

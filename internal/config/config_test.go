@@ -212,6 +212,7 @@ func TestModelCostRoundTrips(t *testing.T) {
 
 func TestContextWindowMustExceedCompactionBudgets(t *testing.T) {
 	cfg := testConfig()
+	cfg.Compaction = Compaction{ReserveTokens: 16_384, KeepRecentTokens: 20_000}
 	budgets := cfg.Compaction.ReserveTokens + cfg.Compaction.KeepRecentTokens
 	cfg.Models[0].ContextWindowTokens = budgets + 1
 	if err := cfg.Validate(); err != nil {
@@ -331,5 +332,26 @@ func TestProviderOnlyConfigCanSelectDerivedDefault(t *testing.T) {
 	model, ok := loaded.ResolveModel(loaded.DefaultModel)
 	if !ok || model.Type != "openai" || model.ModelID != "private/model" {
 		t.Fatalf("derived default = %#v, %v", model, ok)
+	}
+}
+
+// The budgets are left out of a new config, so kon derives them from each
+// model's window and a later release can tune the defaults for everyone.
+func TestNewConfigLeavesCompactionDerived(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := ensureConfig(path); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), "compaction") {
+		t.Fatalf("new config pins compaction budgets:\n%s", b)
+	}
+	cfg := testConfig()
+	cfg.Compaction.KeepRecentTokens = -1
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("a negative compaction budget was accepted")
 	}
 }

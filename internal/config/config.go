@@ -26,7 +26,7 @@ type Config struct {
 	ReasoningEffort string     `json:"reasoning_effort,omitempty"`
 	Providers       []Provider `json:"providers,omitempty"`
 	Models          []Model    `json:"models"`
-	Compaction      Compaction `json:"compaction"`
+	Compaction      Compaction `json:"compaction,omitzero"`
 	Instructions    string     `json:"instructions"`
 	// ContextFiles enables discovery of AGENTS.md and CLAUDE.md files by walking
 	// up from the working directory. It is on by default; set it to false to
@@ -64,6 +64,10 @@ type Model struct {
 	APIKey              string            `json:"api_key"`
 	Headers             map[string]string `json:"headers,omitempty"`
 	ContextWindowTokens tokens.Count      `json:"context_window_tokens"`
+	// MaxOutputTokens is the most the model writes in one response. Zero
+	// means unknown, which holds a compaction summary to a size every model
+	// accepts.
+	MaxOutputTokens tokens.Count `json:"max_output_tokens,omitempty"`
 	// Vision marks models that accept image content. It gates whether the read
 	// tool attaches image parts to its results instead of a text notice.
 	Vision bool `json:"vision,omitempty"`
@@ -88,9 +92,12 @@ type Cost struct {
 	CacheWrite float64 `json:"cache_write,omitempty"`
 }
 
+// Compaction overrides the budgets kon otherwise derives from each model's
+// context window. Zero leaves a budget derived, so the defaults can be tuned
+// without rewriting anyone's config.
 type Compaction struct {
-	ReserveTokens    tokens.Count `json:"reserve_tokens"`
-	KeepRecentTokens tokens.Count `json:"keep_recent_tokens"`
+	ReserveTokens    tokens.Count `json:"reserve_tokens,omitempty"`
+	KeepRecentTokens tokens.Count `json:"keep_recent_tokens,omitempty"`
 }
 
 // WireFormat reports the profile's wire format, applying the default.
@@ -121,10 +128,7 @@ func checkWire(subject string, format wire.Format, baseURL string) error {
 // Default configures no model: a first launch waits for /login or /model
 // rather than shipping a placeholder profile that cannot run.
 func Default() Config {
-	return Config{
-		Models:     []Model{},
-		Compaction: Compaction{ReserveTokens: 16_384, KeepRecentTokens: 20_000},
-	}
+	return Config{Models: []Model{}}
 }
 
 type Paths struct {
@@ -234,8 +238,8 @@ func ensureFile(path string) error {
 }
 
 func (c Config) Validate() error {
-	if c.Compaction.ReserveTokens <= 0 || c.Compaction.KeepRecentTokens <= 0 {
-		return errors.New("compaction token budgets must be positive")
+	if c.Compaction.ReserveTokens < 0 || c.Compaction.KeepRecentTokens < 0 {
+		return errors.New("compaction token budgets must not be negative")
 	}
 	seen := make(map[string]bool, len(c.Models))
 	connections := make(map[string]bool, len(c.Providers))
@@ -278,6 +282,9 @@ func (c Config) Validate() error {
 		}
 		if model.ContextWindowTokens < 0 {
 			return fmt.Errorf("model %q context_window_tokens must be non-negative", model.Name)
+		}
+		if model.MaxOutputTokens < 0 {
+			return fmt.Errorf("model %q max_output_tokens must be non-negative", model.Name)
 		}
 		if model.ContextWindowTokens > 0 && c.Compaction.ReserveTokens+c.Compaction.KeepRecentTokens >= model.ContextWindowTokens {
 			return fmt.Errorf("model %q context window must exceed both compaction budgets", model.Name)

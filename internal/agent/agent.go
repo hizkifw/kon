@@ -65,21 +65,6 @@ type Event struct {
 	Display tools.Display
 }
 
-// Limits sizes the context a runner keeps: the model's window and the
-// compaction budgets within it. They are the runner's own options, resolved by
-// the caller from the model and configuration.
-type Limits struct {
-	// ContextWindow is the model's context size. Zero means unknown, which
-	// turns off automatic compaction; a forced one still runs.
-	ContextWindow tokens.Count
-	// ReserveTokens is the headroom kept free below the window. Compaction
-	// runs once the context would eat into it.
-	ReserveTokens tokens.Count
-	// KeepRecentTokens is how much recent conversation a compaction keeps
-	// verbatim instead of summarizing.
-	KeepRecentTokens tokens.Count
-}
-
 type Runner struct {
 	limits   Limits
 	provider Provider
@@ -433,7 +418,7 @@ func (r *Runner) compactIfNeeded(ctx context.Context, force bool, emit func(Even
 		return false, err
 	}
 	used, estimated := r.usageFor(items)
-	if !force && used <= window-r.limits.ReserveTokens {
+	if !force && used <= r.limits.threshold() {
 		return false, nil
 	}
 
@@ -441,9 +426,9 @@ func (r *Runner) compactIfNeeded(ctx context.Context, force bool, emit func(Even
 	if len(items) > 1 && items[1].Summary {
 		historyStart = 2
 	}
-	cut := selectCut(items, r.limits.KeepRecentTokens)
+	cut := selectCut(items, r.limits.keepRecent())
 	if cut <= 1 || cut >= len(items) || items[cut].EntryID.IsZero() || items[cut].Summary {
-		if estimateContext(items[min(historyStart, len(items)):], nil) < r.limits.KeepRecentTokens {
+		if estimateContext(items[min(historyStart, len(items)):], nil) < r.limits.keepRecent() {
 			// Everything since the last summary fits in the kept window, so
 			// there is nothing older to fold away.
 			return false, nil
@@ -454,7 +439,7 @@ func (r *Runner) compactIfNeeded(ctx context.Context, force bool, emit func(Even
 	// A summary cut off at its limit would be persisted and the turns it
 	// replaces dropped for good, so it is refused before anything is written.
 	if errors.Is(err, provider.ErrOutputLimit) || (err == nil && response.Finish == session.FinishLength) {
-		return false, fmt.Errorf("compaction summary reached its %d-token limit, so older turns were kept; a lower reasoning effort leaves more of that budget for the summary", r.summaryBudget())
+		return false, fmt.Errorf("compaction summary reached its %d-token limit, so older turns were kept; a lower reasoning effort leaves more of that budget for the summary", r.limits.summaryBudget())
 	}
 	if err != nil {
 		return false, err
@@ -485,9 +470,6 @@ func (r *Runner) compactIfNeeded(ctx context.Context, force bool, emit func(Even
 	emit(Event{Kind: EventUsage, Tokens: -1, Cost: cost})
 	return true, nil
 }
-
-// summaryBudget caps a compaction summary's output tokens.
-func (r *Runner) summaryBudget() tokens.Count { return min(4096, r.limits.ReserveTokens/2) }
 
 // CompactSummaryRequest is appended as the trailing user message of a
 // compaction request. Instructions live here rather than in a system message
@@ -545,7 +527,7 @@ Rules:
 // keeps the system prompt, and serializes the history before the cut, a prior
 // summary included, into one user message ending with the same instruction.
 func (r *Runner) summarize(ctx context.Context, items []session.ContextMessage, cut int, used tokens.Count) (session.Message, bool, error) {
-	maxSummary := r.summaryBudget()
+	maxSummary := r.limits.summaryBudget()
 	if r.limits.ContextWindow <= 0 || used < r.limits.ContextWindow {
 		request := make([]session.Message, 0, len(items)+1)
 		for _, item := range items {

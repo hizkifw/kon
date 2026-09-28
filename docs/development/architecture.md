@@ -327,7 +327,12 @@ through the next step, and merges a prior summary it finds in
 summary text is persisted, so the wrapper applies to every session.
 Automatic compaction runs at the context threshold; the `/compact` command
 forces the same routine on demand, so both paths share one boundary policy and
-one durable summary entry format.
+one durable summary entry format. The threshold, the recent context kept
+verbatim, and the summary's output budget are derived from the model's window
+and output limit, the way DeepSeek Harness derives them (see `agent.Limits`).
+Only a budget the user sets is written to the config, so the derivation can be
+tuned in a later release without rewriting anyone's file; storage version 3
+dropped the budgets earlier releases had written as defaults.
 
 Summary generation reuses the live prefix cache. The preferred request sends the
 live system prompt and tool roster plus every message up to the compaction
