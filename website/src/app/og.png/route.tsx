@@ -96,7 +96,7 @@ export function GET() {
           <div style={{ display: "flex", flexDirection: "column", padding: CW, fontFamily: "JetBrains Mono", fontSize: FONT }}>
             <Row bg={c.bar}>
               <span style={{ color: c.accent, fontWeight: 700 }}>kon</span>
-              <span style={{ color: c.barFg, whiteSpace: "pre" }}>{" · gpt-5-mini"}</span>
+              <span style={{ color: c.barFg, whiteSpace: "pre" }}>{" · qwen3.8-27b"}</span>
             </Row>
             <Row />
             <div style={{ display: "flex", paddingLeft: CW }}>

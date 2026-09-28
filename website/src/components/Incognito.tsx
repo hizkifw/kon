@@ -90,7 +90,7 @@ function Window() {
       <div aria-hidden className="p-[0.6em] font-mono text-[11px] leading-[1.5] text-agent sm:text-[13px]">
         <Row className="bg-bar">
           <span className="font-bold text-accent">kon</span>
-          <span className="text-bar-fg"> · gpt-5-mini</span>
+          <span className="text-bar-fg"> · qwen3.8-27b</span>
         </Row>
         <Blank />
         <div className="px-[0.6em] text-faint">

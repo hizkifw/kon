@@ -129,7 +129,7 @@ export function Terminal({ platform }: { platform: Platform }) {
             <div className="flex h-full flex-col">
               <Row className="bg-bar">
                 <span className="font-bold text-accent">kon</span>
-                <span className="text-bar-fg"> · gpt-5-mini</span>
+                <span className="text-bar-fg"> · qwen3.8-27b</span>
               </Row>
               <div ref={scroller} className="min-h-0 flex-1 overflow-hidden">
                 <Blank />
