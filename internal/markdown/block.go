@@ -23,6 +23,8 @@ type blockRenderer struct {
 	theme Theme
 	width int
 	buf   []byte
+	// sourceMap fills in each line's Runs.
+	sourceMap bool
 }
 
 // unwrapped is the width of a renderer that does not wrap: wider than any
@@ -585,7 +587,7 @@ func (r *blockRenderer) tableLines(n ast.Node, source []byte) []Line {
 	for row := n.FirstChild(); row != nil; row = row.NextSibling() {
 		tr := tableRow{header: row.Kind() == extast.KindTableHeader}
 		for cell := row.FirstChild(); cell != nil; cell = cell.NextSibling() {
-			pieces, runs := inlinePieces(cell, source, r.theme)
+			pieces, runs := r.inlinePieces(cell, source)
 			align := extast.AlignNone
 			if tc, ok := cell.(*extast.TableCell); ok {
 				align = tc.Alignment
@@ -802,7 +804,7 @@ func (r *blockRenderer) tableWidths(rows []tableRow, ncols int) []int {
 // line's first span style to the fallback text, so the whole heading picks up
 // the heading look while inline spans keep their own roles.
 func (r *blockRenderer) headingLines(h *ast.Heading, source []byte) []Line {
-	pieces, runs := inlinePieces(h, source, r.theme)
+	pieces, runs := r.inlinePieces(h, source)
 	lines := wrapPieces(pieces, runs, r.width)
 	if len(lines) == 0 {
 		lines = []Line{Plain("")}
@@ -831,7 +833,7 @@ func (r *blockRenderer) codeLines(segments *text.Segments, source []byte) []Line
 		for _, raw := range strings.Split(content, "\n") {
 			// Padding goldmark adds for a tab's indentation has no source.
 			var runs []SourceRun
-			if from, to := max(at, seg.Padding), at+len(raw); from < to {
+			if from, to := max(at, seg.Padding), at+len(raw); r.sourceMap && from < to {
 				runs = []SourceRun{exactRun(from-at, seg.Start+from-seg.Padding, to-from)}
 			}
 			// Code hard-wraps at the width rather than overflowing: a caller

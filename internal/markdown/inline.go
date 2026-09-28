@@ -65,8 +65,8 @@ var lineEndings = strings.NewReplacer("\r\n", " ", "\n", " ")
 // text. Every character emitted comes from a Text node's unescaped source or
 // a node's resolved text, so the pieces never contain escape syntax. runs map
 // the pieces' text, laid end to end, back to the source.
-func inlinePieces(n ast.Node, source []byte, theme Theme) (pieces []piece, runs []SourceRun) {
-	t := inlineText{source: source, theme: theme}
+func (r *blockRenderer) inlinePieces(n ast.Node, source []byte) (pieces []piece, runs []SourceRun) {
+	t := inlineText{source: source, theme: r.theme, sourceMap: r.sourceMap}
 	t.walk(n, StyleNone)
 	return t.pieces, t.runs
 }
@@ -74,11 +74,12 @@ func inlinePieces(n ast.Node, source []byte, theme Theme) (pieces []piece, runs 
 // inlineText collects an inline subtree's pieces and the runs that map their
 // text back to the source.
 type inlineText struct {
-	source []byte
-	theme  Theme
-	pieces []piece
-	runs   []SourceRun
-	n      int // bytes of text collected so far
+	source    []byte
+	theme     Theme
+	sourceMap bool // whether to collect runs at all
+	pieces    []piece
+	runs      []SourceRun
+	n         int // bytes of text collected so far
 }
 
 // push appends a piece. A piece the renderer adds itself maps to no source;
@@ -91,7 +92,7 @@ func (t *inlineText) push(p piece) {
 // mapText records that n bytes of the next piece's text, from at bytes into
 // it, came from source[src:src+srcLen].
 func (t *inlineText) mapText(at, n, src, srcLen int) {
-	if n > 0 {
+	if t.sourceMap && n > 0 {
 		t.runs = appendRun(t.runs, SourceRun{At: t.n + at, Len: n, Source: src, SourceLen: srcLen})
 	}
 }
@@ -255,7 +256,7 @@ func inner(theme Theme, style, fallback Style) Style {
 
 // proseLines renders a paragraph or text block's inline content with spans.
 func (r *blockRenderer) proseLines(n ast.Node, source []byte) []Line {
-	pieces, runs := inlinePieces(n, source, r.theme)
+	pieces, runs := r.inlinePieces(n, source)
 	return wrapPieces(pieces, runs, r.width)
 }
 
@@ -456,7 +457,10 @@ func (w *spanWrapper) Lines() [][]piece {
 func spanLines(pieces [][]piece, runs []SourceRun) []Line {
 	var out []Line
 	// The lines share one array: a run cut by a line break adds one entry.
-	shared := make([]SourceRun, 0, len(runs)+len(pieces))
+	var shared []SourceRun
+	if len(runs) > 0 {
+		shared = make([]SourceRun, 0, len(runs)+len(pieces))
+	}
 	next := 0
 	for _, line := range pieces {
 		var text strings.Builder

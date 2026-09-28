@@ -145,7 +145,6 @@ func (s *Stream) reparse() {
 	}
 	for i := range closed {
 		closed[i].end += boundary
-		moveSource(closed[i].lines, boundary)
 	}
 	s.blocks = append(s.blocks, closed...)
 	s.lines = appendBlocks(s.lines, closed)
@@ -166,7 +165,6 @@ func (s *Stream) tailLines() []Line {
 	}
 	r := newBlockRenderer(s.theme, s.width)
 	lines := appendBlocks(nil, r.renderAll(parse(tail), tail))
-	moveSource(lines, s.Boundary())
 	if len(lines) > 0 && len(s.lines) > 0 {
 		lines = append(separatorLines(), lines...)
 	}
@@ -178,7 +176,19 @@ func (s *Stream) tailLines() []Line {
 // to: for the same source text, Stream.Lines() after the final Write must
 // equal Render, block for block. A width below 1 leaves lines unwrapped.
 func Render(text string, theme Theme, width int) []Line {
+	return render(text, newBlockRenderer(theme, width))
+}
+
+// RenderWithSource renders like Render, and fills in each line's Runs, which
+// map it back to text. A selection needs them only once it is made, so they
+// are not kept for every line on screen.
+func RenderWithSource(text string, theme Theme, width int) []Line {
 	r := newBlockRenderer(theme, width)
+	r.sourceMap = true
+	return render(text, r)
+}
+
+func render(text string, r *blockRenderer) []Line {
 	source := []byte(text)
 	lines := appendBlocks(nil, r.renderAll(parse(source), source))
 	if len(lines) == 0 {

@@ -42,6 +42,20 @@ func BenchmarkRenderFull(b *testing.B) {
 	}
 }
 
+// BenchmarkRenderWithSource is what mapping a selection back to its source
+// costs: one message rendered again with its source map, once it is made.
+func BenchmarkRenderWithSource(b *testing.B) {
+	for _, blocks := range []int{10, 100} {
+		doc := benchDoc(blocks)
+		b.Run(itoa(blocks), func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				sink = RenderWithSource(doc, testTheme, 80)
+			}
+		})
+	}
+}
+
 // BenchmarkRenderAppend measures the incremental path's cost after appending
 // one block to a settled document: fold the new block and re-emit. This is
 // the streaming architecture's steady-state cost.

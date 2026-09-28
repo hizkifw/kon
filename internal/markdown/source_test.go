@@ -1,7 +1,6 @@
 package markdown
 
 import (
-	"fmt"
 	"math/rand"
 	"slices"
 	"strings"
@@ -79,7 +78,7 @@ func TestSourceRuns(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			var got []string
-			for _, l := range Render(c.in, testTheme, c.width) {
+			for _, l := range RenderWithSource(c.in, testTheme, c.width) {
 				got = append(got, showRuns(l))
 			}
 			if !equalSlices(got, c.want) {
@@ -96,7 +95,7 @@ func TestSourceRunsPointAtTheirSource(t *testing.T) {
 	spaces := strings.NewReplacer("\n", " ", "\t", " ")
 	for _, doc := range append(slices.Clone(sourceDocs), referenceDoc) {
 		for _, width := range []int{0, 12, 40, 80} {
-			for row, l := range Render(doc, testTheme, width) {
+			for row, l := range RenderWithSource(doc, testTheme, width) {
 				at := 0
 				for _, r := range l.Runs {
 					if r.At < at || r.Len <= 0 || r.At+r.Len > len(l.Text) || r.Source < 0 || r.SourceLen <= 0 || r.Source+r.SourceLen > len(doc) {
@@ -115,25 +114,19 @@ func TestSourceRunsPointAtTheirSource(t *testing.T) {
 	}
 }
 
-// TestStreamRunsMatchRender checks a streamed render maps its lines to the
-// same source as a from-scratch one, though it parses the open tail apart
-// from the text frozen before it.
-func TestStreamRunsMatchRender(t *testing.T) {
-	runs := func(lines []Line) string {
-		var b strings.Builder
-		for _, l := range lines {
-			fmt.Fprintf(&b, "%q %v\n", l.Text, l.Runs)
-		}
-		return b.String()
-	}
-	for _, doc := range sourceDocs {
-		for _, chunk := range []int{1, 7} {
-			s := NewStream(testTheme, 40)
-			for i := 0; i < len(doc); i += chunk {
-				end := min(i+chunk, len(doc))
-				s.Write(doc[i:end])
-				if got, want := runs(streamView(s)), runs(Render(doc[:end], testTheme, 40)); got != want {
-					t.Fatalf("doc=%q chunk=%d\n got=%s\nwant=%s", doc[:end], chunk, got, want)
+// TestRenderWithSourceMatchesRender checks that rendering with the source map
+// shows exactly what Render shows, so the map fits what is on screen, and
+// that Render leaves the map out.
+func TestRenderWithSourceMatchesRender(t *testing.T) {
+	for _, doc := range append(slices.Clone(sourceDocs), referenceDoc) {
+		for _, width := range []int{0, 12, 40} {
+			plain, mapped := Render(doc, testTheme, width), RenderWithSource(doc, testTheme, width)
+			if got, want := linesEqual(mapped), linesEqual(plain); got != want {
+				t.Fatalf("doc=%q width=%d\n got=%s\nwant=%s", doc, width, got, want)
+			}
+			for _, l := range plain {
+				if l.Runs != nil {
+					t.Fatalf("doc=%q width=%d: Render mapped %q", doc, width, l.Text)
 				}
 			}
 		}
@@ -168,7 +161,7 @@ func TestSelectionSourceToExcerpt(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			rendered, from, to := unmark(t, c.rendered)
-			lines := Render(c.source, testTheme, c.width)
+			lines := RenderWithSource(c.source, testTheme, c.width)
 			if got := strings.Join(lineTexts(lines), "\n"); got != rendered {
 				t.Fatalf("rendered\n%q\nnot\n%q", got, rendered)
 			}
@@ -225,7 +218,7 @@ func TestSelectionExcerptShowsTheSelection(t *testing.T) {
 	rng := rand.New(rand.NewSource(1))
 	for _, doc := range sourceDocs {
 		for _, width := range []int{12, 30, 60, 0} {
-			lines := Render(doc, testTheme, width)
+			lines := RenderWithSource(doc, testTheme, width)
 			type pos struct{ row, col int }
 			var cuts []pos
 			for row, l := range lines {
@@ -248,7 +241,7 @@ func TestSelectionExcerptShowsTheSelection(t *testing.T) {
 					continue
 				}
 				excerpt := Excerpt(doc, start, end)
-				again := Render(excerpt, testTheme, 0)
+				again := RenderWithSource(excerpt, testTheme, 0)
 				if shown := mapped(again, 0, 0, len(again)-1, len(again[len(again)-1].Text)); !strings.Contains(shown, selected) {
 					t.Fatalf("doc=%q selection %v-%v shows %q; its excerpt %q shows %q", doc, a, b, selected, excerpt, shown)
 				}

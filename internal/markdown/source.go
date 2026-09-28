@@ -134,16 +134,6 @@ func shiftRuns(runs []SourceRun, n int) []SourceRun {
 	return runs
 }
 
-// moveSource moves the source offsets of lines by n, in place, for lines
-// rendered from a tail of the source that starts at n.
-func moveSource(lines []Line, n int) {
-	for _, l := range lines {
-		for i := range l.Runs {
-			l.Runs[i].Source += n
-		}
-	}
-}
-
 // decode resolves a Text node's raw bytes like unescape, and maps the text it
 // returns, which starts at bytes into the next piece, back to raw, which
 // starts at src in the source. Escapes and character references are decoded

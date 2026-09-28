@@ -97,9 +97,9 @@ type Styled struct {
 
 // Line is one display line with its styled regions. Plain lines carry no
 // spans; callers must treat text as authoritative when spans are absent.
-// Runs map the text back to the source, in order; text the renderer adds
-// itself, such as a bullet, the quote bar, a link's destination, or table
-// padding, has none.
+// Runs map the text back to the source, in order, when RenderWithSource
+// rendered it; text the renderer adds itself, such as a bullet, the quote
+// bar, a link's destination, or table padding, has none.
 type Line struct {
 	Text  string
 	Spans []Styled
