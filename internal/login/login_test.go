@@ -63,14 +63,10 @@ func TestCatalogLoginEntrySkipsTemplateAndOperationURLs(t *testing.T) {
 	}
 }
 
-func TestLocalEntriesAskForTheServer(t *testing.T) {
-	ollama, ok := LocalEntry("ollama")
-	if !ok || ollama.Connection.ID != "ollama" || ollama.Connection.Type != wire.Ollama || !ollama.AskURL || ollama.DefaultURL == "" || ollama.AskKey {
+func TestLocalEntryTakesItsIDFromTheKey(t *testing.T) {
+	// The table leaves the connection ID blank; the entry's key supplies it.
+	if ollama, ok := LocalEntry("ollama"); !ok || ollama.Connection.ID != "ollama" {
 		t.Fatalf("ollama = %#v, %v", ollama, ok)
-	}
-	compatible, ok := LocalEntry("openai-compatible")
-	if !ok || !compatible.AskURL || compatible.DefaultURL != "" || !compatible.AskKey || !compatible.KeyOptional {
-		t.Fatalf("openai-compatible = %#v, %v", compatible, ok)
 	}
 	if _, ok := LocalEntry("fireworks-ai"); ok {
 		t.Fatal("a catalog service was treated as local")

@@ -57,6 +57,29 @@ func sse(payload string) string {
 	return "data: " + payload + "\n\n"
 }
 
+// assertWireJSON fails unless got encodes the same JSON value as want, ignoring
+// key order. Decoding a request into the struct that encoded it would hide a
+// renamed field, which round-trips fine but is unknown to the real server, so
+// wire tests compare generic JSON instead.
+func assertWireJSON(t *testing.T, got []byte, want string) {
+	t.Helper()
+	canonical := func(raw []byte) string {
+		var value any
+		if err := json.Unmarshal(raw, &value); err != nil {
+			t.Fatalf("decode %s: %v", raw, err)
+		}
+		// Maps marshal with sorted keys, which makes the form canonical.
+		out, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(out)
+	}
+	if gotJSON, wantJSON := canonical(got), canonical([]byte(want)); gotJSON != wantJSON {
+		t.Fatalf("wire JSON:\n got %s\nwant %s", gotJSON, wantJSON)
+	}
+}
+
 func TestChatStreamAssemblesDeltas(t *testing.T) {
 	events := strings.Join([]string{
 		sse(`{"choices":[{"index":0,"delta":{"role":"assistant"}}]}`),
@@ -286,15 +309,14 @@ func TestChatReplaySendsEmptyReasoningToDeepSeek(t *testing.T) {
 
 func TestChatStreamSendsChatCompletionsBody(t *testing.T) {
 	var method, path, authorization, accept, custom, userAgent string
-	var body chatRequest
+	var body []byte
 	model := newTestModel(t, func(w http.ResponseWriter, r *http.Request) {
 		method, path = r.Method, r.URL.Path
 		authorization = r.Header.Get("Authorization")
 		accept = r.Header.Get("Accept")
 		custom = r.Header.Get("X-Custom")
 		userAgent = r.Header.Get("User-Agent")
-		raw, _ := io.ReadAll(r.Body)
-		_ = json.Unmarshal(raw, &body)
+		body, _ = io.ReadAll(r.Body)
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = io.WriteString(w, sse(`{"choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":"stop"}]}`)+"data: [DONE]\n\n")
 	})
@@ -324,34 +346,21 @@ func TestChatStreamSendsChatCompletionsBody(t *testing.T) {
 	if userAgent != buildinfo.UserAgent() {
 		t.Fatalf("User-Agent = %q, want %q", userAgent, buildinfo.UserAgent())
 	}
-	if body.Model != "test-model" || !body.Stream || body.StreamOptions == nil || !body.StreamOptions.IncludeUsage || body.MaxTokens != 0 {
-		t.Fatalf("request = %#v", body)
-	}
-	if len(body.Messages) != 5 {
-		t.Fatalf("messages = %#v", body.Messages)
-	}
-	if body.Messages[0].Role != "system" || body.Messages[0].Content.(string) != "be brief" {
-		t.Fatalf("system message = %#v", body.Messages[0])
-	}
-	assistant := body.Messages[2]
-	if assistant.Content != nil {
-		t.Fatalf("empty assistant content = %#v, want omitted", assistant.Content)
-	}
-	if len(assistant.ToolCalls) != 1 || assistant.ToolCalls[0].ID != "call-9" || assistant.ToolCalls[0].Type != "function" || assistant.ToolCalls[0].Function.Name != "edit" || assistant.ToolCalls[0].Function.Arguments != `{"path":"x"}` {
-		t.Fatalf("assistant tool calls = %#v", assistant.ToolCalls)
-	}
-	if body.Messages[3].Role != "tool" || body.Messages[3].ToolCallID != "call-9" || body.Messages[3].Content.(string) != "done" {
-		t.Fatalf("tool message = %#v", body.Messages[3])
-	}
-	if body.Messages[4].Content == nil || body.Messages[4].Content.(string) != "checking" || body.Messages[4].ReasoningContent == nil || *body.Messages[4].ReasoningContent != "secret thoughts" {
-		t.Fatalf("assistant message = %#v", body.Messages[4])
-	}
-	if assistant.ReasoningContent != nil {
-		t.Fatalf("assistant without reasoning sent %q", *assistant.ReasoningContent)
-	}
-	if len(body.Tools) != 1 || body.Tools[0].Type != "function" || body.Tools[0].Function.Name != "edit" || string(body.Tools[0].Function.Parameters) != `{"type":"object"}` {
-		t.Fatalf("tools = %#v", body.Tools)
-	}
+	// The tool-calling assistant message has no content or reasoning to send,
+	// so both keys are left out, as is max_tokens for a streamed turn.
+	assertWireJSON(t, body, `{
+		"model": "test-model",
+		"messages": [
+			{"role": "system", "content": "be brief"},
+			{"role": "user", "content": "hi"},
+			{"role": "assistant", "tool_calls": [{"id": "call-9", "type": "function", "function": {"name": "edit", "arguments": "{\"path\":\"x\"}"}}]},
+			{"role": "tool", "tool_call_id": "call-9", "content": "done"},
+			{"role": "assistant", "content": "checking", "reasoning_content": "secret thoughts"}
+		],
+		"tools": [{"type": "function", "function": {"name": "edit", "description": "Edit a file", "parameters": {"type": "object"}}}],
+		"stream": true,
+		"stream_options": {"include_usage": true}
+	}`)
 }
 
 func TestChatStreamSynthesizesMissingToolCallBits(t *testing.T) {
@@ -476,10 +485,9 @@ func TestChatCompleteMapsMessageAndUsage(t *testing.T) {
 }
 
 func TestChatCompleteSendsToolsWithToolChoiceNone(t *testing.T) {
-	var body chatRequest
+	var body []byte
 	model := newTestModel(t, func(w http.ResponseWriter, r *http.Request) {
-		raw, _ := io.ReadAll(r.Body)
-		_ = json.Unmarshal(raw, &body)
+		body, _ = io.ReadAll(r.Body)
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"choices":[{"index":0,"message":{"role":"assistant","content":"summary"},"finish_reason":"stop"}]}`)
 	})
@@ -487,12 +495,12 @@ func TestChatCompleteSendsToolsWithToolChoiceNone(t *testing.T) {
 	if _, err := model.Complete(context.Background(), []session.Message{session.TextMessage(session.RoleUser, "hi")}, toolList, 0); err != nil {
 		t.Fatal(err)
 	}
-	if len(body.Tools) != 1 || body.Tools[0].Function.Name != "read" {
-		t.Fatalf("tools = %#v", body.Tools)
-	}
-	if body.ToolChoice != "none" {
-		t.Fatalf("tool_choice = %q, want none", body.ToolChoice)
-	}
+	assertWireJSON(t, body, `{
+		"model": "test-model",
+		"messages": [{"role": "user", "content": "hi"}],
+		"tools": [{"type": "function", "function": {"name": "read", "description": "read a file", "parameters": {"type": "object"}}}],
+		"tool_choice": "none"
+	}`)
 }
 
 func TestChatCompleteOmitsToolsWhenEmpty(t *testing.T) {
@@ -551,18 +559,18 @@ func TestChatCompleteRejectsMalformedArguments(t *testing.T) {
 
 func TestChatCompleteRetriesWithMaxCompletionTokens(t *testing.T) {
 	attempts := 0
-	var finalBody chatRequest
+	var finalBody []byte
 	model := newTestModel(t, func(w http.ResponseWriter, r *http.Request) {
-		var body chatRequest
+		var body map[string]any
 		raw, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(raw, &body)
 		attempts++
-		if body.MaxTokens > 0 {
+		if _, legacy := body["max_tokens"]; legacy {
 			w.WriteHeader(http.StatusBadRequest)
 			_, _ = io.WriteString(w, `{"error":{"message":"Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead.","type":"invalid_request_error"}}`)
 			return
 		}
-		finalBody = body
+		finalBody = raw
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"choices":[{"index":0,"message":{"role":"assistant","content":"summary"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}`)
 	})
@@ -573,9 +581,7 @@ func TestChatCompleteRetriesWithMaxCompletionTokens(t *testing.T) {
 	if attempts != 2 {
 		t.Fatalf("attempts = %d", attempts)
 	}
-	if finalBody.MaxTokens != 0 || finalBody.MaxCompletionTokens != 4096 {
-		t.Fatalf("retry request = %#v", finalBody)
-	}
+	assertWireJSON(t, finalBody, `{"model": "test-model", "messages": [{"role": "user", "content": "hi"}], "max_completion_tokens": 4096}`)
 	if response.Text() != "summary" {
 		t.Fatalf("response = %#v", response)
 	}
@@ -645,7 +651,7 @@ func TestChatStreamAssemblesParallelToolCalls(t *testing.T) {
 	}
 }
 
-func TestToChatMessagesSkipsEmptyContent(t *testing.T) {
+func TestToChatMessagesKeepsEmptyToolContent(t *testing.T) {
 	messages, err := toChatMessages([]session.Message{
 		session.TextMessage(session.RoleUser, "hi"),
 		{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartToolCall, ToolCallID: "1", ToolName: "read", ToolInput: json.RawMessage(`{}`)}}},
@@ -657,13 +663,12 @@ func TestToChatMessagesSkipsEmptyContent(t *testing.T) {
 	if len(messages) != 3 {
 		t.Fatalf("messages = %#v", messages)
 	}
+	encoded, err := json.Marshal(messages[2])
+	if err != nil {
+		t.Fatal(err)
+	}
 	// Tool results must always carry a content field, even when empty.
-	if messages[2].Content == nil || *messages[2].Content.(*string) != "" {
-		t.Fatalf("tool content = %#v", messages[2].Content)
-	}
-	if messages[2].ToolCallID != "1" {
-		t.Fatalf("tool call ID = %q", messages[2].ToolCallID)
-	}
+	assertWireJSON(t, encoded, `{"role": "tool", "tool_call_id": "1", "content": ""}`)
 }
 
 func TestToChatMessagesRejectsUnknownRole(t *testing.T) {

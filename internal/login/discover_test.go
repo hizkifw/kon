@@ -9,6 +9,7 @@ import (
 
 	"github.com/hizkifw/kon/internal/buildinfo"
 	"github.com/hizkifw/kon/internal/config"
+	"github.com/hizkifw/kon/internal/provider/wire"
 )
 
 func TestDiscoverOpenRouterVerifiesKeyBeforeListing(t *testing.T) {
@@ -60,9 +61,13 @@ func TestDiscoverRejectsInvalidKey(t *testing.T) {
 		w.WriteHeader(http.StatusUnauthorized)
 	}))
 	defer server.Close()
-	_, verified, err := Discover(context.Background(), config.Provider{ID: "openai", Type: "openai", BaseURL: server.URL, APIKey: "bad"})
-	if err == nil || verified {
-		t.Fatalf("invalid key: verified=%v error=%v", verified, err)
+	// A format whose listing is optional excuses only a missing endpoint; a
+	// server that answers 401 has rejected the key.
+	for _, format := range []wire.Format{wire.OpenAI, wire.OpenAICompatible, wire.Anthropic} {
+		_, verified, err := Discover(context.Background(), config.Provider{ID: "custom", Type: format, BaseURL: server.URL, APIKey: "bad"})
+		if err == nil || verified {
+			t.Fatalf("%s invalid key: verified=%v error=%v", format, verified, err)
+		}
 	}
 }
 

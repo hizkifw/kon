@@ -33,19 +33,23 @@ func TestBundledCatalogIsAvailable(t *testing.T) {
 	if !ok || model.ID != models[0].ID {
 		t.Fatalf("bundled model = %+v, %v", model, ok)
 	}
-	models[0].Modalities.Input = append(models[0].Modalities.Input, "changed")
-	provider.Env = append(provider.Env, "CHANGED")
-	again, _ := s.Model("openai", model.ID)
-	for _, input := range again.Modalities.Input {
-		if input == "changed" {
-			t.Fatal("caller mutated catalog model")
+	// The returned slices are written in place: an append is never visible
+	// through a shared slice, so it could not reveal one.
+	if len(models[0].Modalities.Input) == 0 || len(provider.Env) == 0 {
+		t.Fatalf("bundled model %+v or provider %+v has nothing to mutate", models[0], provider)
+	}
+	models[0].Modalities.Input[0] = "changed"
+	provider.Env[0] = "CHANGED"
+	for _, listed := range s.Providers() {
+		if listed.ID == "openai" {
+			listed.Env[0] = "LISTED"
 		}
 	}
-	againProvider, _ := s.Provider("openai")
-	for _, env := range againProvider.Env {
-		if env == "CHANGED" {
-			t.Fatal("caller mutated catalog provider")
-		}
+	if again, _ := s.Model("openai", model.ID); again.Modalities.Input[0] == "changed" {
+		t.Fatal("caller mutated catalog model")
+	}
+	if again, _ := s.Provider("openai"); again.Env[0] == "CHANGED" || again.Env[0] == "LISTED" {
+		t.Fatalf("caller mutated catalog provider: %q", again.Env)
 	}
 }
 
@@ -97,6 +101,9 @@ func TestRefreshAndCache(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.client, s.url = server.Client(), server.URL
+	// The bundled snapshot is never zero, so only a time from this run shows
+	// that a refresh was recorded.
+	beforeRefresh := time.Now()
 	if err := s.Refresh(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -104,8 +111,8 @@ func TestRefreshAndCache(t *testing.T) {
 	if !ok || !model.ToolCall || model.Limit.Context != 123456 || model.Cost.Input != 1.25 {
 		t.Fatalf("refreshed model = %+v, %v", model, ok)
 	}
-	if s.UpdatedAt().IsZero() {
-		t.Fatal("refresh timestamp missing")
+	if s.UpdatedAt().Before(beforeRefresh) {
+		t.Fatalf("UpdatedAt = %v after a refresh at %v", s.UpdatedAt(), beforeRefresh)
 	}
 	if err := s.Refresh(context.Background()); err != nil {
 		t.Fatal(err)
@@ -114,6 +121,7 @@ func TestRefreshAndCache(t *testing.T) {
 	if err := os.Chtimes(cachePath, firstUpdated.Add(-time.Hour), firstUpdated.Add(-time.Hour)); err != nil {
 		t.Fatal(err)
 	}
+	beforeNotModified := time.Now()
 	if err := s.Refresh(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -127,8 +135,10 @@ func TestRefreshAndCache(t *testing.T) {
 	if _, ok := reopened.Model("example", "new-model"); !ok {
 		t.Fatal("cache was not loaded")
 	}
-	if reopened.UpdatedAt().IsZero() {
-		t.Fatal("cache freshness was not retained")
+	// A 304 leaves the cached payload and its fetched_at alone, so the file's
+	// mtime is the only record of it that survives a restart.
+	if reopened.UpdatedAt().Before(beforeNotModified) {
+		t.Fatalf("reopened UpdatedAt = %v after a 304 at %v", reopened.UpdatedAt(), beforeNotModified)
 	}
 	if requests != 3 {
 		t.Fatalf("requests = %d, want 3", requests)

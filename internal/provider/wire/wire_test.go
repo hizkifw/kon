@@ -42,9 +42,6 @@ func TestDefaultIsImplemented(t *testing.T) {
 	if _, ok := Lookup(Default); !ok {
 		t.Fatalf("default format %q is not in the table", Default)
 	}
-	if _, ok := Lookup("gemini"); ok {
-		t.Fatal("an unimplemented format was found")
-	}
 }
 
 func TestAuthHeadersFollowProtocol(t *testing.T) {

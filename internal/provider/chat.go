@@ -425,10 +425,10 @@ func (m *chatModel) stream(ctx context.Context, payload chatRequest, emit func(E
 	result, err := decodeChatStream(response.Body, emit)
 	if err != nil {
 		// A cancelled or dropped connection can arrive with deltas already
-		// assembled. Tool calls are deliberately dropped here: the aborted turn
+		// assembled, so the partial result is returned with the error. The
+		// client drops its tool calls (assistantOrPartial): the aborted turn
 		// never executes them, and replaying an assistant tool call without its
-		// results would be rejected by the provider. The client keeps only the
-		// text and reasoning.
+		// results would be rejected by the provider.
 		return result, err
 	}
 	if err := finalizeToolCalls(&result); err != nil {
