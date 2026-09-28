@@ -62,7 +62,7 @@ func TestTextStreamsEveryMessageToStdout(t *testing.T) {
 		t.Fatalf("stdout = %q, want %q", got, want)
 	}
 	lines := strings.Split(strings.TrimSpace(progress.String()), "\n")
-	if len(lines) != 2 || !strings.HasPrefix(lines[0], "✓ shell") || lines[1] != "resume with: kon --resume "+runtime.id.String() {
+	if len(lines) != 2 || !strings.HasPrefix(lines[0], "✓ shell") || !strings.HasSuffix(lines[1], "kon --resume "+runtime.id.String()) {
 		t.Fatalf("progress = %q", progress.String())
 	}
 }

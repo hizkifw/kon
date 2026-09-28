@@ -374,7 +374,9 @@ func TestChatStreamSynthesizesMissingToolCallBits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(response.ToolCalls()) != 1 || response.ToolCalls()[0].ID != "call_0" || response.ToolCalls()[0].Function.Name != "shell" || string(response.ToolCalls()[0].Function.Arguments) != `{}` {
+	// The server sent no ID, so one is made up; its spelling is kon's choice,
+	// but a result cannot be matched to an empty one.
+	if len(response.ToolCalls()) != 1 || response.ToolCalls()[0].ID == "" || response.ToolCalls()[0].Function.Name != "shell" || string(response.ToolCalls()[0].Function.Arguments) != `{}` {
 		t.Fatalf("tool calls = %#v", response.ToolCalls())
 	}
 }
@@ -542,7 +544,7 @@ func TestChatCompleteSynthesizesMissingToolCallBits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(response.ToolCalls()) != 1 || response.ToolCalls()[0].ID != "call_0" || string(response.ToolCalls()[0].Function.Arguments) != `{}` {
+	if len(response.ToolCalls()) != 1 || response.ToolCalls()[0].ID == "" || string(response.ToolCalls()[0].Function.Arguments) != `{}` {
 		t.Fatalf("tool calls = %#v", response.ToolCalls())
 	}
 }
