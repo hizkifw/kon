@@ -56,6 +56,8 @@ func TestSourceRuns(t *testing.T) {
 		{"link destination is the renderer's", "see [docs](https://x.test) now", 40, []string{"⟨see ⟩⟨docs⟩ (https://x.test)⟨ now⟩"}},
 		{"autolink", "<https://x.test>", 40, []string{"⟨https://x.test⟩"}},
 		{"code span", "run `make check` now", 40, []string{"⟨run ⟩⟨make check⟩⟨ now⟩"}},
+		{"code span across a line", "`alpha\nbeta`", 40, []string{"⟨alpha beta⟩"}},
+		{"code span across a CRLF", "`alpha\r\nbeta`", 40, []string{"⟨alpha⟩⟪ ⟫⟨beta⟩"}},
 		{"image alt", "![alt](x.png)", 40, []string{"⟨alt⟩"}},
 		{"raw HTML", "a <kbd>b</kbd>", 40, []string{"⟨a <kbd>b</kbd>⟩"}},
 		{"reference link", "[ref][r] x\n\n[r]: https://r.test", 40, []string{"⟨ref⟩ (https://r.test)⟨ x⟩"}},
@@ -157,6 +159,11 @@ func TestSelectionSourceToExcerpt(t *testing.T) {
 		{"quote to paragraph", "> quoted text\n\nafter it", 40, "▏ quoted ⟦text\n\nafter⟧ it", "> text\n\nafter"},
 		{"table rows", "| a | b |\n| - | - |\n| c | d |\n| e | f |", 40, " a  b \n c  ⟦d \n e⟧  f ", "| a | b |\n| - | - |\n| c | d |\n| e | f |"},
 		{"only decoration", "- one", 40, "⟦• ⟧one", ""},
+		{"part of a CRLF code span", "`alpha\r\nbeta`", 40, "a⟦l⟧pha beta", "`l`"},
+		// A wrapped table shows each column's first line before any column's
+		// second, so the screen and the source disagree on order.
+		{"wrapped table cells", "| aaa bbb | ccc ddd |\n| - | - |\n| x | y |", 12,
+			" aaa   ⟦ccc  \n bbb⟧   ddd  \n x     y    ", "| aaa bbb | ccc ddd |\n| - | - |"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

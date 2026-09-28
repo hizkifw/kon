@@ -1,6 +1,7 @@
 package markdown
 
 import (
+	"bytes"
 	"strings"
 	"unicode"
 
@@ -55,9 +56,6 @@ func dropControl(r rune) rune {
 	}
 	return r
 }
-
-// lineEndings turns each line ending into a space.
-var lineEndings = strings.NewReplacer("\r\n", " ", "\n", " ")
 
 // inlinePieces walks an inline subtree collecting styled pieces. Soft line
 // breaks become spaces, hard line breaks become "\n" (a real wrap break), raw
@@ -129,9 +127,7 @@ func (t *inlineText) walk(n ast.Node, style Style) {
 			var text strings.Builder
 			for part := v.FirstChild(); part != nil; part = part.NextSibling() {
 				if seg, ok := part.(*ast.Text); ok {
-					code := lineEndings.Replace(string(seg.Segment.Value(source)))
-					t.mapText(text.Len(), len(code), seg.Segment.Start, seg.Segment.Len())
-					text.WriteString(code)
+					t.codeText(&text, seg.Segment.Value(source), seg.Segment.Start)
 				}
 			}
 			t.push(piece{text: text.String(), style: inner(theme, StyleCodeInline, style)})
@@ -169,6 +165,29 @@ func (t *inlineText) walk(n ast.Node, style Style) {
 		default:
 			t.walk(c, style)
 		}
+	}
+}
+
+// codeText writes a code span's raw text from src to text with each line
+// ending, "\n" or "\r\n", turned to a space. The code between line endings
+// maps byte for byte and each line ending maps on its own, so a "\r\n" the
+// space stands for does not make the code around it one indivisible run.
+func (t *inlineText) codeText(text *strings.Builder, raw []byte, src int) {
+	for len(raw) > 0 {
+		code, ending := raw, 0
+		if i := bytes.IndexByte(raw, '\n'); i >= 0 {
+			code, ending = raw[:i], 1
+			if i > 0 && raw[i-1] == '\r' {
+				code, ending = raw[:i-1], 2
+			}
+		}
+		t.mapText(text.Len(), len(code), src, len(code))
+		text.Write(code)
+		if ending > 0 {
+			t.mapText(text.Len(), 1, src+len(code), ending)
+			text.WriteByte(' ')
+		}
+		raw, src = raw[len(code)+ending:], src+len(code)+ending
 	}
 }
 

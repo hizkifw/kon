@@ -43,39 +43,30 @@ func (r SourceRun) sourceEnd(i int) int {
 
 // SelectionSource returns the part of the source that a selection of rendered
 // lines covers, from byte startCol of lines[startRow] up to byte endCol of
-// lines[endRow]. Text the renderer added at either end, such as a bullet or
-// the blank line between blocks, is skipped inward, so the range starts and
-// ends in text that came from the source, ready for Excerpt. ok is false when
-// the selection holds no such text.
+// lines[endRow]: from the earliest source byte the selection shows to the
+// latest. The screen can show source out of order, as a table does when its
+// cells wrap, so the range is not simply where the selection starts and ends.
+// Text the renderer added, such as a bullet or the blank line between blocks,
+// has no source and counts for nothing, so the range starts and ends in text
+// that came from the source, ready for Excerpt. ok is false when the
+// selection holds no such text.
 func SelectionSource(lines []Line, startRow, startCol, endRow, endCol int) (start, end int, ok bool) {
 	startRow, endRow = max(startRow, 0), min(endRow, len(lines)-1)
-	bounds := func(row int) (from, until int) {
-		from, until = 0, len(lines[row].Text)
+	start, end = -1, -1
+	for row := startRow; row <= endRow; row++ {
+		from, until := 0, len(lines[row].Text)
 		if row == startRow {
 			from = startCol
 		}
 		if row == endRow {
 			until = endCol
 		}
-		return from, until
-	}
-	start, end = -1, -1
-	for row := startRow; row <= endRow && start < 0; row++ {
-		from, until := bounds(row)
 		for _, r := range lines[row].Runs {
 			if a, b := max(r.At, from), min(r.At+r.Len, until); a < b {
-				start = r.sourceAt(a)
-				break
-			}
-		}
-	}
-	for row := endRow; row >= startRow && end < 0; row-- {
-		from, until := bounds(row)
-		runs := lines[row].Runs
-		for i := len(runs) - 1; i >= 0; i-- {
-			if a, b := max(runs[i].At, from), min(runs[i].At+runs[i].Len, until); a < b {
-				end = runs[i].sourceEnd(b)
-				break
+				if s := r.sourceAt(a); start < 0 || s < start {
+					start = s
+				}
+				end = max(end, r.sourceEnd(b))
 			}
 		}
 	}
