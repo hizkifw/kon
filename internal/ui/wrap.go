@@ -229,6 +229,40 @@ func (w *plainWrapper) Current() string {
 }
 
 // wrapPlain wraps plain text to limit columns.
+// tabWidth is how many columns apart tab stops are, as in markdown code.
+const tabWidth = 4
+
+// expandTabs turns each tab into spaces up to the next tab stop, counting
+// columns from the start of its line. lipgloss paints a tab as spaces but
+// measures it as nothing, so text measured for a slab has its tabs expanded
+// first, or a tabbed line runs past the slab's edge.
+func expandTabs(s string) string {
+	if !strings.Contains(s, "\t") {
+		return s
+	}
+	var b strings.Builder
+	col := 0
+	for len(s) > 0 {
+		i := strings.IndexAny(s, "\t\n")
+		if i < 0 {
+			b.WriteString(s)
+			break
+		}
+		b.WriteString(s[:i])
+		col += ansi.StringWidth(s[:i])
+		if s[i] == '\n' {
+			b.WriteByte('\n')
+			col = 0
+		} else {
+			spaces := tabWidth - col%tabWidth
+			b.WriteString(strings.Repeat(" ", spaces))
+			col += spaces
+		}
+		s = s[i+1:]
+	}
+	return b.String()
+}
+
 func wrapPlain(s string, limit int) []string {
 	w := newPlainWrapper(limit)
 	w.Write(s)

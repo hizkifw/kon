@@ -716,10 +716,14 @@ func (t *transcript) toolBodyLines(start, done *block, width int) []string {
 	}
 	var out []string
 	for _, line := range display.Lines {
-		out = append(out, slabLine(colorToolBg, width, part{text: "  " + line, fg: fg}))
+		out = append(out, slabLine(colorToolBg, width, part{text: "  " + expandTabs(line), fg: fg}))
 	}
 	if display.More > 0 {
-		out = append(out, slabLine(colorToolBg, width, part{text: fmt.Sprintf("  … %d more lines", display.More), fg: colorToolNote}))
+		more := fmt.Sprintf("  … %d more lines", display.More)
+		if display.More == 1 {
+			more = "  … 1 more line"
+		}
+		out = append(out, slabLine(colorToolBg, width, part{text: more, fg: colorToolNote}))
 	}
 	if display.Status != "" {
 		// A running call's status (a shell command's ticking elapsed/timeout)
@@ -743,7 +747,7 @@ func (t *transcript) toolBodyLines(start, done *block, width int) []string {
 // live and later folded into a stable block does not shift.
 func messageSlab(body string, bg, fg color.Color, width int) []string {
 	p := linePainter{width: width, bg: bg, fg: fg, padLeft: 1}
-	return paintBody(p, wrapPlain(body, max(1, width-2)))
+	return paintBody(p, wrapPlain(expandTabs(body), max(1, width-2)))
 }
 
 // thinkingLines renders a reasoning trace in a muted gray, visually quieter

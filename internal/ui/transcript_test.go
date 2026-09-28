@@ -529,6 +529,12 @@ func TestSlabBackgroundSpansWidth(t *testing.T) {
 		live := newMarkdownLive(colorAgentBg, colorAgentFg, width)
 		live.append(strings.Repeat("words with **bold** and `code`. ", 20))
 		lines = append(lines, live.currentLines()...)
+		// A tab paints as spaces, so it must be measured as spaces, or its
+		// line runs past the edge and is cut there without an ellipsis.
+		lines = append(lines, messageSlab("a\tb\n\t\t"+strings.Repeat("tabbed ", 20), colorUserBg, colorUserFg, width)...)
+		var tr transcript
+		done := toolDoneBlock("read", `{"path":"/tmp/a.go"}`, "\tfunc main() {\n\t\t\t\t\t\t"+strings.Repeat("x", 80)+"\n}", false, "/tmp")
+		lines = append(lines, tr.toolBodyLines(nil, &done, width)...)
 		for _, line := range lines {
 			if got := ansi.StringWidth(line); got != width {
 				t.Fatalf("width %d: line width = %d, background does not span the viewport: %q", width, got, line)
