@@ -9,6 +9,7 @@ require (
 	github.com/charmbracelet/x/ansi v0.11.8
 	github.com/gofrs/flock v0.13.1
 	github.com/yuin/goldmark v1.8.6
+	golang.org/x/net v0.58.0
 )
 
 require (

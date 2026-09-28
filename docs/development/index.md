@@ -46,6 +46,7 @@ XDG_CONFIG_HOME="$(mktemp -d)" XDG_DATA_HOME="$(mktemp -d)" go run ./cmd/kon
 | `internal/migrate` | storage version tracking and process locks | session format conversion |
 | `internal/migrations` | ordered storage conversion steps | live runtime state |
 | `internal/tools` | tool registry, bounded tool schemas and execution | agent orchestration |
+| `internal/web` | `kon tool` web access: fetching pages as Markdown | tool schemas or agent state |
 | `internal/typedid` | identifier construction and parsing | storage or provider policy |
 | `internal/tokens` | the token count type and its compact display | usage policy or estimation |
 | `internal/buildinfo` | build version and the outgoing User-Agent | configuration or network clients |

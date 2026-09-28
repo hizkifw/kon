@@ -33,6 +33,24 @@ nothing is sent. `/model` and effort changes wait until you have taken over;
 Sessions are plain JSONL files under `~/.local/share/kon/sessions/` by default.
 On Windows, kon uses `%LOCALAPPDATA%\kon\sessions\`.
 
+### Incognito
+
+`kon --incognito` starts a session that is never saved. The conversation lives
+in memory and is gone when kon exits, and its prompts are not added to the
+Up-arrow history, though earlier prompts can still be recalled. The banner is
+drawn as a faint, dashed outline so the mode is obvious, and on exit kon prints
+`incognito session discarded; nothing to resume` instead of a resume hint.
+
+`--incognito` cannot be combined with `--resume`, and `/resume` refuses to open
+a saved session from an incognito one. `/new` starts another incognito session.
+Subagents inherit the mode through `KON_INCOGNITO`, so their sessions are not
+saved either. Background jobs still write their output files, because the agent
+reads them with ordinary commands, but into a private temporary directory that
+is removed when the session ends.
+
+Incognito covers sessions and prompt history only. `/login`, `/model`, and
+effort changes still save to the config, and prompts still go to your provider.
+
 ## Commands
 
 Type `/` at the start of the prompt to see the available commands.
@@ -198,6 +216,32 @@ Tool calls run serially in the directory where kon was started:
   a background job instead. The tool description tells the model which
   interpreter it is.
 
+### Web pages
+
+The agent reads web pages by running `kon tool webfetch <url>` in its shell;
+the system prompt tells it the command exists. You can run it yourself too:
+
+```sh
+kon tool webfetch go.dev/doc/effective_go > effective_go.md
+```
+
+An HTML page prints as Markdown: headings, lists, code blocks, tables, and
+links, without scripts, buttons, or decoration. When the page marks its
+`<main>` content, only that prints, so a site's sidebars stay out; otherwise
+its header, navigation, and footer print with it. Every tab of a tabbed code
+sample is kept. Links within the page's site print as paths from its root
+(`/about`), and others as full URLs. When the server redirects, kon notes the
+final URL on stderr, since paths start from that site. JSON, plain text, and
+other text print as they arrived, and anything else, like an image or a PDF,
+is an error. A URL without
+a scheme is fetched over https, at most the first 5 MiB is read, and a fetch
+gives up after 30 seconds. A page that builds its content with JavaScript has
+little text in its HTML, and kon says so rather than printing an empty page.
+Requests identify themselves as kon, and a site behind bot protection may
+refuse them.
+
+`kon tool --help` lists the tools the agent can run this way.
+
 ### Background jobs
 
 For servers, watchers, and long builds, the model can start a shell command as
@@ -207,7 +251,8 @@ agent, quoting the job's last lines of output: at its next step if it is
 working, or by starting a turn if it is idle.
 
 Each job is a directory of plain files beside the session, at
-`<session>.jsonl.jobs/<id>/`: `cmd`, `pid`, `output` (combined stdout and
+`<session>.jsonl.jobs/<id>/` (an incognito session uses a temporary directory
+instead): `cmd`, `pid`, `output` (combined stdout and
 stderr, capped at 16 MiB), and `exit` once it has finished. Every shell
 command, foreground or background, gets `KON_JOBS` (that directory) and
 `KON_SESSION` (the session ID) in its environment, so the agent can list jobs

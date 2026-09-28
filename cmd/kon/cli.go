@@ -21,11 +21,11 @@ type command struct {
 // commands returns kon's subcommands in display order. The root help index and
 // lookup both read from here, so a new command only registers in one place.
 func commands() []command {
-	return []command{runCommand(), docsCommand(), modelsCommand(), upgradeCommand()}
+	return []command{runCommand(), docsCommand(), modelsCommand(), upgradeCommand(), toolCommand()}
 }
 
-func lookup(name string) (command, bool) {
-	for _, cmd := range commands() {
+func lookup(cmds []command, name string) (command, bool) {
+	for _, cmd := range cmds {
 		if cmd.name == name {
 			return cmd, true
 		}
@@ -47,11 +47,12 @@ func (c command) help() string {
 // from the registry so it cannot drift from the commands kon actually accepts.
 func rootUsage() string {
 	var b strings.Builder
-	b.WriteString("usage: kon [--resume [<id>]] [--help] [--version]\n")
+	b.WriteString("usage: kon [--resume [<id>] | --incognito] [--help] [--version]\n")
 	b.WriteString("       kon <command> [flags]\n\n")
 	b.WriteString("Start a full-screen kon agent session in the current directory.\n\n")
 	b.WriteString("  --resume, -r          resume the most recent session in this directory\n")
 	b.WriteString("  --resume=<id>         resume a specific session\n")
+	b.WriteString("  --incognito           start a session that is never saved\n")
 	b.WriteString("  --help, -h            show this help\n")
 	b.WriteString("  --version             print the version\n\n")
 	b.WriteString("commands:\n")
@@ -59,7 +60,9 @@ func rootUsage() string {
 		fmt.Fprintf(&b, "  %-8s %s\n", cmd.name, cmd.summary)
 	}
 	b.WriteString("\nRun \"kon <command> --help\" for command flags.\n\n")
-	b.WriteString("On exit, kon prints the session ID so the session can be resumed later.")
+	b.WriteString("On exit, kon prints the session ID so the session can be resumed later.\n")
+	b.WriteString("An incognito session keeps its conversation and prompts in memory only,\n")
+	b.WriteString("so there is nothing to resume.")
 	return b.String()
 }
 
@@ -68,7 +71,7 @@ func rootUsage() string {
 // which keeps "kon --resume docs" meaning a resume rather than a docs request.
 func run(args []string) error {
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
-		cmd, ok := lookup(args[0])
+		cmd, ok := lookup(commands(), args[0])
 		if !ok {
 			return fmt.Errorf("unknown command %q (try --help)", args[0])
 		}

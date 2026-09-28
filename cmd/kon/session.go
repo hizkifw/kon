@@ -26,7 +26,7 @@ import (
 // an optional value ("kon --resume" or "kon --resume ses_..."), which flag
 // cannot express.
 func runSession(args []string) (runErr error) {
-	resume := false
+	resume, incognito := false, false
 	resumeID := ""
 	for i := 0; i < len(args); i++ {
 		switch arg := args[i]; {
@@ -45,9 +45,16 @@ func runSession(args []string) (runErr error) {
 			}
 		case strings.HasPrefix(arg, "--resume="):
 			resume, resumeID = true, strings.TrimPrefix(arg, "--resume=")
+		case arg == "--incognito":
+			incognito = true
 		default:
 			return fmt.Errorf("unknown argument %q (try --help)", arg)
 		}
+	}
+	// Continuing a saved session would write to it, which incognito promises
+	// not to do.
+	if incognito && resume {
+		return errors.New("--incognito cannot be combined with --resume")
 	}
 
 	var id typedid.SessionID
@@ -83,6 +90,11 @@ func runSession(args []string) (runErr error) {
 	}
 	var runtime *app.Runtime
 	switch {
+	case incognito:
+		// Earlier prompts can still be recalled; this session's are not
+		// recorded.
+		historyStore = nil
+		runtime, err = app.Start(cfg, paths, cwd, buildinfo.Version(), app.Options{Incognito: true})
 	case resumeID != "":
 		runtime, err = app.NewResumedID(cfg, paths, cwd, buildinfo.Version(), id)
 	case resume:
@@ -108,7 +120,10 @@ func runSession(args []string) (runErr error) {
 	// store that owns the header.
 	sessionID := runtime.SessionID()
 	closeErr := runtime.Close()
-	if !sessionID.IsZero() {
+	switch {
+	case incognito:
+		fmt.Fprintln(os.Stderr, "\nincognito session discarded; nothing to resume")
+	case !sessionID.IsZero():
 		fmt.Fprintf(os.Stderr, "\nresume with: kon --resume %s\n", sessionID)
 	}
 	return errors.Join(uiErr, closeErr)

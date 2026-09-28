@@ -55,6 +55,8 @@ type fakeRuntime struct {
 	jobs     int
 	jobList  []tools.Job
 	killed   []int
+
+	incognito bool
 }
 
 func (f *fakeRuntime) Models() []app.Model { return f.models }
@@ -123,6 +125,7 @@ func (f *fakeRuntime) Resume(id typedid.SessionID) error    { f.id = id; return 
 func (f *fakeRuntime) Sessions() ([]session.Summary, error) { return f.sessions, nil }
 func (f *fakeRuntime) SessionID() typedid.SessionID         { return f.id }
 func (f *fakeRuntime) SessionHistory() []session.Entry      { return f.entries }
+func (f *fakeRuntime) Incognito() bool                      { return f.incognito }
 func (f *fakeRuntime) Follow() (app.Followed, error)        { return f.followed, f.followErr }
 func (f *fakeRuntime) TakeOver() ([]session.Entry, error) {
 	if f.takeOverErr != nil {
@@ -249,6 +252,22 @@ func TestFitLineHonorsCellWidth(t *testing.T) {
 	} {
 		if got := fitLine(test.in, test.width); got != test.want {
 			t.Errorf("fitLine(%q, %d) = %q, want %q", test.in, test.width, got, test.want)
+		}
+	}
+}
+
+func TestIncognitoShowsItsBannerAndKeepsPromptsInMemory(t *testing.T) {
+	runtime := &fakeRuntime{state: app.State{Phase: app.PhaseReady}, incognito: true}
+	m := New(context.Background(), "/tmp", "/tmp/config.json", runtime, nil, []history.Entry{{Text: "earlier"}})
+	if view := plain(m.transcript.render(80)); !strings.Contains(view, "incognito") || strings.Contains(view, "harness for foxes") {
+		t.Fatalf("incognito transcript does not lead with its banner: %q", view)
+	}
+	if err := m.history.append("/tmp", "secret"); err != nil {
+		t.Fatalf("append without a history store: %v", err)
+	}
+	for _, want := range []string{"secret", "earlier"} {
+		if got, ok := m.history.recall("", -1); !ok || got != want {
+			t.Fatalf("recall = (%q, %v), want %q", got, ok, want)
 		}
 	}
 }

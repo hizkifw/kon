@@ -569,6 +569,13 @@ func TestSystemPromptPointsToBundledDocs(t *testing.T) {
 	}
 }
 
+func TestSystemPromptPointsToShellTools(t *testing.T) {
+	prompt := SystemPrompt("/work", "/usr/local/bin/kon", nil, "")
+	if !strings.Contains(prompt, "`<kon> tool webfetch <url>`") || !strings.Contains(prompt, "`<kon> tool --help`") {
+		t.Fatalf("shell tools missing from prompt:\n%s", prompt)
+	}
+}
+
 func TestSystemPromptPlacesInstructionsLast(t *testing.T) {
 	prompt := SystemPrompt("/work", "/usr/local/bin/kon", []contextfiles.File{{Path: "/work/AGENTS.md", Content: "project rules"}}, "user rules")
 	project := strings.Index(prompt, "project rules")

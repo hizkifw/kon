@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"image/color"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -20,21 +21,36 @@ func welcomeMessage(configPath string) string {
 		"- Press `Ctrl+D` to exit, or `Esc` to interrupt a running turn."
 }
 
-// welcomeBanner is the mark shown at the top of every transcript. It is
-// presentation only: the transcript draws it as a stable prefix rather than a
-// block, so it stays out of session records and model context while still
-// appearing above a resumed conversation.
-const welcomeBanner = `┌──┐              ┌──┐
+// banner is a mark shown at the top of every transcript: a figure, then a
+// caption on its last line. It is presentation only: the transcript draws it
+// as a stable prefix rather than a block, so it stays out of session records
+// and model context while still appearing above a resumed conversation.
+type banner struct {
+	text string
+	// figure colors every line but the caption, which is always faint.
+	figure color.Color
+}
+
+var welcomeBanner = banner{figure: colorAccent, text: `┌──┐              ┌──┐
 │  ├──┬─────┬─────┤  │
 │  ┌─<│  _  │     ├──┤
 └──┴──┴─────┴──┴──┴──┘
-harness for foxes =˄▾˄=`
+harness for foxes =˄▾˄=`}
 
-// bannerText renders the welcome banner inset one cell from the transcript's
-// left edge, or "" when there is nothing to show. A single blank line pads the
-// mark from the top of the viewport, the figure carries the brand accent, and
-// the trailing caption is drawn faintly, so the mark reads as a header rather
-// than content. The result depends only on the banner and the width, so it is
+// incognitoBanner replaces the welcome banner when nothing is being saved.
+// The same mark, dashed and faint, reads as an outline of a session that is
+// not really there, so the difference shows at a glance.
+var incognitoBanner = banner{figure: colorFaint, text: `┌╌╌┐              ┌╌╌┐
+╎  ├╌╌┬╌╌╌╌╌┬╌╌╌╌╌┤  ╎
+╎  ┌╌<╎  _  ╎     ├╌╌┤
+└╌╌┴╌╌┴╌╌╌╌╌┴╌╌┴╌╌┴╌╌┘
+incognito · session not saved =˄⌐■▾■˄=`}
+
+// bannerText renders the banner inset one cell from the transcript's left
+// edge, or "" when there is nothing to show. A single blank line pads the mark
+// from the top of the viewport, the figure carries the banner's color, and the
+// trailing caption is drawn faintly, so the mark reads as a header rather than
+// content. The result depends only on the banner and the width, so it is
 // memoized; bannerText runs on every frame.
 func (t *transcript) bannerText(width int) string {
 	if t.bannerValid && t.bannerWidth == width {
@@ -46,10 +62,10 @@ func (t *transcript) bannerText(width int) string {
 }
 
 func (t *transcript) renderBanner(width int) string {
-	if t.banner == "" {
+	if t.banner.text == "" {
 		return ""
 	}
-	lines := strings.Split(t.banner, "\n")
+	lines := strings.Split(t.banner.text, "\n")
 	widest := 0
 	for _, line := range lines {
 		if w := lipgloss.Width(line); w > widest {
@@ -64,7 +80,7 @@ func (t *transcript) renderBanner(width int) string {
 	out := make([]string, 0, len(lines)+1)
 	out = append(out, "")
 	for i, line := range lines {
-		style := lipgloss.NewStyle().Foreground(colorAccent)
+		style := lipgloss.NewStyle().Foreground(t.banner.figure)
 		if i == len(lines)-1 {
 			style = style.Foreground(colorFaint)
 		}

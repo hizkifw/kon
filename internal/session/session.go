@@ -304,6 +304,11 @@ type Store struct {
 	// then ends in a torn line, and appending after it would bury that line
 	// mid-file where Open refuses it, so every later append fails instead.
 	broken error
+	// images and scratch hold what an ephemeral session would otherwise keep
+	// beside its file: image bytes by hash, and the temporary directory its
+	// background jobs use. Both are unset for a persisted session.
+	images  map[string][]byte
+	scratch string
 }
 
 // sessionFile is the part of *os.File the store writes through, so tests can
@@ -870,6 +875,13 @@ func (s *Store) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.file == nil {
+		return nil
+	}
+	if s.ephemeral() {
+		s.file, s.images = nil, nil
+		if err := os.RemoveAll(s.scratch); err != nil {
+			return fmt.Errorf("remove incognito jobs directory: %w", err)
+		}
 		return nil
 	}
 	err := s.file.Sync()

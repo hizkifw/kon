@@ -48,6 +48,20 @@ func TestRunRejectsMalformedResumeID(t *testing.T) {
 	}
 }
 
+// TestIncognitoRefusesResume checks that --incognito and --resume conflict in
+// either order before any storage is touched: continuing a saved session would
+// write to it.
+func TestIncognitoRefusesResume(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	for _, args := range [][]string{{"--incognito", "--resume"}, {"--resume=ses_x", "--incognito"}} {
+		err := run(args)
+		if err == nil || !strings.Contains(err.Error(), "--incognito cannot be combined with --resume") {
+			t.Fatalf("%v: error = %v, want the flags to conflict", args, err)
+		}
+	}
+}
+
 func TestRunRejectsUnknownCommand(t *testing.T) {
 	err := run([]string{"bogus"})
 	if err == nil || !strings.Contains(err.Error(), `"bogus"`) {

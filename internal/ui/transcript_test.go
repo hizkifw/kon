@@ -239,7 +239,7 @@ func TestContextRendersAsSeparator(t *testing.T) {
 
 // testBanner stands in for the welcome art in the placement tests, so they
 // follow where the transcript puts a banner rather than how kon's is drawn.
-const testBanner = "/\\_/\\\n=o.o=\ncaption"
+var testBanner = banner{figure: colorAccent, text: "/\\_/\\\n=o.o=\ncaption"}
 
 // testBannerLines is testBanner as the transcript lays it out: one blank line
 // of padding above it, and every line inset one cell like the message slabs.
@@ -295,12 +295,14 @@ func TestBannerHidesWhenTooNarrow(t *testing.T) {
 // TestBannerLinesFitWidth pins that every banner line fits the viewport so the
 // mark is never clipped at the right edge.
 func TestBannerLinesFitWidth(t *testing.T) {
-	var tr transcript
-	tr.banner = welcomeBanner
-	for _, width := range []int{40, 80, 120} {
-		for _, line := range tr.linesFor(width) {
-			if got := ansi.StringWidth(line); got > width {
-				t.Fatalf("width %d: banner line width = %d: %q", width, got, line)
+	for _, mark := range []banner{welcomeBanner, incognitoBanner} {
+		var tr transcript
+		tr.banner = mark
+		for _, width := range []int{40, 80, 120} {
+			for _, line := range tr.linesFor(width) {
+				if got := ansi.StringWidth(line); got > width {
+					t.Fatalf("width %d: banner line width = %d: %q", width, got, line)
+				}
 			}
 		}
 	}
