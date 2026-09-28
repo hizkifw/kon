@@ -245,3 +245,44 @@ func TestOverflowIsRetriedOnlyOnce(t *testing.T) {
 		t.Fatalf("Run = %v after %d streams; want the overflow after one retry", err, fake.streams)
 	}
 }
+
+// pricedProvider answers and summarizes with responses its client priced.
+type pricedProvider struct{}
+
+func (pricedProvider) Stream(context.Context, []session.Message, []session.ToolDefinition, func(provider.Event)) (session.Message, error) {
+	message := session.TextMessage(session.RoleAssistant, "done")
+	message.Usage = &session.Usage{PromptTokens: 100, CompletionTokens: 1, Cost: 0.5}
+	return message, nil
+}
+
+func (pricedProvider) Complete(context.Context, []session.Message, []session.ToolDefinition, tokens.Count) (session.Message, error) {
+	message := session.TextMessage(session.RoleAssistant, "summary")
+	message.Usage = &session.Usage{PromptTokens: 50, CompletionTokens: 5, Cost: 0.25}
+	return message, nil
+}
+
+// TestUsageEventsCarryEachResponseCost checks that a reply and a compaction
+// summary each report what they cost, and that the session keeps both.
+func TestUsageEventsCarryEachResponseCost(t *testing.T) {
+	store := newUsageStore(t)
+	longSession(t, store)
+	runner := New(smallKeep(), pricedProvider{}, store, tools.New(t.TempDir(), false, nil))
+	var costs []float64
+	record := func(e Event) {
+		if e.Kind == EventUsage {
+			costs = append(costs, e.Cost)
+		}
+	}
+	if err := runner.Run(context.Background(), "hi", nil, record); err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.Compact(context.Background(), record); err != nil {
+		t.Fatal(err)
+	}
+	if len(costs) != 2 || costs[0] != 0.5 || costs[1] != 0.25 {
+		t.Fatalf("usage event costs = %v, want [0.5 0.25]", costs)
+	}
+	if total := session.TotalUsage(store.ActivePath()).Cost; total != 0.75 {
+		t.Fatalf("session total = %v, want 0.75", total)
+	}
+}

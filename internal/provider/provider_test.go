@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"reflect"
 	"strings"
@@ -43,6 +44,41 @@ func TestAssistantAssemblesDurableMessage(t *testing.T) {
 	}
 	if err := message.Validate(); err != nil {
 		t.Fatalf("assembled message is invalid: %v", err)
+	}
+}
+
+// TestPricingBillsEachShareOfInputAtItsRate checks that cached and
+// cache-written input are billed at their own rates, carved out of the prompt
+// rather than added to it, and that a missing cache rate is billed as input.
+func TestPricingBillsEachShareOfInputAtItsRate(t *testing.T) {
+	usage := session.Usage{PromptTokens: 1_000_000, CompletionTokens: 100_000, CachedTokens: 600_000, CacheWriteTokens: 300_000}
+	for _, tc := range []struct {
+		name    string
+		pricing Pricing
+		want    float64
+	}{
+		// 0.1M uncached at 3, 0.6M read at 0.3, 0.3M written at 3.75, 0.1M out at 15.
+		{"all rates", Pricing{Input: 3, Output: 15, CacheRead: 0.3, CacheWrite: 3.75}, 0.3 + 0.18 + 1.125 + 1.5},
+		{"no cache rates", Pricing{Input: 3, Output: 15}, 3 + 1.5},
+		{"unpriced", Pricing{}, 0},
+	} {
+		if got := tc.pricing.Cost(usage); math.Abs(got-tc.want) > 1e-9 {
+			t.Errorf("%s: cost = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestAssistantPricesItsUsage(t *testing.T) {
+	client := &Client{pricing: Pricing{Input: 2, Output: 8}}
+	message, err := client.assistant(Response{
+		Parts: []session.Part{{Type: session.PartText, Text: "done"}},
+		Usage: &session.Usage{PromptTokens: 1000, CompletionTokens: 500, TotalTokens: 1500},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (1000*2 + 500*8) / 1e6; message.Usage == nil || math.Abs(message.Usage.Cost-want) > 1e-12 {
+		t.Fatalf("usage = %+v, want cost %v", message.Usage, want)
 	}
 }
 

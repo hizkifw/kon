@@ -199,10 +199,21 @@ directory's permissions rather than running kon as root.
 | Ctrl+Y | Yank the last kill back at the cursor |
 | Ctrl+R | Reverse-search prompt history; type to match, Ctrl+R or Up for older matches, Down for newer, Enter accepts, Esc cancels |
 
-The status bar shows the working directory, context usage, and a status
-message; the header shows the active model and, for a model with reasoning
+The status bar shows the working directory, context usage, what the session
+has cost, and the result of your last command; what a turn is doing shows in
+the transcript instead. The header shows the active model and, for a model with reasoning
 effort levels, the selected level (`default` when kon sends none). `ctx ~12.4k/128.0k` means usage is
 estimated; `?` means the provider has not supplied enough information yet.
+
+The cost, such as `$0.42`, totals every priced response in the session,
+compaction summaries included, plus what its subagents have spent. It stays
+hidden until a response is priced. A model is priced from the models.dev
+catalog when it is `<provider>/<model>`, and from its `cost` field when it is
+a profile of your own; see
+[configuration](configuration.md). Each response's cost is saved in the
+session, so a resumed session shows its total so far. It is an estimate from
+listed prices: a stream you interrupt before it finishes reports no usage and
+is not counted.
 
 ## Tools and long conversations
 
@@ -271,7 +282,9 @@ Ask the agent to use a subagent and it hands the task off: it runs `kon run
 "<task>"` as a background job. The system prompt tells it subagents exist but
 to use them only when you ask. The subagent works in the same directory with
 the same tools and model, in a session of its own that records the parent
-session. When it finishes, the exit notice quotes its whole final answer,
+session. What it spends is added to the status bar's cost as each of its
+responses arrives, read from its session file. A subagent of an incognito
+session saves no session, so its spend is not counted. When it finishes, the exit notice quotes its whole final answer,
 while the job's output keeps its full turn log. In
 `/jobs`, a subagent's row previews its own conversation. Subagent sessions stay
 out of `--resume` and the `/resume` list, which belong to the sessions you

@@ -73,6 +73,9 @@ type Runtime interface {
 	// ContextUsage reports the last provider-reported context size and whether it
 	// is known, so a resumed session can show it instead of an unknown value.
 	ContextUsage() (tokens.Count, bool)
+	// SubagentUsage adds up what the session's subagents have used so far.
+	// It reads files, so the UI calls it off its own goroutine.
+	SubagentUsage() session.Usage
 	// Interrupt escalates cancellation of the running tool call. attempt is
 	// the number of consecutive Esc presses; see agent.Runner.Interrupt.
 	Interrupt(attempt int) bool
@@ -118,6 +121,14 @@ type Model struct {
 	// jobs is the number of background jobs running, as of the last event
 	// that could have changed it.
 	jobs int
+	// spent is what the live session's own responses have cost, in US
+	// dollars, and subagentSpent what its subagents have, as of the last read
+	// of their sessions. spendPolling marks a poll in flight, and spendEpoch
+	// counts sessions opened so a read for an earlier one is dropped.
+	spent         float64
+	subagentSpent float64
+	spendPolling  bool
+	spendEpoch    int
 	// timer times the user turn currently in flight, nil while idle. It starts
 	// on submit and freezes into a blockElapsed when the run ends.
 	timer *turnTimer
@@ -188,7 +199,7 @@ func New(ctx context.Context, cwd, configPath string, runtime Runtime, historySt
 	state := runtime.State()
 	// An unconfigured launch explains itself in the transcript below, so the
 	// status stays a short pointer rather than repeating the whole problem.
-	status := "ready"
+	status := ""
 	if !state.Ready() && !state.Following() {
 		status = "needs configuration"
 	}
@@ -228,10 +239,12 @@ type catalogLoadedMsg struct{}
 // the frame never waits for it or shares the CPU with it.
 func (m Model) Init() tea.Cmd {
 	runtime := m.runtime
+	// A resumed session's subagents are read along with the catalog, once
+	// the first frame is out.
 	commands := []tea.Cmd{m.input.Focus(), tea.Tick(catalogDelay, func(time.Time) tea.Msg {
 		runtime.LoadCatalog()
 		return catalogLoadedMsg{}
-	}), waitNotice(runtime.Notices())}
+	}), tea.Tick(catalogDelay, m.readSpend(false)), waitNotice(runtime.Notices())}
 	if m.follow != nil {
 		commands = append(commands, followTick(m.followEpoch))
 	}
@@ -258,7 +271,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.terminalFocused = false
 	case runEventMsg:
 		isText := m.applyAgentEvent(msg.event)
-		commands = append(commands, waitRunEvent(m.runEvents))
+		commands = append(commands, waitRunEvent(m.runEvents), m.pollSpend())
 		if isText && !m.flushPending {
 			m.flushPending = true
 			commands = append(commands, tea.Tick(streamFrameInterval, func(time.Time) tea.Msg { return flushTranscriptMsg{} }))
@@ -277,6 +290,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.pollFollowed(msg.epoch)
 	case followedMsg:
 		return m, m.applyFollowed(msg)
+	case spendMsg:
+		return m, m.applySpend(msg)
 	case timerTickMsg:
 		// Drop a tick whose turn has ended (or been superseded): without the
 		// epoch check a tick left in flight at run end would reschedule itself
@@ -297,7 +312,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.transcript.finishStream()
 		switch {
 		case msg.err == nil:
-			m.status = "ready"
+			m.status = ""
 		case errors.Is(msg.err, context.Canceled):
 			m.status = "interrupted"
 		case errors.Is(msg.err, agent.ErrNothingToCompact):
@@ -310,7 +325,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// appending any error first keeps it below everything it timed.
 		m.finishTimer()
 		m.refreshTranscript(true)
-		return m.dispatchPending(msg.err)
+		// A subagent the run started in the foreground has finished writing,
+		// and one in a background job keeps spending, which the read's
+		// answer goes on to poll.
+		read := m.loadSpend()
+		updated, cmd := m.dispatchPending(msg.err)
+		return updated, tea.Batch(read, cmd)
 	case noticeMsg:
 		updated, cmd := m.deliverNotice(msg.text)
 		return updated, tea.Batch(cmd, waitNotice(m.runtime.Notices()))
@@ -724,7 +744,7 @@ func (m Model) send(text string) (tea.Model, tea.Cmd) {
 	// if they were scrolled up reading the transcript.
 	m.viewport.GotoBottom()
 	inbox := m.inbox
-	updated, cmd := m.startRun("thinking…", func(ctx context.Context, emit func(agent.Event)) error {
+	updated, cmd := m.startRun("", func(ctx context.Context, emit func(agent.Event)) error {
 		return m.runtime.Run(ctx, text, inbox, emit)
 	})
 	return updated, tea.Batch(cmd, timerTick(m.timerEpoch))

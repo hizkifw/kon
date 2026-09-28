@@ -55,35 +55,11 @@ func (v *View) ActivePath() []Entry {
 	return path
 }
 
-// Poll returns the entries the writer has completed since the last call. A
-// session file only shrinks when its writer rolls back a record that failed to
-// sync, which a view may already have read, so a shorter file is an error
-// rather than something to reconcile.
+// Poll returns the entries the writer has completed since the last call.
 func (v *View) Poll() ([]Entry, error) {
-	f, err := os.Open(v.path)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, ErrRemoved
-	}
+	b, err := appended(v.path, v.offset)
 	if err != nil {
-		return nil, fmt.Errorf("read session: %w", err)
-	}
-	defer f.Close()
-	info, err := f.Stat()
-	if err != nil {
-		return nil, fmt.Errorf("read session: %w", err)
-	}
-	if info.Size() < v.offset {
-		return nil, errors.New("session file shrank while it was followed")
-	}
-	if info.Size() == v.offset {
-		return nil, nil
-	}
-	if _, err := f.Seek(v.offset, io.SeekStart); err != nil {
-		return nil, fmt.Errorf("read session: %w", err)
-	}
-	b, err := io.ReadAll(io.LimitReader(f, info.Size()-v.offset))
-	if err != nil {
-		return nil, fmt.Errorf("read session: %w", err)
+		return nil, err
 	}
 	// Only whole lines are read. The offset advances line by line, so an
 	// error leaves the view positioned at the line that failed.
@@ -114,3 +90,44 @@ func (v *View) Poll() ([]Entry, error) {
 // Free reports whether the session's writer has let go, so it can be opened
 // for writing.
 func (v *View) Free() bool { return !InUse(v.path) }
+
+// errShrank reports a session file shorter than what was already read from
+// it. A session file only shrinks when its writer rolls back a record that
+// failed to sync, which a reader may already have read, so it is an error
+// rather than something to reconcile.
+var errShrank = errors.New("session file shrank while it was followed")
+
+// appended reads what a session file holds past offset, which may end in a
+// line the writer has not finished. The file is only opened once it has grown,
+// so following an idle session costs one stat.
+func appended(path string, offset int64) ([]byte, error) {
+	info, err := os.Stat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, ErrRemoved
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read session: %w", err)
+	}
+	if info.Size() < offset {
+		return nil, errShrank
+	}
+	if info.Size() == offset {
+		return nil, nil
+	}
+	f, err := os.Open(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, ErrRemoved
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read session: %w", err)
+	}
+	defer f.Close()
+	// The size is known, so the bytes are read into a buffer of that size
+	// rather than one grown by doubling.
+	b := make([]byte, info.Size()-offset)
+	n, err := f.ReadAt(b, offset)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("read session: %w", err)
+	}
+	return b[:n], nil
+}

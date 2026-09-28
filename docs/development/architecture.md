@@ -327,6 +327,14 @@ Token counts are `tokens.Count` values from configuration through sessions,
 providers, and the terminal. The type serializes as a plain integer and owns
 the compact `12.4k`/`1.0m` rendering, so every displayed figure matches.
 
+Cost is priced where usage becomes durable. The runtime passes the model's
+prices, from its profile's `cost` or the catalog for a derived model, to the
+provider client in `provider.Spec`, and the client records each response's cost
+on its usage before the runner persists it, streamed replies and compaction
+summaries alike. The runner forwards that cost on its usage event; the UI adds
+it to a total seeded from the session's recorded costs, so a price change
+never reprices past work.
+
 ## Failure rules
 
 - Configuration and session initialization errors are fatal before terminal
@@ -361,7 +369,15 @@ the compact `12.4k`/`1.0m` rendering, so every displayed figure matches.
   `KON_INCOGNITO` beneath an incognito session. `kon run` records
   `KON_SESSION` as its session's parent, writes its session ID into `KON_JOB`,
   keeps its session in memory with `--incognito` or under `KON_INCOGNITO`, and
-  refuses to start past a fixed depth. An ephemeral session's jobs use a
+  refuses to start past a fixed depth. What subagents spend is read from their
+  own sessions: `session.Subagents` finds every session in the workspace whose
+  parent chain leads to the live one. A subagent is always created after its
+  parent, and file names start with the creation time, so only newer files
+  are considered, each header read once. Each subagent session is then read
+  only past where the last read stopped, keeping its offset and running total
+  rather than its entries. The UI reads it off its goroutine once a second
+  while a run or a background job is live, and throughout a follow, since the
+  writer's runs and jobs are in another process. An ephemeral session's jobs use a
   temporary directory that closing the store removes. Ctrl+C never interrupts;
   it clears the input, or hints at Ctrl+D to exit when the input is empty.
 

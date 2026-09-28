@@ -162,6 +162,18 @@ Like `default_model`, the selected level is saved as the top-level
 to `default`. A saved level the model does not list is ignored, so the model
 starts on `default` instead of failing.
 
+Set `cost` to what the model charges, in US dollars per million tokens, so the
+status bar can show what a session has cost:
+
+```json
+{"name": "sonnet", "type": "anthropic", "model": "claude-sonnet-4-5", "api_key": "...", "cost": {"input": 3, "output": 15, "cache_read": 0.3, "cache_write": 3.75}}
+```
+
+Input served from a prompt cache is billed at `cache_read`, and input written
+to one at `cache_write`; either left out is billed at `input`. A profile
+without `cost` goes unpriced, even for a model the catalog lists. Derived
+models use the catalog's prices.
+
 ## Schema reference
 
 Unknown fields are rejected, so a typo fails loudly instead of being ignored.
@@ -206,6 +218,7 @@ Each entry in `models`:
 | `vision` | boolean | no | Accepts image input. |
 | `reasoning` | boolean | no | Produces reasoning. |
 | `reasoning_efforts` | array of strings | no | Effort levels in Shift+Tab order, without duplicates. |
+| `cost` | object | no | Prices in US dollars per million tokens: `input`, `output`, and optionally `cache_read` and `cache_write`. None may be negative. |
 
 ## Model catalog
 

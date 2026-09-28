@@ -170,6 +170,46 @@ func TestValidateReasoningEfforts(t *testing.T) {
 	}
 }
 
+func TestModelCostMustNotBeNegative(t *testing.T) {
+	cfg := Default()
+	cfg.Models = []Model{{Name: "priced", ModelID: "m", BaseURL: "http://localhost", Cost: Cost{Input: 1, Output: 2, CacheRead: -0.1}}}
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "cost") {
+		t.Fatalf("negative cache read price: err = %v", err)
+	}
+	cfg.Models[0].Cost.CacheRead = 0.1
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestModelCostRoundTrips checks the cost field uses models.dev's names and
+// stays out of a saved profile that has none.
+func TestModelCostRoundTrips(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	cfg := Default()
+	cfg.Models = []Model{
+		{Name: "priced", ModelID: "m", BaseURL: "http://localhost", Cost: Cost{Input: 3, Output: 15, CacheRead: 0.3, CacheWrite: 3.75}},
+		{Name: "free", ModelID: "m", BaseURL: "http://localhost"},
+	}
+	if err := cfg.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"cache_write": 3.75`) || strings.Count(string(raw), `"cost"`) != 1 {
+		t.Fatalf("saved config:\n%s", raw)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Models[0].Cost != cfg.Models[0].Cost || loaded.Models[1].Cost != (Cost{}) {
+		t.Fatalf("loaded costs = %+v, %+v", loaded.Models[0].Cost, loaded.Models[1].Cost)
+	}
+}
+
 func TestContextWindowMustExceedCompactionBudgets(t *testing.T) {
 	cfg := testConfig()
 	budgets := cfg.Compaction.ReserveTokens + cfg.Compaction.KeepRecentTokens

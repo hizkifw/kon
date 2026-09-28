@@ -79,7 +79,7 @@ func TestMessagesStreamAssemblesBlocks(t *testing.T) {
 		t.Fatalf("finish = %q", response.Finish)
 	}
 	// input_tokens is only the uncached remainder; the prompt is all three.
-	if u := response.Usage; u == nil || u.PromptTokens != 330 || u.CachedTokens != 300 || u.CompletionTokens != 42 {
+	if u := response.Usage; u == nil || u.PromptTokens != 330 || u.CachedTokens != 300 || u.CacheWriteTokens != 20 || u.CompletionTokens != 42 {
 		t.Fatalf("usage = %#v", response.Usage)
 	}
 	if len(events) != 3 || !events[0].Thinking || events[2].Text != "Hello" {

@@ -20,37 +20,31 @@ func (m *Model) applyAgentEvent(event agent.Event) bool {
 	switch event.Kind {
 	case agent.EventText:
 		m.transcript.appendStream(sanitize(event.Text))
-		m.status = "streaming…"
 		return true
 	case agent.EventThinking:
 		m.transcript.appendThinking(sanitize(event.Text))
-		m.status = "thinking…"
 		return true
 	case agent.EventAssistantDone:
 		m.transcript.finishStream()
 	case agent.EventToolStart:
-		m.status = "running " + event.Tool + "…"
 		m.transcript.add(m.toolBlock(event.Tool, sanitize(event.Arguments)))
 	case agent.EventToolOutput:
 		// The running tool's own display snapshot. Events arrive one at a time
 		// from the run channel, so the snapshot simply replaces the previous
 		// one for the call, which is still the transcript's last tool block.
 		m.transcript.updateToolLive(event.Display)
-		m.status = "running " + event.Tool + "…"
 	case agent.EventToolDone:
-		m.status = ""
 		m.jobs = m.runtime.RunningJobs()
 		m.transcript.add(m.toolResultBlock(event))
 	case agent.EventCompacted:
 		m.transcript.add(block{kind: blockContext, text: compactedLabel(event.Tokens, event.Estimated)})
-		m.status = "context compacted"
 	case agent.EventUsage:
 		m.contextTokens = event.Tokens
 		m.contextApprox = event.Estimated
+		m.spent += event.Cost
 	case agent.EventSteered:
 		m.transcript.add(block{kind: blockUser, text: sanitize(event.Text)})
 		m.syncSteering()
-		m.status = "steered"
 	}
 	return false
 }

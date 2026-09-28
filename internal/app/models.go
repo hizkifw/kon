@@ -299,6 +299,7 @@ func (r *Runtime) resolveModel(name string) (config.Model, bool) {
 			if window := tokens.Count(metadata.Limit.Context); window > r.config.Compaction.ReserveTokens+r.config.Compaction.KeepRecentTokens {
 				profile.ContextWindowTokens = window
 			}
+			profile.Cost = config.Cost(metadata.Cost)
 			profile.Vision = slices.Contains(metadata.Modalities.Input, "image")
 			profile.Reasoning = metadata.Reasoning
 			profile.ReasoningEfforts = metadata.Efforts()

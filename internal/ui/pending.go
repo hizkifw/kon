@@ -114,11 +114,14 @@ func waitNotice(notices <-chan string) tea.Cmd {
 // agent's turn ended still gets its attention.
 func (m Model) deliverNotice(text string) (tea.Model, tea.Cmd) {
 	m.jobs = m.runtime.RunningJobs()
+	// A subagent writes its last response before its job exits.
+	read := m.loadSpend()
 	if m.busy || !m.canSend() {
 		m.inbox.PushNotice(text)
-		return m, nil
+		return m, read
 	}
-	return m.send(text)
+	updated, cmd := m.send(text)
+	return updated, tea.Batch(read, cmd)
 }
 
 // syncSteering refreshes the mirror of the inbox and re-lays-out the frame,

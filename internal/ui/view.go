@@ -82,7 +82,14 @@ func (m Model) View() tea.View {
 	if m.jobs > 0 {
 		status += fmt.Sprintf(" · ⚙ %d", m.jobs)
 	}
-	status += " · " + m.status
+	if spent := m.spent + m.subagentSpent; spent > 0 {
+		status += " · " + formatCost(spent)
+	}
+	// The transcript shows what a turn is doing, so the status line carries
+	// only messages that answer the user, such as a command's result.
+	if m.status != "" {
+		status += " · " + m.status
+	}
 	sections := []string{headerStyle.Render(fitLine(header, m.width)), m.viewport.View()}
 	if pending := m.pendingView(); pending != "" {
 		sections = append(sections, pending)

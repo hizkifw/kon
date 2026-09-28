@@ -77,6 +77,15 @@ The `message` object uses provider-neutral roles while keeping provider metadata
 {"type":"message","id":"ent_9qW4mK7zT2bN8Vc5Rx1A","parent_id":"ent_H7kP2dR9wA5nM3xQ8Lc4","timestamp":"...","message":{"role":"tool","parts":[{"type":"tool_result","tool_call_id":"provider-call-id","tool_name":"read","tool_output":"output"}]}}
 ```
 
+An assistant message's `usage` is the provider's token report. `prompt_tokens`
+covers every input token; `cached_tokens` is the share read from a prompt cache
+and `cache_write_tokens` the share written to one. `cost` is what kon priced the
+response at, in US dollars, from the model's configured or catalog prices when
+it ran; it is absent for an unpriced model. A compaction entry's `usage` has
+the same shape. The status bar's total is the sum of every `cost` in the file,
+so later price changes never rewrite what a session already spent, plus the
+same sum over every session whose `parent_session_id` leads back to it.
+
 Assistant tool calls are `tool_call` parts with opaque IDs and JSON arguments.
 The `parts` array is the sole content source and preserves reasoning blocks,
 tool calls, text, and provider-owned metadata in order. An `image` part holds

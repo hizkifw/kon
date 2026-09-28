@@ -521,13 +521,16 @@ func (u *messagesUsage) merge(later *messagesUsage) {
 
 // usage converts the report. The API's input_tokens counts only the uncached
 // remainder, so the prompt size kon stores is the sum of all three input
-// fields, with the cache reads recorded as the cached share.
+// fields, with the cache reads and writes recorded as their shares.
 func (u messagesUsage) usage() *session.Usage {
 	prompt := u.InputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens
 	if prompt == 0 && u.OutputTokens == 0 {
 		return nil
 	}
-	return &session.Usage{PromptTokens: prompt, CompletionTokens: u.OutputTokens, TotalTokens: prompt + u.OutputTokens, CachedTokens: u.CacheReadInputTokens}
+	return &session.Usage{
+		PromptTokens: prompt, CompletionTokens: u.OutputTokens, TotalTokens: prompt + u.OutputTokens,
+		CachedTokens: u.CacheReadInputTokens, CacheWriteTokens: u.CacheCreationInputTokens,
+	}
 }
 
 type messagesStreamState struct {

@@ -34,6 +34,7 @@ func (m *Model) loadSession() tea.Cmd {
 	m.follow = nil
 	m.followEpoch++
 	history := m.runtime.SessionHistory()
+	m.spent = session.TotalUsage(history).Cost
 	if !m.runtime.State().Following() {
 		m.applyHistory(history)
 		return nil
@@ -62,6 +63,7 @@ func (m *Model) applyFollowed(msg followedMsg) tea.Cmd {
 	}
 	if len(msg.followed.Entries) > 0 {
 		m.replay(&m.transcript, m.follow, msg.followed.Entries)
+		m.spent += session.TotalUsage(msg.followed.Entries).Cost
 		m.refreshTranscript(true)
 	}
 	switch {
@@ -108,6 +110,7 @@ func (m *Model) takeOver() bool {
 		return false
 	}
 	m.replay(&m.transcript, m.follow, missed)
+	m.spent += session.TotalUsage(missed).Cost
 	// The writer has let go, so a turn it left open was never finished.
 	m.follow.finish(&m.transcript)
 	m.follow = nil

@@ -24,6 +24,7 @@ go test -run '^$' -bench DecodeChatStream -benchmem ./internal/provider
 | `internal/markdown` `BenchmarkStream*`, `BenchmarkRender*` | streamed markdown rendering |
 | `internal/ui` `BenchmarkTranscriptRender*`, `BenchmarkViewportRefresh` | transcript folding and per-frame refresh; see [rendering-performance.md](rendering-performance.md) |
 | `internal/catalog` `BenchmarkNew` | loading the bundled model catalog |
+| `internal/session` `BenchmarkSubagents*` | counting subagent usage in a workspace of 2,000 sessions: the first read, the once-a-second read, and the memory kept while following them (`retained-MiB`) |
 
 Several stream benchmarks grow their input on every iteration, so their
 `ns/op` depends on `b.N` and is not comparable across machines or runs. Compare

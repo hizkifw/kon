@@ -360,6 +360,67 @@ func TestToggleOnlyCatalogModelCanTurnReasoningOff(t *testing.T) {
 	}
 }
 
+// TestDerivedModelIsPricedFromCatalog checks that a derived model takes its
+// prices from the catalog, while an explicit profile keeps only what its
+// config says, even for a model the catalog knows.
+func TestDerivedModelIsPricedFromCatalog(t *testing.T) {
+	root := t.TempDir()
+	paths := config.Paths{ConfigFile: filepath.Join(root, "config.json"), Sessions: filepath.Join(root, "sessions")}
+	cfg := config.Default()
+	cfg.Providers = []config.Provider{{ID: "anthropic", Type: "anthropic"}}
+	cfg.Models = []config.Model{{Name: "mine", Type: "anthropic", ModelID: "claude-sonnet-4-5"}}
+	cfg.DefaultModel = "mine"
+	runtime, err := New(cfg, paths, t.TempDir(), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+	metadata, ok := runtime.catalogService().Model("anthropic", "claude-sonnet-4-5")
+	if !ok || metadata.Cost.Input == 0 {
+		t.Fatalf("catalog has no price for the model: %+v", metadata)
+	}
+	derived, _ := runtime.resolveModel("anthropic/claude-sonnet-4-5")
+	if derived.Cost != config.Cost(metadata.Cost) {
+		t.Fatalf("derived cost = %+v, want the catalog's %+v", derived.Cost, metadata.Cost)
+	}
+	if explicit, _ := runtime.resolveModel("mine"); explicit.Cost != (config.Cost{}) {
+		t.Fatalf("explicit profile took catalog prices: %+v", explicit.Cost)
+	}
+}
+
+func TestSubagentUsageReadsChildSessions(t *testing.T) {
+	root := t.TempDir()
+	paths := config.Paths{ConfigFile: filepath.Join(root, "config.json"), Sessions: filepath.Join(root, "sessions")}
+	cwd := t.TempDir()
+	for _, incognito := range []bool{false, true} {
+		runtime, err := Start(config.Default(), paths, cwd, "test", Options{Incognito: incognito})
+		if err != nil {
+			t.Fatal(err)
+		}
+		child, err := session.NewChild(paths.Sessions, cwd, "test", "system", runtime.store.ID())
+		if err != nil {
+			t.Fatal(err)
+		}
+		answer := session.TextMessage(session.RoleAssistant, "done")
+		answer.Usage = &session.Usage{PromptTokens: 10, CompletionTokens: 2, Cost: 0.5}
+		for _, message := range []session.Message{session.TextMessage(session.RoleUser, "task"), answer} {
+			if _, err := child.AppendMessage(message); err != nil {
+				t.Fatal(err)
+			}
+		}
+		want := 0.5
+		if incognito {
+			// Its real subagents would be incognito and write nothing.
+			want = 0
+		}
+		if got := runtime.SubagentUsage().Cost; got != want {
+			t.Fatalf("incognito=%v: subagent cost = %v, want %v", incognito, got, want)
+		}
+		child.Close()
+		runtime.Close()
+	}
+}
+
 func TestCycleEffortReadsDerivedModelLevelsFromCatalog(t *testing.T) {
 	root := t.TempDir()
 	paths := config.Paths{ConfigFile: filepath.Join(root, "config.json"), Sessions: filepath.Join(root, "sessions")}

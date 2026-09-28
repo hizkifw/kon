@@ -99,6 +99,9 @@ type Runtime struct {
 	// frontend.
 	jobs    map[*session.Store]*tools.Jobs
 	notices chan string
+	// subagents counts the usage of the live session's subagents, for the
+	// session it was made for.
+	subagents *session.Subagents
 
 	// pinned keeps the active model across a resume instead of restoring the
 	// session's recorded one, and effort, when set, replaces the saved
@@ -135,6 +138,7 @@ func (m modelSpec) providerSpec() provider.Spec {
 		Name: m.Name, Format: m.WireFormat(), ModelID: m.ModelID,
 		BaseURL: m.BaseURL, APIKey: m.APIKey, Headers: m.Headers,
 		Vision: m.Vision, Reasoning: m.Reasoning, ReasoningEffort: m.effort,
+		Pricing: provider.Pricing(m.Cost),
 	}
 }
 
@@ -338,6 +342,32 @@ func (r *Runtime) SubagentPreview(id typedid.SessionID, maxTurns int) ([]session
 		return nil, err
 	}
 	return session.TailEntries(summary.Path, maxTurns)
+}
+
+// SubagentUsage adds up what the live session's subagents, and theirs in
+// turn, have used so far. It reads their session files, only what they
+// appended since the last call, and does so outside the runtime's lock.
+func (r *Runtime) SubagentUsage() session.Usage {
+	r.mu.Lock()
+	var id typedid.SessionID
+	var path string
+	switch {
+	case r.view != nil:
+		id, path = r.view.ID(), r.view.Path()
+	case r.store != nil:
+		id, path = r.store.ID(), r.store.Path()
+	}
+	// An incognito session's subagents are incognito too and write nothing.
+	if id.IsZero() || r.incognito {
+		r.mu.Unlock()
+		return session.Usage{}
+	}
+	if r.subagents == nil || r.subagents.Session() != id {
+		r.subagents = session.NewSubagents(path, id)
+	}
+	subagents := r.subagents
+	r.mu.Unlock()
+	return subagents.Usage()
 }
 
 // RunningJobs reports how many of the live session's background jobs are

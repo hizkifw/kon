@@ -74,6 +74,18 @@ type Model struct {
 	// the order Shift+Tab cycles through them. Empty means kon never sends an
 	// effort, so servers that reject the parameter keep working.
 	ReasoningEfforts []string `json:"reasoning_efforts,omitempty"`
+	// Cost prices the model's responses for the status bar. Left out, they
+	// go unpriced.
+	Cost Cost `json:"cost,omitzero"`
+}
+
+// Cost is what a model charges, in US dollars per million tokens, in the
+// shape models.dev publishes it.
+type Cost struct {
+	Input      float64 `json:"input"`
+	Output     float64 `json:"output"`
+	CacheRead  float64 `json:"cache_read,omitempty"`
+	CacheWrite float64 `json:"cache_write,omitempty"`
 }
 
 type Compaction struct {
@@ -260,6 +272,9 @@ func (c Config) Validate() error {
 			if slices.Contains(model.ReasoningEfforts[:j], effort) {
 				return fmt.Errorf("model %q lists reasoning effort %q twice", model.Name, effort)
 			}
+		}
+		if cost := model.Cost; cost.Input < 0 || cost.Output < 0 || cost.CacheRead < 0 || cost.CacheWrite < 0 {
+			return fmt.Errorf("model %q cost must not be negative", model.Name)
 		}
 		if model.ContextWindowTokens < 0 {
 			return fmt.Errorf("model %q context_window_tokens must be non-negative", model.Name)

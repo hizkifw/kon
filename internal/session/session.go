@@ -51,6 +51,38 @@ type Usage struct {
 	// CachedTokens is the provider-reported share of PromptTokens that hit a
 	// prompt cache. PromptTokens always covers every input token.
 	CachedTokens tokens.Count `json:"cached_tokens,omitempty"`
+	// CacheWriteTokens is the share of PromptTokens written to a prompt
+	// cache, which some providers bill above the input rate.
+	CacheWriteTokens tokens.Count `json:"cache_write_tokens,omitempty"`
+	// Cost is what kon priced the response at, in US dollars, from the
+	// model's prices when it ran. It is absent when the model had no price.
+	Cost float64 `json:"cost,omitempty"`
+}
+
+// TotalUsage adds up the usage recorded on entries: assistant replies and the
+// summary calls of compactions. It totals a session, its own or a subagent's,
+// from what the session file already holds.
+func TotalUsage(entries []Entry) Usage {
+	var total Usage
+	for _, entry := range entries {
+		usage := entry.Usage
+		if entry.Message != nil {
+			usage = entry.Message.Usage
+		}
+		if usage != nil {
+			total.add(*usage)
+		}
+	}
+	return total
+}
+
+func (u *Usage) add(other Usage) {
+	u.PromptTokens += other.PromptTokens
+	u.CompletionTokens += other.CompletionTokens
+	u.TotalTokens += other.TotalTokens
+	u.CachedTokens += other.CachedTokens
+	u.CacheWriteTokens += other.CacheWriteTokens
+	u.Cost += other.Cost
 }
 
 type Role string

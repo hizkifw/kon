@@ -55,6 +55,8 @@ type fakeRuntime struct {
 	jobs     int
 	jobList  []tools.Job
 	killed   []int
+	// subagentCost is the cost SubagentUsage reports.
+	subagentCost float64
 
 	incognito bool
 }
@@ -78,7 +80,10 @@ func (f *fakeRuntime) Notices() <-chan string {
 	}
 	return f.notices
 }
-func (f *fakeRuntime) RunningJobs() int  { return f.jobs }
+func (f *fakeRuntime) RunningJobs() int { return f.jobs }
+func (f *fakeRuntime) SubagentUsage() session.Usage {
+	return session.Usage{Cost: f.subagentCost}
+}
 func (f *fakeRuntime) Jobs() []tools.Job { return f.jobList }
 func (f *fakeRuntime) KillJob(id int) error {
 	f.killed = append(f.killed, id)

@@ -364,7 +364,7 @@ func (m Model) newSession() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.transcript.reset()
-	m.contextTokens = -1
+	m.contextTokens, m.spent = -1, 0
 	m.follow = nil
 	m.followEpoch++
 	m.input.Reset()
@@ -372,7 +372,7 @@ func (m Model) newSession() (tea.Model, tea.Cmd) {
 	m.syncRuntimeState()
 	m.status = "new session"
 	m.refreshTranscript(true)
-	return m, nil
+	return m, m.resetSpend()
 }
 
 func (m Model) listModels() (tea.Model, tea.Cmd) {
@@ -547,7 +547,7 @@ func (m Model) resume(args []string) (tea.Model, tea.Cmd) {
 	m.syncRuntimeState()
 	m.refreshTranscript(true)
 	m.viewport.GotoBottom()
-	return m, follow
+	return m, tea.Batch(follow, m.resetSpend())
 }
 
 // listSessions renders the resumable sessions for this workspace.

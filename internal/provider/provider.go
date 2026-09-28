@@ -40,6 +40,31 @@ type Spec struct {
 	Reasoning bool
 	// ReasoningEffort is the level to request, or "" for the server default.
 	ReasoningEffort string
+	// Pricing prices each response the model returns.
+	Pricing Pricing
+}
+
+// Pricing is what a model charges, in US dollars per million tokens. The zero
+// value means the price is unknown, and responses are left unpriced.
+type Pricing struct {
+	Input, Output, CacheRead, CacheWrite float64
+}
+
+// Cost prices one response's usage in US dollars. Input read from or written
+// to a prompt cache is billed at the cache rates. A cache rate left at zero
+// falls back to the input rate, so an incomplete price list overstates a cost
+// rather than silently dropping part of it.
+func (p Pricing) Cost(u session.Usage) float64 {
+	read, write := p.CacheRead, p.CacheWrite
+	if read == 0 {
+		read = p.Input
+	}
+	if write == 0 {
+		write = p.Input
+	}
+	uncached := max(0, u.PromptTokens-u.CachedTokens-u.CacheWriteTokens)
+	return (float64(uncached)*p.Input + float64(u.CachedTokens)*read +
+		float64(u.CacheWriteTokens)*write + float64(u.CompletionTokens)*p.Output) / 1e6
 }
 
 // Client drives one configured model. It is the kon-facing half of the
@@ -47,6 +72,7 @@ type Spec struct {
 type Client struct {
 	model   Model
 	modelID typedid.ModelID
+	pricing Pricing
 }
 
 // New builds the client for a resolved model.
@@ -58,7 +84,7 @@ func New(spec Spec, readImage func(string) ([]byte, error)) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Client{model: model, modelID: typedid.ExternalModelID(spec.ModelID)}, nil
+	return &Client{model: model, modelID: typedid.ExternalModelID(spec.ModelID), pricing: spec.Pricing}, nil
 }
 
 // newModel builds the backend for a spec's wire format, chosen by its
@@ -147,6 +173,9 @@ func (c *Client) assistant(response Response) (session.Message, error) {
 func (c *Client) buildAssistant(response Response, partial bool) (session.Message, error) {
 	if response.Text() == "" && len(response.ToolCalls()) == 0 && !(partial && hasReasoning(response.Parts)) {
 		return session.Message{}, errors.New("provider returned an empty assistant message")
+	}
+	if response.Usage != nil {
+		response.Usage.Cost = c.pricing.Cost(*response.Usage)
 	}
 	message := session.Message{
 		Role: session.RoleAssistant, Parts: response.Parts,

@@ -56,6 +56,9 @@ type Event struct {
 	Details   json.RawMessage
 	Tokens    tokens.Count
 	Estimated bool
+	// Cost is what the response an EventUsage reports cost, in US dollars,
+	// or zero when the model has no price.
+	Cost float64
 	// Display carries an EventToolOutput snapshot: the running tool's own
 	// presentation of the call so far. It replaces any earlier snapshot for
 	// the same call.
@@ -297,7 +300,7 @@ func (r *Runner) run(ctx context.Context, prompt string, inbox *Inbox, emit func
 		emit(Event{Kind: EventAssistantDone})
 		if assistant.Usage != nil {
 			r.measure(assistantID, *assistant.Usage)
-			emit(Event{Kind: EventUsage, Tokens: r.measured})
+			emit(Event{Kind: EventUsage, Tokens: r.measured, Cost: assistant.Usage.Cost})
 		}
 		calls := assistant.ToolCalls()
 		if len(calls) == 0 {
@@ -477,7 +480,11 @@ func (r *Runner) compactIfNeeded(ctx context.Context, force bool, emit func(Even
 	}
 	r.measured, r.measuredAt = 0, typedid.EntryID{}
 	emit(Event{Kind: EventCompacted, Text: summary, Tokens: used, Estimated: estimated})
-	emit(Event{Kind: EventUsage, Tokens: -1})
+	var cost float64
+	if response.Usage != nil {
+		cost = response.Usage.Cost
+	}
+	emit(Event{Kind: EventUsage, Tokens: -1, Cost: cost})
 	return true, nil
 }
 
