@@ -543,7 +543,48 @@ func continuationDocs() []string {
 		"x\n\n- a\n\n  cont\n\n- c\n\n  - deep\n  - deeper\n\n# Done",
 		"## Sub heading\n\n<script>\nvar x;\n\nstill script\n\n# Heading\n\n| ",
 	)
+
+	// Runs of blank lines: they freeze like one, except where the run hides
+	// an opener line, as an empty list item's marker.
+	docs = append(docs,
+		"para\n\n\npara2",
+		"x\n\n\n- \n\n  - a\n  - b\n",
+		"- a\n\n\n- b",
+		"    code one\n\n\n    code two",
+		"```\ncode\n```\n\n\nafter",
+		"> q\n\n \n\t\nafter",
+		"# H\n\n\n\npara",
+	)
 	return docs
+}
+
+// TestBlankLinesFreeze checks when blank lines let a streamed block freeze. A
+// paragraph, quote, or table freezes on its blank line, so a message piped
+// into kon md shows before the tool calls that follow it; a list waits for
+// the next block, which could still be one of its items. A run of blank lines
+// freezes like one: kon run's output has one wherever a message ending in a
+// blank line meets its separator, and a block that never froze held back
+// every block after it.
+func TestBlankLinesFreeze(t *testing.T) {
+	cases := []struct {
+		text   string
+		frozen []string
+	}{
+		{"first paragraph\n", nil},
+		{"first paragraph\n\n", []string{"first paragraph"}},
+		{"> quoted\n\n", []string{"▏ quoted"}},
+		{"- item\n\n", nil},
+		{"- item\n\n\npara", []string{"• item"}},
+		{"first paragraph\n\n\nsecond", []string{"first paragraph"}},
+		{"first paragraph\n \n\t\n\nsecond", []string{"first paragraph"}},
+	}
+	for _, tc := range cases {
+		s := NewStream(testTheme, 40)
+		s.Write(tc.text)
+		if got := lineTexts(s.Lines()); !equalSlices(got, tc.frozen) {
+			t.Fatalf("text=%q: frozen %q, want %q", tc.text, got, tc.frozen)
+		}
+	}
 }
 
 // TestStreamConvergesRandomized generates random documents from markdown

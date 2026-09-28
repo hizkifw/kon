@@ -370,7 +370,9 @@ func TestPrintMarkdownStreamsClosedBlocks(t *testing.T) {
 			t.Fatalf("printed %q, want %q", got, want)
 		}
 	}
-	if _, err := io.WriteString(feed, "# Title\n\nfirst paragraph\n\nsecond"); err != nil {
+	// Two blank lines separate the paragraphs, as where kon run's separator
+	// follows a message that already ended in a blank line.
+	if _, err := io.WriteString(feed, "# Title\n\nfirst paragraph\n\n\nsecond"); err != nil {
 		t.Fatal(err)
 	}
 	next("Title")

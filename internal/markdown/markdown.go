@@ -33,9 +33,10 @@ func parse(src []byte) ast.Node {
 // prefix. The same discipline as the transcript's chunk and line caches.
 //
 // Tail cost is O(tail): text stays unfrozen until a hard boundary (a blank
-// line followed by a block opener, or a structural close), so one long
-// paragraph with no blank lines re-parses per frame — the same trade kon's
-// plainWrapper liveStream makes for prose, with a heavier constant. Callers
+// line after a paragraph, quote, or table, a blank line followed by a block
+// opener, or a structural close), so one long paragraph with no blank lines
+// re-parses per frame — the same trade kon's plainWrapper liveStream makes
+// for prose, with a heavier constant. Callers
 // painting a frame that must be complete call Finish (equivalently Render)
 // once the stream ends; a Finish'd stream can no longer accept appends.
 type Stream struct {

@@ -113,6 +113,13 @@ func lineStartBefore(source []byte, off int) int {
 	return 0
 }
 
+// blankAfterFirstLine reports whether every line of gap after its first is
+// empty or whitespace.
+func blankAfterFirstLine(gap []byte) bool {
+	_, rest, _ := bytes.Cut(gap, []byte("\n"))
+	return len(bytes.Trim(rest, " \t\n")) == 0
+}
+
 // fenceCloserLine reports whether line is a fenced-code closer: a run of at
 // least three backticks or tildes (of one kind) with optional trailing
 // whitespace. The line must already have leading spaces trimmed.
@@ -296,11 +303,12 @@ func indentedLine(line []byte) bool {
 // renderClosed walks node's children and renders the provably closed ones.
 //
 // A block is closed when a later sibling block begins after it (the next
-// known segment start marks the boundary past the blank separator), or when it
-// is the final block and the source ends with a blank line. Headings and
-// thematic breaks close after a single trailing newline: no following line can
-// join them. Everything else stays open at EOF so lazy continuations, setext
-// underlines, list items, and fence closings can still arrive in later deltas.
+// known segment start marks the boundary past the blank separators), or, for a
+// paragraph, quote, or table, when it is the final block and the source ends
+// with a blank line. Headings and thematic breaks close after a single
+// trailing newline: no following line can join them. Everything else stays
+// open at EOF so list items, indented code, and fence closings can still
+// arrive in later deltas.
 //
 // This is the equivalent of omp's stableBlockBoundary: the freeze boundary
 // only ever sits where a blank line (or a structurally closed line) ends.
@@ -351,17 +359,20 @@ func (r *blockRenderer) renderChildren(node ast.Node, source []byte, freezeOnly 
 			}
 			end, closed = lineStartBefore(source, nextStart), true
 			// The boundary must sit directly after this block's own source
-			// plus one blank separator. A larger gap means the next
-			// sibling's segment start hides earlier opener lines — e.g.
+			// plus blank separators. A larger gap with text in it means the
+			// next sibling's segment start hides earlier opener lines — e.g.
 			// "- \n\n  - a" is one list whose empty first item "- " has no
 			// content segment, so the list's real start is its marker line,
 			// not "a". Freezing past those lines would orphan them into the
-			// tail, where they re-parse as a different tree.
+			// tail, where they re-parse as a different tree. A run of blank
+			// lines hides nothing, and kon run's output has one wherever a
+			// message ending in a blank line meets its own separator.
 			if stop := subtreeStop(c); stop >= 0 {
 				lastLine := lineStartBefore(source, stop)
 				if end > lastLine {
-					blankLines := bytes.Count(source[lastLine:end], []byte("\n")) - 1
-					if blankLines > 1 {
+					gap := source[lastLine:end]
+					blankLines := bytes.Count(gap, []byte("\n")) - 1
+					if blankLines > 1 && !blankAfterFirstLine(gap) {
 						end, closed = 0, false
 					}
 				}
@@ -415,6 +426,12 @@ func (r *blockRenderer) renderChildren(node ast.Node, source []byte, freezeOnly 
 					closed = true
 					end = lineStartBefore(source, h.ClosureLine.Stop)
 				}
+			case c.Kind() == ast.KindParagraph, c.Kind() == ast.KindBlockquote, c.Kind() == extast.KindTable:
+				// Nothing continues these across a blank line, so the blank
+				// line closes them without waiting for the next block. A
+				// reply piped into kon md then shows a message that ends in
+				// a blank line before the tool calls that follow it.
+				closed = bytes.HasSuffix(source, []byte("\n\n"))
 			default:
 				// A blank line closes a block only if what follows cannot
 				// continue it: lists and indented code merge across blanks
