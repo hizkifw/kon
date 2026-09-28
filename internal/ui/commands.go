@@ -372,7 +372,7 @@ func modelLabel(option app.Model) string {
 
 func (m Model) newSession() (tea.Model, tea.Cmd) {
 	if err := m.runtime.NewSession(); err != nil {
-		m.status = "error: " + err.Error()
+		m.message = "error: " + err.Error()
 		return m, nil
 	}
 	m.transcript.reset()
@@ -382,7 +382,7 @@ func (m Model) newSession() (tea.Model, tea.Cmd) {
 	m.input.Reset()
 	m.history.resetPosition()
 	m.syncRuntimeState()
-	m.status = "new session"
+	m.message = "new session"
 	m.refreshTranscript(true)
 	return m, m.resetSpend()
 }
@@ -402,7 +402,7 @@ func (m Model) listModels() (tea.Model, tea.Cmd) {
 	}
 	m.transcript.add(block{kind: blockModels, text: strings.Join(lines, "\n")})
 	m.input.Reset()
-	m.status = "switch with /model [name]"
+	m.message = "switch with /model [name]"
 	m.refreshTranscript(true)
 	return m, nil
 }
@@ -410,17 +410,17 @@ func (m Model) listModels() (tea.Model, tea.Cmd) {
 func (m Model) switchModel(name string) (tea.Model, tea.Cmd) {
 	if name == m.active.Name {
 		m.input.Reset()
-		m.status = "already using " + name
+		m.message = "already using " + name
 		return m, nil
 	}
 	if err := m.runtime.SwitchModel(name); err != nil {
-		m.status = "error: " + err.Error()
+		m.message = "error: " + err.Error()
 		return m, nil
 	}
 	m.syncRuntimeState()
 	m.contextTokens = -1
 	m.input.Reset()
-	m.status = "model: " + name + " (saved to config)"
+	m.message = "model: " + name + " (saved to config)"
 	m.transcript.add(block{kind: blockModel, text: modelChangedText(m.active)})
 	m.refreshTranscript(true)
 	return m, nil
@@ -430,16 +430,16 @@ func (m Model) switchModel(name string) (tea.Model, tea.Cmd) {
 // shows in the header, so the status line only confirms the change.
 func (m Model) cycleEffort() (tea.Model, tea.Cmd) {
 	if m.busy {
-		m.status = "agent is busy; change the effort after this turn"
+		m.message = "agent is busy; change the effort after this turn"
 		return m, nil
 	}
 	effort, err := m.runtime.CycleEffort()
 	if err != nil {
-		m.status = err.Error()
+		m.message = err.Error()
 		return m, nil
 	}
 	m.syncRuntimeState()
-	m.status = "reasoning effort: " + effortLabel(effort) + " (saved to config)"
+	m.message = "reasoning effort: " + effortLabel(effort) + " (saved to config)"
 	return m, nil
 }
 
@@ -447,7 +447,7 @@ func (m Model) cycleEffort() (tea.Model, tea.Cmd) {
 // operation is in flight and reports when there is nothing safe to compact.
 func (m Model) compact() (tea.Model, tea.Cmd) {
 	if m.busy {
-		m.status = "agent is busy; Esc interrupts"
+		m.message = "agent is busy; Esc interrupts"
 		return m, nil
 	}
 	if !m.takeOver() {
@@ -455,7 +455,7 @@ func (m Model) compact() (tea.Model, tea.Cmd) {
 	}
 	state := m.runtime.State()
 	if !state.Ready() {
-		m.status = state.Problem.Error() + " in " + m.configPath
+		m.message = state.Problem.Error() + " in " + m.configPath
 		return m, nil
 	}
 	m.input.Reset()
@@ -536,22 +536,22 @@ func (m Model) resume(args []string) (tea.Model, tea.Cmd) {
 	id, err := typedid.ParseSessionID(args[0])
 	if err != nil {
 		m.input.Reset()
-		m.status = "error: " + err.Error()
+		m.message = "error: " + err.Error()
 		return m, nil
 	}
 	if current := m.runtime.SessionID(); current == id {
 		m.input.Reset()
-		m.status = "already on " + id.String()
+		m.message = "already on " + id.String()
 		return m, nil
 	}
 	if err := m.runtime.Resume(id); err != nil {
 		m.input.Reset()
-		m.status = "error: " + err.Error()
+		m.message = "error: " + err.Error()
 		return m, nil
 	}
 	m.transcript.reset()
 	m.contextTokens = -1
-	m.status = "resumed " + id.String()
+	m.message = "resumed " + id.String()
 	follow := m.loadSession()
 	m.seedContextUsage()
 	m.input.Reset()
@@ -567,13 +567,13 @@ func (m Model) listSessions() (tea.Model, tea.Cmd) {
 	summaries, err := m.runtime.Sessions()
 	if err != nil {
 		m.input.Reset()
-		m.status = "error: " + err.Error()
+		m.message = "error: " + err.Error()
 		return m, nil
 	}
 	m.input.Reset()
 	current := m.runtime.SessionID().String()
 	if len(summaries) == 0 {
-		m.status = "no sessions to resume"
+		m.message = "no sessions to resume"
 		return m, nil
 	}
 	lines := make([]string, 0, len(summaries))
@@ -595,7 +595,7 @@ func (m Model) listSessions() (tea.Model, tea.Cmd) {
 		lines = append(lines, line)
 	}
 	m.transcript.add(block{kind: blockModels, text: strings.Join(lines, "\n")})
-	m.status = "resume with /resume [id]"
+	m.message = "resume with /resume [id]"
 	m.refreshTranscript(true)
 	return m, nil
 }

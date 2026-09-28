@@ -107,8 +107,8 @@ func TestInterruptSendsPendingSteerAndHoldsQueue(t *testing.T) {
 	m.busy, m.runCancel = true, func() {}
 	updated, _ = m.Update(runDoneMsg{err: context.Canceled})
 	m = updated.(Model)
-	if m.busy || len(m.queued) != 1 || !strings.Contains(m.status, "queue held") {
-		t.Fatalf("busy = %v, queued = %q, status = %q", m.busy, m.queued, m.status)
+	if m.busy || len(m.queued) != 1 || !strings.Contains(m.message, "queue held") {
+		t.Fatalf("busy = %v, queued = %q, status = %q", m.busy, m.queued, m.message)
 	}
 	if view := plain(m.View().Content); !strings.Contains(view, "⏎ send next queued") {
 		t.Fatalf("held queue has no hint:\n%s", view)
@@ -168,8 +168,8 @@ func TestQueueCommandReportsSteerAlreadySent(t *testing.T) {
 	m.syncSteering()
 	m.inbox.Take() // the runner delivered it before the command ran
 	updated, _ := m.managePending([]string{"1"})
-	if got := updated.(Model); got.status != "already sent to the agent" || got.input.Value() != "" {
-		t.Fatalf("status = %q, input = %q", got.status, got.input.Value())
+	if got := updated.(Model); got.message != "already sent to the agent" || got.input.Value() != "" {
+		t.Fatalf("status = %q, input = %q", got.message, got.input.Value())
 	}
 }
 
@@ -218,8 +218,8 @@ func TestJobsPickerPreviewsAndKills(t *testing.T) {
 	m := newTestModel(t)
 	runtime := m.runtime.(*fakeRuntime)
 	updated, _ := m.listJobs(nil)
-	if got := updated.(Model); got.status != "no background jobs" {
-		t.Fatalf("status = %q", got.status)
+	if got := updated.(Model); got.message != "no background jobs" {
+		t.Fatalf("status = %q", got.message)
 	}
 	runtime.jobList = []tools.Job{
 		{ID: 2, Command: "go test ./...", Output: "/nonexistent"},
@@ -236,7 +236,7 @@ func TestJobsPickerPreviewsAndKills(t *testing.T) {
 		t.Fatalf("kill picker = %#v", running)
 	}
 	updated, _ = m.killJob("2")
-	if got := updated.(Model); got.status != "stopped job 2" || len(runtime.killed) != 1 || runtime.killed[0] != 2 {
-		t.Fatalf("status = %q, killed = %v", got.status, runtime.killed)
+	if got := updated.(Model); got.message != "stopped job 2" || len(runtime.killed) != 1 || runtime.killed[0] != 2 {
+		t.Fatalf("status = %q, killed = %v", got.message, runtime.killed)
 	}
 }

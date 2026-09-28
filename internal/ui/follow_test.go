@@ -35,8 +35,8 @@ func transcriptText(m Model) string { return plain(strings.Join(m.transcript.lin
 
 func TestFollowingSessionOpensReadOnlyWithItsTurnRunning(t *testing.T) {
 	m, _ := newFollowingModel(t)
-	if m.follow == nil || m.status != "read-only: open in another session · working" {
-		t.Fatalf("follow = %v, status = %q", m.follow, m.status)
+	if m.follow == nil || m.mode() != "read-only: open in another session · working" {
+		t.Fatalf("follow = %v, mode = %q", m.follow, m.mode())
 	}
 	if got := transcriptText(m); !strings.Contains(got, "fix it") || strings.Contains(got, "Stopped abruptly") {
 		t.Fatalf("a running turn was replayed as stopped:\n%s", got)
@@ -63,12 +63,12 @@ func TestFollowAppendsWhatTheWriterWrote(t *testing.T) {
 	if got := transcriptText(m); !strings.Contains(got, "fixed") || !strings.Contains(got, "Worked for 3s") {
 		t.Fatalf("transcript after follow:\n%s", got)
 	}
-	if m.status != "read-only: open in another session" {
-		t.Fatalf("status = %q", m.status)
+	if m.mode() != "read-only: open in another session" {
+		t.Fatalf("mode = %q", m.mode())
 	}
 	updated, _ = m.Update(followedMsg{epoch: m.followEpoch, followed: app.Followed{Session: runtime.id, Free: true}})
-	if status := updated.(Model).status; status != "read-only: session is free, send a prompt to continue here" {
-		t.Fatalf("status once free = %q", status)
+	if mode := updated.(Model).mode(); mode != "read-only: session is free, send a prompt to continue here" {
+		t.Fatalf("mode once free = %q", mode)
 	}
 }
 
@@ -88,15 +88,15 @@ func TestPromptWhileHeldStaysReadOnly(t *testing.T) {
 	m.input.SetValue("my turn")
 	updated, _ := m.submit()
 	m = updated.(Model)
-	if m.status != "read-only: still open in another session" || m.follow == nil || m.busy || runtime.runs.Load() != 0 {
-		t.Fatalf("status = %q, following = %v, busy = %v", m.status, m.follow != nil, m.busy)
+	if m.message != "read-only: still open in another session" || m.follow == nil || m.busy || runtime.runs.Load() != 0 {
+		t.Fatalf("status = %q, following = %v, busy = %v", m.message, m.follow != nil, m.busy)
 	}
 	if m.input.Value() != "my turn" {
 		t.Fatal("a refused prompt was cleared from the input")
 	}
 	// The refusal stays up until the follow state has something new to say.
 	updated, _ = m.Update(followedMsg{epoch: m.followEpoch, followed: app.Followed{Session: runtime.id}})
-	if status := updated.(Model).status; status != "read-only: still open in another session" {
+	if status := updated.(Model).message; status != "read-only: still open in another session" {
 		t.Fatalf("status after an idle read = %q", status)
 	}
 }

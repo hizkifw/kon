@@ -251,8 +251,10 @@ directory's permissions rather than running kon as root.
 | Ctrl+R | Reverse-search prompt history; type to match, Ctrl+R or Up for older matches, Down for newer, Enter accepts, Esc cancels |
 
 The status bar shows the working directory, context usage, what the session
-has cost, and the result of your last command; what a turn is doing shows in
-the transcript instead. The header shows the active model and, for a model with reasoning
+has cost, the mode kon is in, such as a login in progress or a session it can
+only read, and the result of your last command; what a turn is doing shows in
+the transcript instead. A result stays until the next one replaces it, except
+for a copy's, which passes after a few seconds. The header shows the active model and, for a model with reasoning
 effort levels, the selected level (`default` when kon sends none). `ctx ~12.4k/128.0k` means usage is
 estimated; `?` means the provider has not supplied enough information yet.
 

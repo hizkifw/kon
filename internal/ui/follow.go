@@ -41,8 +41,7 @@ func (m *Model) loadSession() tea.Cmd {
 	}
 	m.follow = &replayState{}
 	m.replay(&m.transcript, m.follow, history)
-	m.followStatus = ""
-	m.showFollowStatus(false)
+	m.setFollowMode(false)
 	return followTick(m.followEpoch)
 }
 
@@ -68,29 +67,25 @@ func (m *Model) applyFollowed(msg followedMsg) tea.Cmd {
 	}
 	switch {
 	case errors.Is(msg.err, session.ErrRemoved):
-		m.status = "read-only: session was removed"
+		m.followMode = "read-only: session was removed"
 		return nil
 	case msg.err != nil:
-		m.status = "error: " + msg.err.Error()
+		m.message = "error: " + msg.err.Error()
 		return nil
 	}
-	m.showFollowStatus(msg.followed.Free)
+	m.setFollowMode(msg.followed.Free)
 	return followTick(m.followEpoch)
 }
 
-// showFollowStatus names the follow state in the status line. It writes only
-// when the state changes, so a message such as a refused takeover stays up
-// until there is something new to say.
-func (m *Model) showFollowStatus(free bool) {
-	status := "read-only: open in another session"
+// setFollowMode names what the followed session is doing: whether its writer
+// is working, or has let go so a prompt here would take it over.
+func (m *Model) setFollowMode(free bool) {
+	m.followMode = "read-only: open in another session"
 	switch {
 	case free:
-		status = "read-only: session is free, send a prompt to continue here"
+		m.followMode = "read-only: session is free, send a prompt to continue here"
 	case m.follow.open:
-		status += " · working"
-	}
-	if status != m.followStatus {
-		m.followStatus, m.status = status, status
+		m.followMode += " · working"
 	}
 }
 
@@ -102,11 +97,11 @@ func (m *Model) takeOver() bool {
 	}
 	missed, err := m.runtime.TakeOver()
 	if errors.Is(err, session.ErrInUse) {
-		m.status = "read-only: still open in another session"
+		m.message = "read-only: still open in another session"
 		return false
 	}
 	if err != nil {
-		m.status = "error: " + err.Error()
+		m.message = "error: " + err.Error()
 		return false
 	}
 	m.replay(&m.transcript, m.follow, missed)

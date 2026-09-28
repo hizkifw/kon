@@ -86,9 +86,10 @@ func (m Model) View() tea.View {
 		status += " · " + formatCost(spent)
 	}
 	// The transcript shows what a turn is doing, so the status line carries
-	// only messages that answer the user, such as a command's result.
-	if m.status != "" {
-		status += " · " + m.status
+	// only the mode kon is in and messages that answer the user, such as a
+	// command's result.
+	if text := m.statusText(); text != "" {
+		status += " · " + text
 	}
 	transcript := m.viewport.View()
 	if t := m.activeTranscript(); t.selection != nil {

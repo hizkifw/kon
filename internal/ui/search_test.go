@@ -36,8 +36,8 @@ func TestCtrlROpensReverseSearchShowingNoResult(t *testing.T) {
 	if got := model.input.Value(); got != "draft" {
 		t.Fatalf("empty search changed the prompt: %q", got)
 	}
-	if model.status != "(reverse-i-search)`'" {
-		t.Fatalf("status = %q", model.status)
+	if got := model.statusText(); got != "(reverse-i-search)`'" {
+		t.Fatalf("status = %q", got)
 	}
 	// The search is prompt-and-status only: no popup list, like bash.
 	if model.menu.open() {
@@ -57,8 +57,8 @@ func TestReverseSearchNarrowsToQuery(t *testing.T) {
 	if got := model.input.Value(); got != "make check" {
 		t.Fatalf("match after typing query = %q", got)
 	}
-	if model.status != "(reverse-i-search)`make'" {
-		t.Fatalf("status = %q", model.status)
+	if got := model.statusText(); got != "(reverse-i-search)`make'" {
+		t.Fatalf("status = %q", got)
 	}
 }
 
@@ -104,7 +104,7 @@ func TestReverseSearchNoMatchKeepsPrompt(t *testing.T) {
 	// A query with no match must not clear the draft being typed.
 	updated, _ = model.Update(tea.KeyPressMsg{Code: 'z', Text: "z"})
 	model = updated.(Model)
-	if got := model.status; got != "(failed reverse-i-search)`z'" {
+	if got := model.statusText(); got != "(failed reverse-i-search)`z'" {
 		t.Fatalf("status = %q", got)
 	}
 	if got := model.input.Value(); got != "draft" {

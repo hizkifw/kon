@@ -29,7 +29,7 @@ type loginDoneMsg struct {
 
 func (m Model) startLogin(providerID string) (tea.Model, tea.Cmd) {
 	if m.busy {
-		m.status = "agent is busy; Esc interrupts"
+		m.message = "agent is busy; Esc interrupts"
 		return m, nil
 	}
 	input := textinput.New()
@@ -38,7 +38,7 @@ func (m Model) startLogin(providerID string) (tea.Model, tea.Cmd) {
 	input.Focus()
 	entry, ok := m.runtime.LoginEntry(providerID)
 	if !ok {
-		m.status = "unsupported provider: " + providerID
+		m.message = "unsupported provider: " + providerID
 		return m, nil
 	}
 	m.login = &loginFlow{
@@ -49,7 +49,7 @@ func (m Model) startLogin(providerID string) (tea.Model, tea.Cmd) {
 	m.input.Reset()
 	m.resetMenu()
 	m.login.setStep()
-	m.status = m.login.question()
+	m.message = ""
 	m.resize()
 	return m, nil
 }
@@ -94,7 +94,7 @@ func (m Model) updateLogin(msg tea.Msg) (tea.Model, tea.Cmd) {
 				f.cancel()
 			}
 			m.login = nil
-			m.status = "login cancelled"
+			m.message = "login cancelled"
 			m.resize()
 			return m, nil
 		case "enter":
@@ -107,7 +107,7 @@ func (m Model) updateLogin(msg tea.Msg) (tea.Model, tea.Cmd) {
 					value = f.entry.DefaultURL
 				}
 				if value == "" {
-					m.status = "provider URL is required"
+					m.message = "provider URL is required"
 					return m, nil
 				}
 				f.connection.BaseURL = value
@@ -116,11 +116,11 @@ func (m Model) updateLogin(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				f.step++
 				f.setStep()
-				m.status = f.question()
+				m.message = ""
 				return m, nil
 			}
 			if value == "" && !f.entry.KeyOptional {
-				m.status = "API key is required"
+				m.message = "API key is required"
 				return m, nil
 			}
 			f.connection.APIKey = value
@@ -137,7 +137,7 @@ func (m Model) updateLogin(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) beginLogin() (tea.Model, tea.Cmd) {
 	m.login.pending = true
-	m.status = m.login.question()
+	m.message = ""
 	ctx, cancel := context.WithCancel(m.ctx)
 	m.login.cancel = cancel
 	connection := m.login.connection
@@ -155,16 +155,16 @@ func (m Model) finishLogin(done loginDoneMsg) (tea.Model, tea.Cmd) {
 	m.login.pending = false
 	m.login.cancel = nil
 	if done.err != nil {
-		m.status = "login failed: " + done.err.Error()
+		m.message = "login failed: " + done.err.Error()
 		return m, nil
 	}
 	providerID := m.login.connection.ID
 	m.login = nil
 	m.syncRuntimeState()
 	if done.verified {
-		m.status = fmt.Sprintf("%s connected · %d models found · choose with /model", providerID, done.count)
+		m.message = fmt.Sprintf("%s connected · %d models found · choose with /model", providerID, done.count)
 	} else {
-		m.status = providerID + " saved · model listing unavailable · add an explicit model"
+		m.message = providerID + " saved · model listing unavailable · add an explicit model"
 	}
 	m.resize()
 	return m, nil

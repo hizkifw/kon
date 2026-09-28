@@ -87,7 +87,7 @@ func (m Model) listJobs(args []string) (tea.Model, tea.Cmd) {
 	if len(args) == 0 {
 		if len(all) == 0 {
 			m.input.Reset()
-			m.status = "no background jobs"
+			m.message = "no background jobs"
 			return m, nil
 		}
 		m.input.SetValue("/jobs ")
@@ -100,12 +100,12 @@ func (m Model) listJobs(args []string) (tea.Model, tea.Cmd) {
 		if strconv.Itoa(job.ID) == args[0] {
 			m.transcript.add(block{kind: blockContext, text: jobKind(job) + " " + args[0] + " · " + jobStatus(job)})
 			m.transcript.add(jobOutputBlock(job))
-			m.status = "output: " + abbreviateHome(job.Output)
+			m.message = "output: " + abbreviateHome(job.Output)
 			m.refreshTranscript(true)
 			return m, nil
 		}
 	}
-	m.status = "no job " + args[0]
+	m.message = "no job " + args[0]
 	return m, nil
 }
 
@@ -115,13 +115,13 @@ func (m Model) killJob(id string) (tea.Model, tea.Cmd) {
 	m.input.Reset()
 	n, err := strconv.Atoi(id)
 	if err != nil {
-		m.status = "no job " + id
+		m.message = "no job " + id
 		return m, nil
 	}
 	if err := m.runtime.KillJob(n); err != nil {
-		m.status = err.Error()
+		m.message = err.Error()
 		return m, nil
 	}
-	m.status = "stopped job " + id
+	m.message = "stopped job " + id
 	return m, nil
 }

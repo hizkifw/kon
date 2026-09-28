@@ -22,7 +22,7 @@ const maxPendingRows = 3
 // request. Several steers stack and arrive together.
 func (m Model) steer(text string) (tea.Model, tea.Cmd) {
 	if err := m.history.append(m.cwd, text); err != nil {
-		m.status = "error: " + err.Error()
+		m.message = "error: " + err.Error()
 		return m, nil
 	}
 	m.inbox.Push(text)
@@ -43,7 +43,7 @@ func (m Model) canQueue() bool {
 func (m Model) enqueue() (tea.Model, tea.Cmd) {
 	text := strings.TrimSpace(m.input.Value())
 	if err := m.history.append(m.cwd, text); err != nil {
-		m.status = "error: " + err.Error()
+		m.message = "error: " + err.Error()
 		return m, nil
 	}
 	m.queued = append(slices.Clone(m.queued), text)
@@ -88,7 +88,7 @@ func (m Model) dispatchPending(err error) (tea.Model, tea.Cmd) {
 		return m.sendQueued()
 	}
 	if errors.Is(err, context.Canceled) {
-		m.status = "interrupted · queue held, Enter sends the next"
+		m.message = "interrupted · queue held, Enter sends the next"
 	}
 	return m, nil
 }
@@ -207,7 +207,7 @@ func (m Model) managePending(args []string) (tea.Model, tea.Cmd) {
 	if len(args) == 0 {
 		if len(m.steering)+len(m.queued) == 0 {
 			m.input.Reset()
-			m.status = "nothing pending"
+			m.message = "nothing pending"
 			return m, nil
 		}
 		m.input.SetValue("/queue ")
@@ -220,12 +220,12 @@ func (m Model) managePending(args []string) (tea.Model, tea.Cmd) {
 		m.queued = nil
 		m.input.Reset()
 		m.syncSteering()
-		m.status = fmt.Sprintf("dropped %d pending", dropped)
+		m.message = fmt.Sprintf("dropped %d pending", dropped)
 		return m, nil
 	}
 	n, err := strconv.Atoi(args[0])
 	if err != nil || n < 1 || n > len(m.steering)+len(m.queued) {
-		m.status = "no pending message " + args[0]
+		m.message = "no pending message " + args[0]
 		return m, nil
 	}
 	var text string
@@ -234,7 +234,7 @@ func (m Model) managePending(args []string) (tea.Model, tea.Cmd) {
 		if !ok {
 			m.input.Reset()
 			m.syncSteering()
-			m.status = "already sent to the agent"
+			m.message = "already sent to the agent"
 			return m, nil
 		}
 		text = removed
@@ -247,6 +247,6 @@ func (m Model) managePending(args []string) (tea.Model, tea.Cmd) {
 	m.input.SetValue(text)
 	m.input.CursorEnd()
 	m.refreshInput()
-	m.status = "pulled back for editing"
+	m.message = "pulled back for editing"
 	return m, nil
 }

@@ -177,7 +177,7 @@ func TestShiftTabCyclesEffortIntoHeader(t *testing.T) {
 		t.Fatalf("header without levels = %q", got)
 	}
 	updated, _, _ := m.handleKey("shift+tab")
-	if status := updated.(Model).status; status != app.ErrNoEffort.Error() {
+	if status := updated.(Model).message; status != app.ErrNoEffort.Error() {
 		t.Fatalf("status without levels = %q", status)
 	}
 	m.runtime.(*fakeRuntime).state.Active.ReasoningEfforts = []string{"low", "none"}
@@ -345,8 +345,8 @@ func TestLoginMasksKeyAndKeepsItOutOfTranscript(t *testing.T) {
 	}
 	finished, _ := m.Update(cmd())
 	m = finished.(Model)
-	if m.login != nil || !strings.Contains(m.status, "connected") {
-		t.Fatalf("login did not finish: %q", m.status)
+	if m.login != nil || !strings.Contains(m.message, "connected") {
+		t.Fatalf("login did not finish: %q", m.message)
 	}
 	if strings.Contains(m.transcript.render(80), "topsecret") {
 		t.Fatal("API key entered the transcript")
@@ -410,7 +410,7 @@ func TestAzureLoginRequiresEndpointAndKey(t *testing.T) {
 	updated, _ := m.updateLogin(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updated.(Model)
 	updated, cmd := m.updateLogin(tea.KeyPressMsg{Code: tea.KeyEnter})
-	if cmd != nil || !strings.Contains(updated.(Model).status, "API key is required") {
+	if cmd != nil || !strings.Contains(updated.(Model).message, "API key is required") {
 		t.Fatal("Azure accepted an empty API key")
 	}
 }
@@ -781,13 +781,13 @@ func TestEnterCompletesLikeTabThenSubmits(t *testing.T) {
 	if got.menu.open() {
 		t.Fatal("menu stayed open after completion")
 	}
-	if got.status == "new session" {
+	if got.message == "new session" {
 		t.Fatal("enter ran the command instead of only completing")
 	}
 	// With the menu closed a second Enter submits and runs the command.
 	submitted, _ := got.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	if submitted.(Model).status != "new session" {
-		t.Fatalf("second enter did not submit: status %q", submitted.(Model).status)
+	if submitted.(Model).message != "new session" {
+		t.Fatalf("second enter did not submit: status %q", submitted.(Model).message)
 	}
 }
 
@@ -936,14 +936,14 @@ func TestSecondEscKillsRunningCommand(t *testing.T) {
 	model.runCancel = func() { cancels++ }
 	first, _, handled := model.handleKey("esc")
 	firstModel := first.(Model)
-	if !handled || cancels != 1 || firstModel.interruptPresses != 1 || !strings.Contains(firstModel.status, "interrupt") {
-		t.Fatalf("first esc did not cancel the run: cancels=%d status %q", cancels, firstModel.status)
+	if !handled || cancels != 1 || firstModel.interruptPresses != 1 || !strings.Contains(firstModel.message, "interrupt") {
+		t.Fatalf("first esc did not cancel the run: cancels=%d status %q", cancels, firstModel.message)
 	}
 	second, _, _ := firstModel.handleKey("esc")
 	secondModel := second.(Model)
 	runtime := secondModel.runtime.(*fakeRuntime)
-	if runtime.kills != 1 || !strings.Contains(secondModel.status, "killed") {
-		t.Fatalf("second esc did not kill the command: kills=%d status %q", runtime.kills, secondModel.status)
+	if runtime.kills != 1 || !strings.Contains(secondModel.message, "killed") {
+		t.Fatalf("second esc did not kill the command: kills=%d status %q", runtime.kills, secondModel.message)
 	}
 }
 
@@ -961,8 +961,8 @@ func TestEscWithoutACommandReportsCancellation(t *testing.T) {
 	if secondModel.runtime.(*fakeRuntime).kills != 1 {
 		t.Fatal("second esc did not attempt the kill")
 	}
-	if !strings.Contains(secondModel.status, "no command to kill") {
-		t.Fatalf("second esc left a stale status: %q", secondModel.status)
+	if !strings.Contains(secondModel.message, "no command to kill") {
+		t.Fatalf("second esc left a stale status: %q", secondModel.message)
 	}
 }
 
@@ -1049,8 +1049,8 @@ func TestCtrlCClearsInputOrHints(t *testing.T) {
 	if !handled {
 		t.Fatal("ctrl+c on empty input was not handled")
 	}
-	if !strings.Contains(got.status, "Ctrl+D") {
-		t.Fatalf("ctrl+c on empty input did not hint at Ctrl+D: %q", got.status)
+	if !strings.Contains(got.message, "Ctrl+D") {
+		t.Fatalf("ctrl+c on empty input did not hint at Ctrl+D: %q", got.message)
 	}
 }
 
@@ -1274,8 +1274,8 @@ func TestInterruptedRunFinalizesStreamedTurn(t *testing.T) {
 	model.transcript.appendStream("half an answer")
 	updated, _ := model.Update(runDoneMsg{err: context.Canceled})
 	got := updated.(Model)
-	if got.busy || got.status != "interrupted" {
-		t.Fatalf("busy=%v status=%q", got.busy, got.status)
+	if got.busy || got.message != "interrupted" {
+		t.Fatalf("busy=%v status=%q", got.busy, got.message)
 	}
 	// The partial answer must stay on screen once the run is interrupted.
 	rendered := plain(got.viewport.View())
@@ -1511,8 +1511,8 @@ func TestResumeCommandReplaysSession(t *testing.T) {
 	if !strings.Contains(rendered, "earlier question") || !strings.Contains(rendered, "earlier answer") {
 		t.Fatalf("resumed transcript missing history: %q", rendered)
 	}
-	if got.status != "resumed "+id.String() {
-		t.Fatalf("status = %q", got.status)
+	if got.message != "resumed "+id.String() {
+		t.Fatalf("status = %q", got.message)
 	}
 }
 
@@ -1594,8 +1594,8 @@ func TestResumeCommandListsWithoutID(t *testing.T) {
 func TestResumeCommandRejectsMalformedID(t *testing.T) {
 	m := newTestModel(t)
 	updated, _ := m.resume([]string{"not-a-session"})
-	if got := updated.(Model); !strings.HasPrefix(got.status, "error:") {
-		t.Fatalf("status = %q", got.status)
+	if got := updated.(Model); !strings.HasPrefix(got.message, "error:") {
+		t.Fatalf("status = %q", got.message)
 	}
 }
 
@@ -1738,7 +1738,7 @@ func TestCompactCommandStartsBusyRun(t *testing.T) {
 	updated, cmd := m.submit()
 	got := updated.(Model)
 	if !got.busy || got.runEvents == nil {
-		t.Fatalf("compact did not start a run: busy=%v status=%q", got.busy, got.status)
+		t.Fatalf("compact did not start a run: busy=%v status=%q", got.busy, got.message)
 	}
 	if cmd == nil {
 		t.Fatal("compact did not return a wait command")
@@ -1763,8 +1763,8 @@ func TestCompactCommandRefusesWhileBusy(t *testing.T) {
 	if cmd != nil {
 		t.Fatal("compaction started while a run was in flight")
 	}
-	if got := updated.(Model); !strings.Contains(got.status, "busy") {
-		t.Fatalf("status = %q, want it to say the agent is busy", got.status)
+	if got := updated.(Model); !strings.Contains(got.message, "busy") {
+		t.Fatalf("status = %q, want it to say the agent is busy", got.message)
 	}
 }
 
@@ -1773,8 +1773,8 @@ func TestNothingToCompactIsNotAnError(t *testing.T) {
 	m.busy = true
 	updated, _ := m.Update(runDoneMsg{err: agent.ErrNothingToCompact})
 	got := updated.(Model)
-	if got.status != "nothing to compact" {
-		t.Fatalf("status = %q", got.status)
+	if got.message != "nothing to compact" {
+		t.Fatalf("status = %q", got.message)
 	}
 	// An error slab shows the bare message, so the message itself must stay
 	// out of the transcript; the status line already reports it.
@@ -1795,8 +1795,8 @@ func TestUnconfiguredLaunchGreetsInTranscript(t *testing.T) {
 		Active:  app.Model{Name: "default"},
 	}}
 	m := New(context.Background(), "/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
-	if m.status != "needs configuration" {
-		t.Fatalf("status = %q", m.status)
+	if m.mode() != "needs configuration" {
+		t.Fatalf("mode = %q", m.mode())
 	}
 	if len(m.transcript.blocks) != 1 || m.transcript.blocks[0].kind != blockAssistant {
 		t.Fatalf("unconfigured launch did not greet in the transcript: %#v", m.transcript.blocks)

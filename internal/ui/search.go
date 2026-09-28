@@ -16,7 +16,6 @@ import (
 type reverseSearch struct {
 	query   string
 	draft   string // prompt contents before the search began, restored on cancel
-	prior   string // status before the search began, restored when it ends
 	matches []string
 	index   int
 }
@@ -51,7 +50,7 @@ func (m Model) startSearch() (tea.Model, tea.Cmd) {
 	// search owns the prompt and status now, so close it and restore the live
 	// transcript.
 	m.resetMenu()
-	m.search = &reverseSearch{draft: m.input.Value(), prior: m.status}
+	m.search = &reverseSearch{draft: m.input.Value()}
 	m.search.refresh(m.history.entries)
 	m.syncSearch()
 	return m, nil
@@ -94,36 +93,36 @@ func (m Model) updateSearch(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// syncSearch mirrors the search state into the prompt and the status line: a
-// highlighted match fills the prompt so accepting it is a no-op, and the status
-// shows the query as bash does. An empty query shows just the (reverse-i-search)
-// status with no result; a query with no match reports (failed reverse-i-search)
-// and leaves the prompt untouched, both matching the shell.
+// syncSearch mirrors the search state into the prompt: a highlighted match
+// fills it, so accepting it is a no-op. A query with no match leaves the
+// prompt untouched, as the shell does.
 func (m *Model) syncSearch() {
 	s := m.search
 	if s == nil {
 		return
 	}
-	switch {
-	case s.query == "":
-		m.status = "(reverse-i-search)`'"
-	case len(s.matches) == 0:
-		m.status = "(failed reverse-i-search)`" + s.query + "'"
-	default:
+	if len(s.matches) > 0 {
 		m.input.SetValue(s.matches[s.index])
 		m.input.CursorEnd()
-		m.status = "(reverse-i-search)`" + s.query + "'"
 	}
 	m.resize()
+}
+
+// prompt shows the query in the status line as bash does: an empty query as
+// just (reverse-i-search), and a query with no match as (failed
+// reverse-i-search).
+func (s *reverseSearch) prompt() string {
+	if s.query != "" && len(s.matches) == 0 {
+		return "(failed reverse-i-search)`" + s.query + "'"
+	}
+	return "(reverse-i-search)`" + s.query + "'"
 }
 
 // acceptSearch commits the highlighted match to the prompt and closes the
 // search. The prompt already shows that match, so only the search state is torn
 // down.
 func (m Model) acceptSearch() Model {
-	prior := m.search.prior
 	m.search = nil
-	m.status = prior
 	m.resize()
 	m.input.CursorEnd()
 	return m
@@ -131,10 +130,9 @@ func (m Model) acceptSearch() Model {
 
 // cancelSearch restores the prompt contents captured when the search began.
 func (m Model) cancelSearch() Model {
-	draft, prior := m.search.draft, m.search.prior
+	draft := m.search.draft
 	m.search = nil
 	m.input.SetValue(draft)
-	m.status = prior
 	m.resize()
 	m.input.CursorEnd()
 	return m

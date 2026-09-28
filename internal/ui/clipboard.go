@@ -46,12 +46,12 @@ func (m Model) copyTranscript(args []string) (tea.Model, tea.Cmd) {
 	case "all":
 		text, name = m.transcript.conversation(), "the conversation"
 	default:
-		m.status = usageError(copyUsage).Error()
+		m.message = usageError(copyUsage).Error()
 		return m, nil
 	}
 	m.input.Reset()
 	if text == "" {
-		m.status = "nothing to copy yet"
+		m.message = "nothing to copy yet"
 		return m, nil
 	}
 	return m, tea.Batch(m.flash("copied "+name), copyToClipboard(text))

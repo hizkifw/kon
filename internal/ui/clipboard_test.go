@@ -37,8 +37,8 @@ func TestCopyWithNothingOrAnUnknownTargetCopiesNothing(t *testing.T) {
 	for _, input := range []string{"/copy", "/copy everything"} {
 		m.input.SetValue(input)
 		updated, cmd := m.submit()
-		if cmd != nil || updated.(Model).status == "" {
-			t.Fatalf("%s: cmd = %v, status = %q", input, cmd, updated.(Model).status)
+		if cmd != nil || updated.(Model).message == "" {
+			t.Fatalf("%s: cmd = %v, status = %q", input, cmd, updated.(Model).message)
 		}
 	}
 }

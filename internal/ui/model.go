@@ -97,9 +97,16 @@ type Model struct {
 	runtime                 Runtime
 	commands                *registry
 	active                  app.Model
-	cwd, configPath, status string
-	contextTokens           tokens.Count
-	contextApprox           bool
+	cwd, configPath         string
+	// message is the last thing that happened, as the status line tells it:
+	// a command's result, an error, a passing notice. The mode kon is in,
+	// which lasts as long as the mode does, is apart from it (see mode).
+	message string
+	// configured is whether kon has a model to send to, or follows a session
+	// that has one, as of the last sync with the runtime.
+	configured    bool
+	contextTokens tokens.Count
+	contextApprox bool
 	terminalFocused         bool
 	busy                    bool
 	runCancel               context.CancelFunc
@@ -141,9 +148,9 @@ type Model struct {
 	// click is the last press on the transcript, to tell double and triple
 	// clicks apart and to start a drag from.
 	click click
-	// flashing is the passing notice in the status line, nil when there is
-	// none. flashEpoch counts notices, so each clears only itself.
-	flashing   *statusFlash
+	// flashed is the last passing notice shown as the message. flashEpoch
+	// counts notices, so each clears only itself.
+	flashed    string
 	flashEpoch int
 	// killRing holds the last line segment removed by a kill key (Ctrl+U,
 	// Ctrl+K, Ctrl+W) so Ctrl+Y can yank it back, mirroring the shell's kill
@@ -169,11 +176,11 @@ type Model struct {
 	previewReturn previewReturn
 	// follow carries replay across batches while the session is open in
 	// another kon and shown read-only, nil otherwise. followEpoch drops ticks
-	// from a follow that has ended, and followStatus is the follow state last
-	// shown in the status line.
-	follow       *replayState
-	followEpoch  int
-	followStatus string
+	// from a follow that has ended, and followMode says what the follow is
+	// doing, for the status line.
+	follow      *replayState
+	followEpoch int
+	followMode  string
 }
 
 // previewReturn snapshots the live transcript's scroll position so closing a
@@ -207,12 +214,6 @@ func New(ctx context.Context, cwd, configPath string, runtime Runtime, historySt
 	// only consumes the mouse wheel.
 	vp := newScrollView()
 	state := runtime.State()
-	// An unconfigured launch explains itself in the transcript below, so the
-	// status stays a short pointer rather than repeating the whole problem.
-	status := ""
-	if !state.Ready() && !state.Following() {
-		status = "needs configuration"
-	}
 	mark := welcomeBanner
 	if runtime.Incognito() {
 		mark = incognitoBanner
@@ -222,7 +223,7 @@ func New(ctx context.Context, cwd, configPath string, runtime Runtime, historySt
 		runtime: runtime, commands: defaultRegistry(), inbox: &agent.Inbox{},
 		active: state.Active, cwd: cwd, configPath: configPath,
 		transcript: transcript{cwd: cwd, banner: mark},
-		status:     status, contextTokens: -1, terminalFocused: true,
+		configured: state.Ready() || state.Following(), contextTokens: -1, terminalFocused: true,
 	}
 	// A resumed session opens with its conversation already in the transcript.
 	// The viewport has no size until the first resize, so defer the scroll to
@@ -336,13 +337,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.transcript.finishStream()
 		switch {
 		case msg.err == nil:
-			m.status = ""
+			m.message = ""
 		case errors.Is(msg.err, context.Canceled):
-			m.status = "interrupted"
+			m.message = "interrupted"
 		case errors.Is(msg.err, agent.ErrNothingToCompact):
-			m.status = "nothing to compact"
+			m.message = "nothing to compact"
 		default:
-			m.status = "error: " + msg.err.Error()
+			m.message = "error: " + msg.err.Error()
 			m.transcript.add(block{kind: blockError, text: msg.err.Error()})
 		}
 		// The elapsed marker is the turn's last line: finalizing the stream and
@@ -466,7 +467,7 @@ func (m Model) handleKey(key string) (tea.Model, tea.Cmd, bool) {
 			m.refreshInput()
 			return m, nil, true
 		}
-		m.status = "press Ctrl+D to exit"
+		m.message = "press Ctrl+D to exit"
 		return m, nil, true
 	case "ctrl+d":
 		if m.input.Value() != "" {
@@ -542,16 +543,16 @@ func (m Model) handleKey(key string) (tea.Model, tea.Cmd, bool) {
 			m.interruptPresses++
 			m.runCancel()
 			if m.interruptPresses == 1 {
-				m.status = "interrupting… press Esc again to kill the command"
+				m.message = "interrupting… press Esc again to kill the command"
 				if len(m.steering) > 0 {
-					m.status = "interrupting to send your steer now…"
+					m.message = "interrupting to send your steer now…"
 				}
 				return m, nil, true
 			}
 			if m.runtime.Interrupt(m.interruptPresses) {
-				m.status = "killed the command"
+				m.message = "killed the command"
 			} else {
-				m.status = "no command to kill; waiting for the run to cancel"
+				m.message = "no command to kill; waiting for the run to cancel"
 			}
 			return m, nil, true
 		}
@@ -723,7 +724,7 @@ func (m Model) submit() (tea.Model, tea.Cmd) {
 	if strings.HasPrefix(text, "/") {
 		command, err := m.commands.parse(text)
 		if err != nil {
-			m.status = err.Error()
+			m.message = err.Error()
 			return m, nil
 		}
 		return command.run(m)
@@ -735,7 +736,7 @@ func (m Model) submit() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if err := m.history.append(m.cwd, text); err != nil {
-		m.status = "error: " + err.Error()
+		m.message = "error: " + err.Error()
 		return m, nil
 	}
 	m.input.Reset()
@@ -749,7 +750,7 @@ func (m *Model) canSend() bool {
 		return false
 	}
 	if state := m.runtime.State(); !state.Ready() {
-		m.status = state.Problem.Error() + " in " + m.configPath
+		m.message = state.Problem.Error() + " in " + m.configPath
 		return false
 	}
 	return true
@@ -779,7 +780,7 @@ func (m Model) send(text string) (tea.Model, tea.Cmd) {
 // submission and manual compaction so both report progress and cancel the same
 // way.
 func (m Model) startRun(status string, fn func(context.Context, func(agent.Event)) error) (tea.Model, tea.Cmd) {
-	m.busy, m.status, m.interruptPresses = true, status, 0
+	m.busy, m.message, m.interruptPresses = true, status, 0
 	ctx, cancel := context.WithCancel(m.ctx)
 	m.runCancel = cancel
 	m.runEvents = make(chan tea.Msg)
@@ -832,7 +833,11 @@ func (m *Model) retitleModelChanges() {
 }
 
 // syncRuntimeState refreshes the active model.
-func (m *Model) syncRuntimeState() { m.active = m.runtime.State().Active }
+func (m *Model) syncRuntimeState() {
+	state := m.runtime.State()
+	m.active = state.Active
+	m.configured = state.Ready() || state.Following()
+}
 
 // seedContextUsage adopts the live session's last provider-reported context size
 // so a resumed conversation shows it instead of the unknown placeholder. It
