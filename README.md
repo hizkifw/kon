@@ -1,26 +1,17 @@
 # kon
 
-`kon` is a terminal coding agent that lives in your project directory. Point it
-at a task and it reads, edits, and runs commands until the work is done.
+A coding agent for your terminal. Starts in 27 ms. One binary. Every OS.
 
-It is built on a few beliefs:
+kon reads, edits, and runs commands in your project until the work is done. One
+12 MB executable: no runtime, no daemon, no warm-up.
 
-- **Few tools, not many.** kon follows [pi](https://pi.dev/)'s four-tool
-  philosophy: the model gets exactly `read`, `write`, `edit`, and `shell`.
-  Sharper tools mean it spends its context on your code, not on a tool menu.
-- **Instant and snappy.** One static binary that starts immediately and streams
-  its answer as it arrives — no daemon, no warm-up.
-- **Reliable anywhere.** Linux, macOS, and Windows, with no account and no
-  plugins. Run it wherever you are.
-- **No vendor lock-in.** Sessions are plain JSONL files you can read, grep, and
-  keep; any OpenAI-compatible endpoint works. Your prompts never disappear
-  behind a database.
+**[kon.kitsu.red](https://kon.kitsu.red)**
 
 ![kon in a terminal](.github/screenshots/kon.png)
 
 ## Install
 
-One line, Linux and macOS:
+Linux and macOS:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/hizkifw/kon/main/scripts/install.sh | sh
@@ -32,50 +23,49 @@ Windows, in PowerShell:
 iwr -useb https://raw.githubusercontent.com/hizkifw/kon/main/scripts/install.ps1 | iex
 ```
 
-Install with Go:
+With Go:
 
 ```sh
 go install github.com/hizkifw/kon/cmd/kon@latest
 ```
 
-## Getting started
+## Get started
 
-Run `kon` from the directory where you want it to work. On first launch it
-creates a config file and opens the prompt. Use `/login <provider>` to connect a
-provider, then `/model` to choose a model. Explicit profiles in `config.json`
-remain supported. See the [user guide](docs/product/index.md) for setup and
+Run `kon` in any project. Connect a provider with `/login`, pick a model with
+`/model`, and start typing. To set things up by hand, see
 [configuration](docs/product/configuration.md).
 
-When a release changes the on-disk format, kon runs its registered storage
-migrations before opening the prompt. It waits for other kon instances to exit
-before changing shared files. Normal launches check a small version marker and
-do not scan sessions.
+## Why kon
 
-`kon run <message>` sends one prompt without the full-screen UI and streams the
-reply to stdout, for scripts and pipelines: `git diff | kon run --stdin review this`.
-`--format json` writes one event per line instead. See
-[scripting](docs/product/usage.md#scripting).
+- **Four sharp tools.** `read`, `write`, `edit`, and `shell`, after
+  [pi](https://pi.dev/). Context goes to your code, not a tool menu.
+- **Instant.** 27 ms from launch to first frame. No update check, no catalog
+  refresh, and no session scan on launch.
+- **Native everywhere.** Linux, macOS, and Windows on x64 and ARM64. No WSL, no
+  account, no plugins.
+- **No lock-in.** Sessions are plain JSONL you can read, grep, and keep.
+  OpenAI, Anthropic, OpenRouter, Ollama, or any OpenAI-compatible endpoint.
 
-Run `kon docs` to extract the bundled product guide on demand and print its
-local directory. The files are ordinary Markdown, available offline. Each
-version gets its own directory, so renamed or removed pages from an older
-release do not appear in the path returned by the new release.
+## Commands
 
-`kon upgrade` replaces the binary with the latest verified GitHub release and
-then runs the new version's migrations. `kon upgrade --check` only reports.
-kon never checks for updates on startup.
+| Command | Does |
+| --- | --- |
+| `kon` | Start a session in the current directory |
+| `kon --resume` | Reopen the latest session here |
+| `kon --incognito` | Start a session that is never saved |
+| `kon run <message>` | Send one prompt and stream the reply to stdout |
+| `kon upgrade` | Install the latest verified release |
+| `kon models` | List models offline; `--refresh` updates the catalog |
+| `kon docs` | Unpack the user guide as Markdown |
+| `kon tool webfetch <url>` | Print a web page as Markdown |
 
-`kon tool webfetch <url>` prints a web page as Markdown. The agent uses it to
-read documentation from its shell, and `kon tool --help` lists the tools it
-has this way.
-
-`kon models` lists bundled or cached model IDs offline. Run
-`kon models --refresh` to explicitly fetch the latest catalog from models.dev;
-kon never refreshes it on startup.
+`kon run` is built for pipelines: `git diff | kon run --stdin review this`. Add
+`--format json` for one event per line. `kon --help` lists every flag.
 
 ## Documentation
 
 - [Using kon](docs/product/usage.md) — commands, keys, sessions, and tools
+- [Configuration](docs/product/configuration.md) — models, providers, and project instructions
 - [Development](docs/development/index.md) — building and contributing
 - [Architecture](docs/development/architecture.md) — how the pieces fit together
 - [Session format](docs/development/session-format.md) — the on-disk JSONL contract
