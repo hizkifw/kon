@@ -438,9 +438,7 @@ func (r *Runner) compactIfNeeded(ctx context.Context, force bool, emit func(Even
 	}
 
 	historyStart := 1
-	var previous string
 	if len(items) > 1 && items[1].Summary {
-		previous = projectedSummary(items[1].Message.Text())
 		historyStart = 2
 	}
 	cut := selectCut(items, r.limits.KeepRecentTokens)
@@ -452,7 +450,7 @@ func (r *Runner) compactIfNeeded(ctx context.Context, force bool, emit func(Even
 		}
 		return false, errors.New("active turn is too large to compact safely")
 	}
-	response, live, err := r.summarize(ctx, items, historyStart, cut, used, previous)
+	response, live, err := r.summarize(ctx, items, cut, used)
 	// A summary cut off at its limit would be persisted and the turns it
 	// replaces dropped for good, so it is refused before anything is written.
 	if errors.Is(err, provider.ErrOutputLimit) || (err == nil && response.Finish == session.FinishLength) {
@@ -492,14 +490,46 @@ func (r *Runner) compactIfNeeded(ctx context.Context, force bool, emit func(Even
 func (r *Runner) summaryBudget() tokens.Count { return min(4096, r.limits.ReserveTokens/2) }
 
 // CompactSummaryRequest is appended as the trailing user message of a
-// cache-preserving compaction request. Instructions live here rather than in a
-// system message because the request must reuse the live turn's exact system
-// prompt and prefix to stay cacheable.
-const CompactSummaryRequest = `Context is running low. Summarize the work done so far so this conversation can continue once older turns are dropped. If a previous summary appears above, update it rather than starting over. Preserve the goal, constraints, decisions, completed work, current state, important command results, file paths, and exact next steps. Omit chatter. Reply with concise Markdown using these sections: Goal, Constraints, Progress, Decisions, Next Steps, Critical Context.`
+// compaction request. Instructions live here rather than in a system message
+// because the cache-preserving request must reuse the live turn's exact system
+// prompt and prefix to stay cacheable. It is the compaction instruction of
+// DeepSeek Harness's compaction-basic package, verbatim, under the MIT license
+// (see THIRD_PARTY_NOTICES). It names a prior summary by the
+// <compacted-summary> tags session.CompactionSummaryPrefix wraps it in.
+const CompactSummaryRequest = `You are now acting as a compaction engine for this AI coding assistant. Condense the conversation ABOVE into a structured checkpoint that lets another model resume the work with no loss of essential context.
 
-// isolatedSummaryPrompt is the system message for the fallback request used when
-// the live context no longer fits the window.
-const isolatedSummaryPrompt = `You are a context summarization assistant. Summarize the supplied coding-agent conversation for continuation. Preserve the goal, constraints, decisions, completed work, current state, important command results, file paths, and exact next steps. Omit chatter. Use concise Markdown with: Goal, Constraints, Progress, Decisions, Next Steps, Critical Context.`
+Output EXACTLY the Markdown structure below: keep every section, in order. Use terse bullets, not prose paragraphs. Write "(none)" for an empty section — never drop a section.
+
+## Primary Request and Intent
+- [the user's original and evolving goals; quote verbatim where the exact wording matters]
+
+## Key Technical Concepts
+- [technologies, frameworks, patterns, and conventions in play]
+
+## Files and Code
+- [exact path: why it matters, key changes or snippets]
+
+## Errors and Fixes
+- [error: how it was resolved, plus any related user feedback]
+
+## Pending Jobs
+- [explicitly requested work not yet completed]
+
+## Current Work
+- [precisely what was in progress at this checkpoint]
+
+## Next Step
+- [the single next action, directly in line with the most recent request, or "(none)"]
+
+## Critical Context
+- [decisions and their rationale, constraints, user preferences, open questions, data needed to continue]
+
+Rules:
+- Write concise English engineering prose. Preserve exact file paths, commands, error strings, identifiers, numeric values, function signatures, and syntax fragments.
+- Capture user feedback and explicit instructions faithfully, especially corrections.
+- Do NOT mention this summarization request or that the context was compacted.
+- Output only the checkpoint text: do not call any tool or take any other action.
+- If the conversation already contains a <compacted-summary> block, it is a PRIOR checkpoint. Do not copy it forward verbatim: preserve still-true facts, drop stale ones, and merge newer information into a single consolidated summary under the same structure.`
 
 // summarize asks the provider for a compaction summary. The live result
 // reports whether the request carried the live context, making its prompt
@@ -511,8 +541,10 @@ const isolatedSummaryPrompt = `You are a context summarization assistant. Summar
 // that trailing message then reads the provider prompt cache the last streaming
 // turn populated. The live prefix is only known to be unusable once the context
 // has already reached the window; the isolated form is used then, and as a
-// fallback if the provider still rejects the larger request as too long.
-func (r *Runner) summarize(ctx context.Context, items []session.ContextMessage, historyStart, cut int, used tokens.Count, previous string) (session.Message, bool, error) {
+// fallback if the provider still rejects the larger request as too long. It
+// keeps the system prompt, and serializes the history before the cut, a prior
+// summary included, into one user message ending with the same instruction.
+func (r *Runner) summarize(ctx context.Context, items []session.ContextMessage, cut int, used tokens.Count) (session.Message, bool, error) {
 	maxSummary := r.summaryBudget()
 	if r.limits.ContextWindow <= 0 || used < r.limits.ContextWindow {
 		request := make([]session.Message, 0, len(items)+1)
@@ -526,11 +558,8 @@ func (r *Runner) summarize(ctx context.Context, items []session.ContextMessage, 
 		}
 		// The prefix did not fit after all; fall through to the isolated form.
 	}
-	transcript := serializeForSummary(items[historyStart:cut])
-	if previous != "" {
-		transcript = "Previous summary:\n" + previous + "\n\nNewer conversation to merge:\n" + transcript
-	}
-	request := []session.Message{session.TextMessage(session.RoleSystem, isolatedSummaryPrompt), session.TextMessage(session.RoleUser, transcript)}
+	transcript := serializeForSummary(items[1:cut])
+	request := []session.Message{items[0].Message, session.TextMessage(session.RoleUser, transcript+CompactSummaryRequest)}
 	response, err := r.provider.Complete(ctx, request, nil, maxSummary)
 	return response, false, err
 }
@@ -611,14 +640,4 @@ func serializeForSummary(items []session.ContextMessage) string {
 		out.WriteByte('\n')
 	}
 	return out.String()
-}
-
-// projectedSummary unwraps a compaction summary from the synthetic user message
-// produced by session.Store.Context.
-func projectedSummary(content string) string {
-	if !strings.HasPrefix(content, session.CompactionSummaryPrefix) {
-		return ""
-	}
-	value := strings.TrimPrefix(content, session.CompactionSummaryPrefix)
-	return strings.TrimSuffix(value, session.CompactionSummarySuffix)
 }

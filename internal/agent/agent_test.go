@@ -409,14 +409,53 @@ func TestCompactFallsBackToIsolatedSummaryWhenLiveContextWouldOverflow(t *testin
 		t.Fatalf("complete requests = %d, want 1", len(provider.requests))
 	}
 	request := provider.requests[0]
-	if len(request) != 2 || request[0].Role != session.RoleSystem {
-		t.Fatalf("fallback request is not the isolated two-message shape: %#v", request)
+	if len(request) != 2 || request[0].Role != session.RoleSystem || request[0].Text() != "system prompt" {
+		t.Fatalf("fallback request is not the system prompt and one message: %#v", request)
 	}
 	if len(provider.tools[0]) != 0 {
 		t.Fatal("fallback request should not send the live tool roster")
 	}
-	if !strings.Contains(request[1].Text(), "[user]") {
-		t.Fatalf("fallback request should carry the serialized history: %q", request[1].Text())
+	if text := request[1].Text(); !strings.Contains(text, "[user]") || !strings.HasSuffix(text, CompactSummaryRequest) {
+		t.Fatalf("fallback request should carry the serialized history, then the instruction: %q", text)
+	}
+}
+
+// The instruction merges a prior checkpoint it finds in <compacted-summary>
+// tags, so the fallback carries the prior summary in them, as the live
+// context does.
+func TestIsolatedSummaryCarriesThePriorCheckpoint(t *testing.T) {
+	store, err := session.New(t.TempDir(), t.TempDir(), "test", "system prompt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	kept, err := store.AppendMessage(session.Message{Role: session.RoleUser, Parts: []session.Part{{Type: session.PartText, Text: "kept question"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AppendCompaction("existing summary", kept, 100, false, nil); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		if _, err := store.AppendMessage(session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: strings.Repeat("answer ", 80)}}}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.AppendMessage(session.Message{Role: session.RoleUser, Parts: []session.Part{{Type: session.PartText, Text: strings.Repeat("question ", 80)}}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	provider := &recordingProvider{}
+	limits := testLimits
+	limits.ContextWindow = 200
+	limits.ReserveTokens = 150
+	limits.KeepRecentTokens = 1
+	runner := New(limits, provider, store, tools.New(t.TempDir(), false, nil))
+	if err := runner.Compact(context.Background(), func(Event) {}); err != nil {
+		t.Fatal(err)
+	}
+	checkpoint := session.CompactionSummaryPrefix + "existing summary" + session.CompactionSummarySuffix
+	if text := provider.requests[0][1].Text(); !strings.Contains(text, checkpoint) {
+		t.Fatalf("fallback transcript lost the prior checkpoint: %q", text)
 	}
 }
 
@@ -444,10 +483,10 @@ func TestCompactReportsMeasuredContextFromLiveSummaryRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The report measured the live context plus the trailing summary request.
-	// Only that request's estimate, well under 200 tokens, comes back out, so
-	// the measured size sits just below the report and far above the byte
-	// estimate of this small fixture.
-	if len(events) == 0 || events[0].Kind != EventCompacted || events[0].Estimated || events[0].Tokens <= 12_145 || events[0].Tokens >= 12_345 {
+	// Only that request's estimate, well under a thousand tokens, comes back
+	// out, so the measured size sits just below the report and far above the
+	// byte estimate of this small fixture.
+	if len(events) == 0 || events[0].Kind != EventCompacted || events[0].Estimated || events[0].Tokens <= 11_345 || events[0].Tokens >= 12_345 {
 		t.Fatalf("compacted event = %#v, want a measured size just under 12345 tokens", events)
 	}
 }
@@ -499,7 +538,7 @@ func TestCompactUsesPreviousSummaryWithoutReSummarizingIt(t *testing.T) {
 		t.Fatalf("request has %d messages, want the live prefix plus the trailing request", len(request))
 	}
 	last := request[len(request)-1]
-	if last.Role != session.RoleUser || !strings.Contains(last.Text(), "Context is running low") {
+	if last.Role != session.RoleUser || last.Text() != CompactSummaryRequest {
 		t.Fatalf("trailing summary request missing: %#v", last)
 	}
 	if !strings.Contains(request[1].Text(), "existing summary") {

@@ -317,6 +317,14 @@ would invalidate the cache for the entire retained context on every compaction.
 
 Repeated compaction summarizes the previous summary together with newly aged
 messages. Original entries remain available for future tree navigation.
+
+The summary instruction, and the preamble that introduces a summary in
+context, come verbatim from the compaction-basic package of DeepSeek Harness,
+under the MIT license; `THIRD_PARTY_NOTICES` carries its notice. The
+instruction asks for a checkpoint with fixed sections, from the user's request
+through the next step, and merges a prior summary it finds in
+`<compacted-summary>` tags, which is how context projection wraps it. Only the
+summary text is persisted, so the wrapper applies to every session.
 Automatic compaction runs at the context threshold; the `/compact` command
 forces the same routine on demand, so both paths share one boundary policy and
 one durable summary entry format.
@@ -328,8 +336,9 @@ summary. The provider then reads the prompt cache the last streaming turn wrote
 and bills only the trailing message as new input. Instructions live in that
 trailing message rather than a system message so the prefix stays byte-identical.
 When the context plus the reserve no longer fits the window, the request is
-instead built in isolation from only the history being dropped, so emergency
-overflow recovery still works.
+instead built in isolation: the system prompt, then one user message holding a
+serialized transcript of the history being dropped, a prior summary included,
+and the same instruction, so emergency overflow recovery still works.
 
 Provider-reported usage is the base for every size decision. The runner
 remembers which assistant message last reported usage; the context through that
