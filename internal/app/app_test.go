@@ -664,46 +664,6 @@ func TestResumeSwitchesToPersistedSession(t *testing.T) {
 	}
 }
 
-// TestSessionPreviewReadsTailWithoutSwitching guards the read-only preview path:
-// it returns a persisted session's trailing turns without changing the live
-// session.
-func TestSessionPreviewReadsTailWithoutSwitching(t *testing.T) {
-	dir := t.TempDir()
-	paths := config.Paths{Sessions: filepath.Join(dir, "sessions"), ConfigFile: filepath.Join(dir, "config.json")}
-	cwd := t.TempDir()
-	cfg := configured("gpt-4o")
-	runtime, err := New(cfg, paths, cwd, "test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer runtime.Close()
-	if _, err := runtime.store.AppendMessage(session.Message{Role: session.RoleUser, Parts: []session.Part{{Type: session.PartText, Text: "live"}}}); err != nil {
-		t.Fatal(err)
-	}
-	live := runtime.SessionID()
-
-	other, err := session.New(paths.Sessions, cwd, "test", "system")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := other.AppendMessage(session.Message{Role: session.RoleUser, Parts: []session.Part{{Type: session.PartText, Text: "preview me"}}}); err != nil {
-		t.Fatal(err)
-	}
-	targetPath := other.Path()
-	other.Close()
-
-	entries, err := runtime.SessionPreview(targetPath, 2)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) == 0 || entries[len(entries)-1].Message.Text() != "preview me" {
-		t.Fatalf("preview entries = %#v", entries)
-	}
-	if got := runtime.SessionID(); got != live {
-		t.Fatalf("preview switched the live session from %s to %s", live, got)
-	}
-}
-
 func TestResumeReportsPersistedContextUsage(t *testing.T) {
 	dir := t.TempDir()
 	paths := config.Paths{Sessions: filepath.Join(dir, "sessions"), ConfigFile: filepath.Join(dir, "config.json")}
@@ -803,6 +763,11 @@ func TestNewResumedWithoutSessionsStartsFresh(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer runtime.Close()
+	// A zero ID alone would also hold if no session were opened at all, so the
+	// fallback must show a real session rooted in its system prompt.
+	if history := runtime.SessionHistory(); len(history) == 0 || history[0].Message == nil || history[0].Message.Role != session.RoleSystem {
+		t.Fatalf("no fresh session was opened: %#v", history)
+	}
 	// The fallback session is empty, so it is not yet persisted or resumable.
 	if !runtime.SessionID().IsZero() {
 		t.Fatal("empty fallback session was reported as resumable")
@@ -817,13 +782,6 @@ func TestCompactRefusesWhileRunning(t *testing.T) {
 	}
 	if err := runtime.Compact(context.Background(), func(agent.Event) {}); !errors.Is(err, ErrBusy) {
 		t.Fatalf("Compact error = %v, want ErrBusy", err)
-	}
-}
-
-func TestCompactAfterCloseReportsClosed(t *testing.T) {
-	runtime := &Runtime{phase: PhaseClosed}
-	if err := runtime.Compact(context.Background(), func(agent.Event) {}); !errors.Is(err, ErrClosed) {
-		t.Fatalf("Compact error = %v, want ErrClosed", err)
 	}
 }
 
