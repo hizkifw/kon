@@ -831,20 +831,60 @@ func (r *blockRenderer) codeLines(segments *text.Segments, source []byte) []Line
 		content := strings.TrimSuffix(string(r.buf), "\n")
 		at := 0 // where raw starts in content
 		for _, raw := range strings.Split(content, "\n") {
-			// Padding goldmark adds for a tab's indentation has no source.
-			var runs []SourceRun
-			if from, to := max(at, seg.Padding), at+len(raw); r.sourceMap && from < to {
-				runs = []SourceRun{exactRun(from-at, seg.Start+from-seg.Padding, to-from)}
-			}
+			text, runs := r.expandTabs(raw, at, seg)
 			// Code hard-wraps at the width rather than overflowing: a caller
 			// painting a fixed-width slab would otherwise truncate the line
 			// and silently drop code. Hard wrapping preserves the line's
 			// characters (indentation, runs of spaces) exactly.
-			out = append(out, hardWrapPieces(piece{text: raw, style: style}, runs, r.width)...)
+			out = append(out, hardWrapPieces(piece{text: text, style: style}, runs, r.width)...)
 			at += len(raw) + 1
 		}
 	}
 	return out
+}
+
+// codeTabWidth is how many columns apart the tab stops in code are.
+const codeTabWidth = 4
+
+// expandTabs returns a line of code with each tab expanded to spaces up to
+// the next tab stop, and, when the renderer maps its source, runs mapping the
+// line to the source. A tab has no width of its own to measure, and a
+// terminal painter may draw it as any number of spaces, so code expands its
+// tabs itself and every width measured is the width painted. raw starts at
+// bytes into seg's content, which begins with seg.Padding spaces goldmark
+// adds for a tab it split, and those have no source.
+func (r *blockRenderer) expandTabs(raw string, at int, seg text.Segment) (string, []SourceRun) {
+	var b strings.Builder
+	var runs []SourceRun
+	mapTo := func(from, to, width int) {
+		if from = max(from, seg.Padding); r.sourceMap && from < to {
+			n := to - from
+			if width < 0 {
+				width = n
+			}
+			runs = appendRun(runs, SourceRun{At: b.Len() - width, Len: width, Source: seg.Start + from - seg.Padding, SourceLen: n})
+		}
+	}
+	col := 0
+	for i := 0; i < len(raw); {
+		tab := strings.IndexByte(raw[i:], '\t')
+		if tab < 0 {
+			tab = len(raw) - i
+		}
+		plain := raw[i : i+tab]
+		b.WriteString(plain)
+		mapTo(at+i, at+i+tab, -1)
+		col += displayWidth(plain)
+		i += tab
+		if i < len(raw) {
+			spaces := codeTabWidth - col%codeTabWidth
+			b.WriteString(strings.Repeat(" ", spaces))
+			mapTo(at+i, at+i+1, spaces)
+			col += spaces
+			i++
+		}
+	}
+	return b.String(), runs
 }
 
 // taskCheckbox returns the "[ ]"/"[✓]" marker for a task-list item, or "" if
