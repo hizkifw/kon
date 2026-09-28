@@ -54,6 +54,9 @@ func dropControl(r rune) rune {
 	return r
 }
 
+// lineEndings turns each line ending into a space.
+var lineEndings = strings.NewReplacer("\r\n", " ", "\n", " ")
+
 // inlinePieces walks an inline subtree collecting styled pieces. Soft line
 // breaks become spaces, hard line breaks become "\n" (a real wrap break), raw
 // HTML renders as its literal source text, and image nodes render their alt
@@ -87,8 +90,11 @@ func appendInlinePieces(n ast.Node, source []byte, theme Theme, style Style) []p
 			out = append(out, piece{text: string(v.Value), style: style})
 		case *ast.CodeSpan:
 			// Code spans render their content verbatim (already space-
-			// trimmed per CommonMark), never unescaped.
-			out = append(out, piece{text: string(v.Text(source)), style: inner(theme, StyleCodeInline, style)})
+			// trimmed per CommonMark), never unescaped. A code span is
+			// inline, so CommonMark turns a line ending inside it to a
+			// space rather than breaking the line.
+			text := lineEndings.Replace(string(v.Text(source)))
+			out = append(out, piece{text: text, style: inner(theme, StyleCodeInline, style)})
 		case *ast.Emphasis:
 			s := StyleEmph
 			if v.Level == 2 {

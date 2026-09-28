@@ -40,6 +40,12 @@ func TestInlineSpans(t *testing.T) {
 			wantSpan: []Styled{{Text: "code", Style: StyleCodeInline}},
 		},
 		{
+			name:     "code span turns line endings to spaces",
+			in:       "a `x\ny` b",
+			wantText: "a x y b",
+			wantSpan: []Styled{{Text: "x y", Style: StyleCodeInline}},
+		},
+		{
 			name:     "strikethrough",
 			in:       "a ~~gone~~ b",
 			wantText: "a gone b",
