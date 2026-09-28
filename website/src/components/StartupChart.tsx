@@ -1,5 +1,5 @@
 import { Fragment } from "react";
-import { startupScale } from "@/lib/site";
+import { startupMachine, startupScale } from "@/lib/site";
 
 const MAX_MS = 400;
 const TICKS = [0, 100, 200, 300, 400];
@@ -56,9 +56,9 @@ export function StartupChart() {
         </div>
       </dl>
       <p className="mt-6 border-t border-line pt-4 text-xs leading-relaxed text-faint">
-        kon&rsquo;s time is the startup scenario of <code className="font-mono">make loadtest</code>: process start
-        through one short reply from a local model server, on an Intel i5-8500T running Linux. The 100 ms limit is
-        Jakob Nielsen&rsquo;s; the reaction time is a typical figure.
+        kon&rsquo;s time is the first-paint scenario of <code className="font-mono">make loadtest</code>: the median
+        of 50 launches from exec to the first full-screen frame, on {startupMachine}. The 100 ms limit is Jakob
+        Nielsen&rsquo;s; the reaction time is a typical figure.
       </p>
     </figure>
   );
