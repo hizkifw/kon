@@ -237,30 +237,34 @@ func TestContextRendersAsSeparator(t *testing.T) {
 	}
 }
 
+// testBanner stands in for the welcome art in the placement tests, so they
+// follow where the transcript puts a banner rather than how kon's is drawn.
+const testBanner = "/\\_/\\\n=o.o=\ncaption"
+
+// testBannerLines is testBanner as the transcript lays it out: one blank line
+// of padding above it, and every line inset one cell like the message slabs.
+const testBannerLines = "\n /\\_/\\\n =o.o=\n caption"
+
 // TestBannerLeadsEveryTranscript guards the welcome banner: it sits at the top
 // of the transcript, padded from the viewport edge by one blank line, before any
 // content, and it remains there over later blocks and a live stream.
 func TestBannerLeadsEveryTranscript(t *testing.T) {
 	var tr transcript
 	tr.cwd = "/tmp"
-	tr.banner = welcomeBanner
-	empty := plain(tr.render(80))
-	if !strings.HasPrefix(empty, "\n ┌──┐") || !strings.Contains(empty, "harness for foxes") {
-		t.Fatalf("empty transcript did not lead with a padded banner: %q", empty)
+	tr.banner = testBanner
+	if empty := plain(tr.render(80)); empty != testBannerLines {
+		t.Fatalf("empty transcript = %q, want only the padded banner %q", empty, testBannerLines)
 	}
 	tr.appendStream("hello")
 	streaming := plain(tr.render(80))
-	if !strings.HasPrefix(streaming, "\n ┌──┐") || !strings.Contains(streaming, "hello") {
+	if !strings.HasPrefix(streaming, testBannerLines) || !strings.Contains(streaming, "hello") {
 		t.Fatalf("banner did not lead the streaming transcript: %q", streaming)
 	}
 	tr.finishStream()
 	tr.add(block{kind: blockUser, text: "question"})
 	settled := plain(tr.render(80))
-	if !strings.HasPrefix(settled, "\n ┌──┐") || !strings.Contains(settled, "question") {
+	if !strings.HasPrefix(settled, testBannerLines) || !strings.Contains(settled, "question") {
 		t.Fatalf("banner did not lead the settled transcript: %q", settled)
-	}
-	if strings.Index(settled, "harness for foxes") > strings.Index(settled, "question") {
-		t.Fatalf("banner rendered below the conversation: %q", settled)
 	}
 }
 
@@ -268,12 +272,12 @@ func TestBannerLeadsEveryTranscript(t *testing.T) {
 // line of the cached display lines at every width, so it stays pinned top-left.
 func TestBannerStaysAtTopAcrossWidths(t *testing.T) {
 	var tr transcript
-	tr.banner = welcomeBanner
+	tr.banner = testBanner
 	tr.add(block{kind: blockUser, text: "question"})
 	for _, width := range []int{40, 80, 120} {
 		lines := tr.linesFor(width)
-		if len(lines) < 2 || lines[0] != "" || !strings.HasPrefix(plain(lines[1]), " ┌──┐") {
-			t.Fatalf("width %d: banner is not the first visible line: %q", width, plain(strings.Join(lines, "\n")))
+		if got := plain(strings.Join(lines, "\n")); !strings.HasPrefix(got, testBannerLines+"\n") {
+			t.Fatalf("width %d: banner is not the first visible line: %q", width, got)
 		}
 	}
 }
