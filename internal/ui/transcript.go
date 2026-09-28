@@ -121,7 +121,10 @@ type transcript struct {
 	// demand from the tail of blocks. joined caches the concatenation of
 	// chunks so a render after many streaming frames does not rejoin them.
 	chunks []string
-	joined string
+	// chunkFrom holds, for each chunk, the index of the first block folded
+	// into it, so a line on screen can be traced back to its message.
+	chunkFrom []int
+	joined    string
 	// joinedChunks is the len(t.chunks) at the time joined was built; it is a
 	// memo key, not a count, so re-joining only happens when a chunk was added.
 	joinedChunks int
@@ -155,6 +158,10 @@ type transcript struct {
 	// timerLines is how many trailing t.lines entries belong to it.
 	liveTimer  string
 	timerLines int
+
+	// selection is the stretch picked with the mouse, nil when there is none.
+	// It is anchored in lines, so any change that rebuilds them clears it.
+	selection *selection
 
 	dirty bool
 	width int
@@ -275,9 +282,11 @@ func (t *transcript) reset() {
 	t.stream = t.stream[:0]
 	t.thinking = t.thinking[:0]
 	t.chunks = nil
+	t.chunkFrom = nil
 	t.joined = ""
 	t.joinedChunks = 0
 	t.built = 0
+	t.selection = nil
 	t.active = nil
 	t.activeThinking = false
 	t.strip = ansiStripper{}
@@ -375,6 +384,8 @@ func (t *transcript) prepare(width int) string {
 	if width != t.width {
 		t.width = width
 		t.chunks = nil
+		t.chunkFrom = nil
+		t.selection = nil
 		t.joined = ""
 		t.joinedChunks = 0
 		t.built = 0
@@ -560,20 +571,21 @@ func (t *transcript) ensureChunks(width int) {
 			for end < stable && (t.blocks[end].kind == blockTool || t.blocks[end].kind == blockResult) {
 				end++
 			}
-			t.pushChunk(strings.Join(t.renderToolRun(t.blocks[t.built:end], width), "\n"))
+			t.pushChunk(strings.Join(t.renderToolRun(t.blocks[t.built:end], width), "\n"), t.built)
 			t.built = end
 			continue
 		}
-		t.pushChunk(strings.Join(t.renderBlock(t.blocks[t.built], width), "\n"))
+		t.pushChunk(strings.Join(t.renderBlock(t.blocks[t.built], width), "\n"), t.built)
 		t.built++
 	}
 }
 
-// pushChunk appends a rendered chunk, dropping empty ones so grouping does not
-// leave stray blank separators.
-func (t *transcript) pushChunk(text string) {
+// pushChunk appends a chunk rendered from the blocks starting at from,
+// dropping empty ones so grouping does not leave stray blank separators.
+func (t *transcript) pushChunk(text string, from int) {
 	if text != "" {
 		t.chunks = append(t.chunks, text)
+		t.chunkFrom = append(t.chunkFrom, from)
 	}
 }
 

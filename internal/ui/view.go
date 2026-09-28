@@ -90,7 +90,11 @@ func (m Model) View() tea.View {
 	if m.status != "" {
 		status += " · " + m.status
 	}
-	sections := []string{headerStyle.Render(fitLine(header, m.width)), m.viewport.View()}
+	transcript := m.viewport.View()
+	if t := m.activeTranscript(); t.selection != nil {
+		transcript = m.viewport.ViewWith(func(i int, line string) string { return t.highlight(i, line, m.width) })
+	}
+	sections := []string{headerStyle.Render(fitLine(header, m.width)), transcript}
 	if pending := m.pendingView(); pending != "" {
 		sections = append(sections, pending)
 	}

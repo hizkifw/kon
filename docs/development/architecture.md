@@ -37,6 +37,20 @@ keeps every assistant tool request and every tool result durable before the
 next network request. The provider layer owns wire formats and stream parsing;
 kon owns orchestration, persistence, and compaction.
 
+## Copying a selection
+
+A drag over the transcript is anchored in transcript lines, so scrolling keeps
+it on the same text, and a rewrap clears it. On release the UI takes, for each
+message the selection touches, the cells it covers. A reply is rendered again
+with `markdown.RenderWithSource`, whose lines carry runs tying their text to
+source bytes; the screen never renders with them, since only a selection
+needs them. `markdown.SelectionSource` turns the cells into a source range,
+and `markdown.Excerpt` cuts that range out as Markdown that renders the same:
+it closes the inline elements the range cuts, keeps a cut link's destination,
+restores block markers when the range crosses blocks, and escapes text a cut
+would turn into syntax. That work runs in a command off the update loop, and
+the text goes to the clipboard the way `/copy` sends it.
+
 ## CLI surface
 
 `cmd/kon` owns startup wiring and CLI metadata. Each subcommand lives in its own

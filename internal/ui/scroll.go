@@ -113,7 +113,11 @@ func (s *scrollView) Update(msg tea.Msg) {
 // View renders exactly height lines starting at the current offset. The window
 // reads past the content into the trailing padding, padded further with blank
 // lines so the surrounding frame does not reflow.
-func (s scrollView) View() string {
+func (s scrollView) View() string { return s.ViewWith(nil) }
+
+// ViewWith renders like View, passing each content line in the window through
+// decorate, with its index in the content, when decorate is set.
+func (s scrollView) ViewWith(decorate func(i int, line string) string) string {
 	if s.width <= 0 || s.height <= 0 {
 		return ""
 	}
@@ -121,5 +125,10 @@ func (s scrollView) View() string {
 	start := min(s.yOffset, len(s.lines))
 	end := min(start+s.height, len(s.lines))
 	copy(out, s.lines[start:end])
+	if decorate != nil {
+		for i := range end - start {
+			out[i] = decorate(start+i, out[i])
+		}
+	}
 	return strings.Join(out, "\n")
 }

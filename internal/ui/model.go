@@ -135,6 +135,9 @@ type Model struct {
 	// timerEpoch counts started turns; a tick whose epoch is stale is dropped so
 	// a chain from a finished run cannot keep repainting.
 	timerEpoch int
+	// selectEpoch counts drags past the transcript's edge, so a scroll tick
+	// from one that ended stops instead of scrolling on.
+	selectEpoch int
 	// killRing holds the last line segment removed by a kill key (Ctrl+U,
 	// Ctrl+K, Ctrl+W) so Ctrl+Y can yank it back, mirroring the shell's kill
 	// and yank commands.
@@ -265,6 +268,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.viewport.SetLinesBelow(below)
 		m.anchorStartAtBottom()
 		return m, nil
+	case tea.MouseClickMsg:
+		return m.pressMouse(msg)
+	case tea.MouseMotionMsg:
+		return m.dragMouse(msg)
+	case tea.MouseReleaseMsg:
+		return m.releaseMouse(msg)
+	case selectScrollMsg:
+		return m.scrollSelection(msg)
+	case selectionTextMsg:
+		return m.copied(msg)
 	case tea.FocusMsg:
 		m.terminalFocused = true
 	case tea.BlurMsg:

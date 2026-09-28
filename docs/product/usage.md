@@ -82,6 +82,17 @@ runs over SSH inside a tmux on your own machine, that tmux needs
 clipboard of the machine it runs on with `pbcopy`, `wl-copy`, `xclip`, or
 `xsel`, which covers a local terminal without OSC 52, such as macOS Terminal.
 
+Dragging over the transcript selects text, and releasing the button copies it
+the same way. A reply is copied as the Markdown behind the selection, with the
+formatting it needs to read the same: a bold word copies as `**word**`, lines
+inside a code block copy as the code alone, and a selection that runs into a
+code block or a table takes its fence or its header along. Prompts, tool
+output, and thinking copy as shown, and a prompt is quoted when the selection
+holds more than it. Holding the drag past the top or bottom of the transcript
+scrolls it, and a click without a drag leaves the clipboard alone. kon uses
+the mouse to scroll, so the terminal's own selection needs Shift held while
+dragging (Option in iTerm2).
+
 ## Steering and queueing
 
 While kon is working you can keep typing:
@@ -224,6 +235,7 @@ directory's permissions rather than running kon as root.
 | Esc | Dismiss the popup, or interrupt the running turn and send any pending steer (press again to kill the command) |
 | Page Up/Page Down | Scroll the transcript |
 | Mouse wheel | Scroll the transcript |
+| Mouse drag | Select transcript text, copying it on release |
 | Ctrl+C | Clear the input, or hint at Ctrl+D when it is empty |
 | Ctrl+D | Quit when the input is empty, cancelling active work first |
 | Ctrl+U | Kill from the cursor to the start of the line |
