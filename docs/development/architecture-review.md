@@ -421,6 +421,11 @@ Live view and tools:
   to the terminal. `unescape` in `internal/markdown` now drops them.
 - [ ] Markdown span styling locates spans with `strings.Index`, so a code span
   or link styles the first matching word instead of itself.
+- [ ] A `<script>`, `<pre>`, `<style>`, or `<textarea>` HTML block streams
+  differently from its settled render. Streamed, the block freezes at the
+  start of its closing line before the newline arrives, so `</script>` is
+  re-parsed as a paragraph and shown; settled, `codeLines` prints only
+  `Lines()` and the closing tag, kept in `ClosureLine`, never shows.
 - [ ] `fitLine` counts escape bytes as cells and can drop the SGR reset.
 - [ ] `read` counts a trailing newline as an extra line.
 - [ ] `edit` counts matches with `bytes.Count`, so overlapping occurrences pass

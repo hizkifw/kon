@@ -158,6 +158,19 @@ func TestInlineSpans(t *testing.T) {
 // never crosses a line boundary.
 func TestInlineSpansSurviveWrap(t *testing.T) {
 	in := "start *the emphasized words here* middle **the strong run here** end"
+	// At width 16 both styled runs break mid-span, one line ends one run and
+	// starts the other, and the last line is unstyled. The loop below only
+	// checks the spans it finds, so a wrap that dropped them would pass it.
+	want := []Line{
+		{Text: "start the", Spans: []Styled{{Text: "the", Style: StyleEmph}}},
+		{Text: "emphasized words", Spans: []Styled{{Text: "emphasized words", Style: StyleEmph}}},
+		{Text: "here middle the", Spans: []Styled{{Text: "here", Style: StyleEmph}, {Text: "the", Style: StyleStrong}}},
+		{Text: "strong run here", Spans: []Styled{{Text: "strong run here", Style: StyleStrong}}},
+		{Text: "end"},
+	}
+	if got := linesEqual(Render(in, testTheme, 16)); got != linesEqual(want) {
+		t.Fatalf("width=16\n got=%s\nwant=%s", got, linesEqual(want))
+	}
 	for _, width := range []int{10, 16, 24, 40, 80} {
 		lines := Render(in, testTheme, width)
 		var all strings.Builder

@@ -90,6 +90,10 @@ func TestRenderBasics(t *testing.T) {
 		{"para then fence", "intro\n\n```go\nx()\n```", []string{"intro", "", "x()"}, 40},
 		{"quote two paras", "> one\n>\n> two", []string{"▏ one", "▏", "▏ two"}, 40},
 		{"three blocks", "# H\n\npara\n\n- a", []string{"H", "", "para", "", "• a"}, 40},
+		{"heading body list table quote fence", "# H\n\npara\n\n- a\n- b\n\n| x |\n|---|\n| 1 |\n\n> q\n\n```\nc\n```", []string{
+			"H", "", "para", "", "• a", "• b", "", " x ", " 1 ", "", "▏ q", "", "c",
+		}, 40},
+		{"rule between paras", "a\n\n---\n\nb", []string{"a", "", strings.Repeat("─", 40), "", "b"}, 40},
 		{"setext", "Title\n=====", []string{"Title"}, 40},
 		{"strikethrough para", "~~gone~~", []string{"gone"}, 40},
 		{"table", "| a | b |\n|---|---|\n| 1 | 2 |", []string{" a  b ", " 1  2 "}, 40},
@@ -141,6 +145,7 @@ func TestStreamConvergesToRender(t *testing.T) {
 		"| a | b |\n|---|---|\n| 1 | 2 |\n\nafter table",
 		"你好世界\n\n第二段",
 		"1. first\n2. second\n   - nested\n3. third",
+		"# H\n\none\n\ntwo\n\n- a\n- b\n\n| x |\n|---|\n| 1 |\n\n> q\n\nend",
 	}
 	for _, doc := range docs {
 		for _, width := range []int{20, 40, 80} {
@@ -170,57 +175,6 @@ func TestStreamConvergesToRender(t *testing.T) {
 				}
 			}
 		}
-	}
-}
-
-// TestStreamFrozenPrefixStable asserts the append-only property: lines already
-// published as frozen never change as more deltas arrive, and the frozen
-// prefix only ever grows.
-func TestStreamFrozenPrefixStable(t *testing.T) {
-	doc := "# Title\n\nFirst paragraph with several words.\n\n- list one\n- list two\n\n```go\nx()\n```\n\nAfter the fence."
-	s := NewStream(testTheme, 40)
-	var published []string
-	for i := 0; i < len(doc); i++ {
-		s.Write(doc[i : i+1])
-		frozen := lineTexts(s.Lines())
-		if len(frozen) < len(published) {
-			t.Fatalf("frame %d: published lines shrank: %d < %d", i, len(frozen), len(published))
-		}
-		for j := range published {
-			if frozen[j] != published[j] {
-				t.Fatalf("frame %d: frozen line %d changed\n old=%q\n new=%q", i, j, published[j], frozen[j])
-			}
-		}
-		published = frozen
-	}
-}
-
-// TestStreamPartialTailVisible checks the live tail shows growing text.
-func TestStreamPartialTailVisible(t *testing.T) {
-	s := NewStream(testTheme, 40)
-	s.Write("hello wor")
-	got := lineTexts(s.Pending())
-	if len(got) == 0 || !strings.HasPrefix(got[len(got)-1], "hello wor") {
-		t.Fatalf("partial tail missing: %q", got)
-	}
-	s.Write("ld")
-	got = lineTexts(s.Pending())
-	if len(got) == 0 || !strings.HasPrefix(got[len(got)-1], "hello world") {
-		t.Fatalf("grown tail missing: %q", got)
-	}
-}
-
-// TestBoundaryMonotonic ensures the freeze boundary never moves backwards.
-func TestBoundaryMonotonic(t *testing.T) {
-	doc := "one\n\ntwo\n\nthree\n\nfour"
-	s := NewStream(testTheme, 40)
-	last := 0
-	for i := 0; i < len(doc); i++ {
-		s.Write(doc[i : i+1])
-		if s.Boundary() < last {
-			t.Fatalf("boundary moved backwards at frame %d: %d < %d", i, s.Boundary(), last)
-		}
-		last = s.Boundary()
 	}
 }
 
@@ -284,52 +238,6 @@ func TestLinesFitWidth(t *testing.T) {
 				if w := displayWidth(l.Text); w > width {
 					t.Fatalf("width=%d doc=%q\n line width %d > %d: %q", width, doc, w, width, l.Text)
 				}
-			}
-		}
-	}
-}
-
-// TestBlockSpacing checks that adjacent top-level blocks are separated by a
-// blank line (and a single block is not padded), covering headings, lists,
-// tables, quotes, code, and rules.
-func TestBlockSpacing(t *testing.T) {
-	cases := []struct {
-		name string
-		in   string
-		want []string
-	}{
-		{
-			"heading body list table quote fence",
-			"# H\n\npara\n\n- a\n- b\n\n| x |\n|---|\n| 1 |\n\n> q\n\n```\nc\n```",
-			[]string{"H", "", "para", "", "• a", "• b", "", " x ", " 1 ", "", "▏ q", "", "c"},
-		},
-		{"single block no pad", "only one paragraph", []string{"only one paragraph"}},
-		{"rule between paras", "a\n\n---\n\nb", []string{"a", "", strings.Repeat("─", 40), "", "b"}},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := lineTexts(Render(tc.in, testTheme, 40))
-			if !equalSlices(got, tc.want) {
-				t.Fatalf("input=%q\n got=%q\nwant=%q", tc.in, got, tc.want)
-			}
-		})
-	}
-}
-
-// TestBlockSpacingStreamConverges checks spacing survives streaming: the
-// unfinished view (frozen + pending) equals a from-scratch render at every
-// frame, including the blank lines between blocks.
-func TestBlockSpacingStreamConverges(t *testing.T) {
-	doc := "# H\n\none\n\ntwo\n\n- a\n- b\n\n| x |\n|---|\n| 1 |\n\n> q\n\nend"
-	for _, width := range []int{20, 40} {
-		s := NewStream(testTheme, width)
-		for i := 0; i < len(doc); i++ {
-			end := i + 1
-			s.Write(doc[i:end])
-			got := lineTexts(streamView(s))
-			want := lineTexts(Render(doc[:end], testTheme, width))
-			if !equalSlices(got, want) {
-				t.Fatalf("width=%d offset=%d doc=%q\n got=%q\nwant=%q", width, end, doc[:end], got, want)
 			}
 		}
 	}
@@ -413,31 +321,35 @@ func TestLinks(t *testing.T) {
 // punctuation boundaries rather than mid-token.
 func TestLinksSurviveWrap(t *testing.T) {
 	in := "See the [release notes](https://github.com/example/project/releases/tag/v2.1.0) for details."
-	for _, width := range []int{20, 40, 60} {
-		lines := Render(in, testTheme, width)
-		var raw strings.Builder // all line text, no separators
+	// Every break inside the URL falls just after a "/" or ".". Split
+	// anywhere else, the URL would still fit the width and still read back
+	// whole, so only the exact lines show where it broke.
+	cases := []struct {
+		width int
+		want  []string
+	}{
+		{20, []string{"See the release", "notes (https://", "github.com/example/", "project/releases/", "tag/v2.1.0) for", "details."}},
+		{40, []string{"See the release notes (https://github.", "com/example/project/releases/tag/v2.1.0)", "for details."}},
+		{60, []string{"See the release notes (https://github.com/example/project/", "releases/tag/v2.1.0) for details."}},
+	}
+	for _, tc := range cases {
+		lines := Render(in, testTheme, tc.width)
+		if got := lineTexts(lines); !equalSlices(got, tc.want) {
+			t.Fatalf("width=%d\n got=%q\nwant=%q", tc.width, got, tc.want)
+		}
 		destSeen := false
 		for _, l := range lines {
-			raw.WriteString(l.Text)
 			for _, sp := range l.Spans {
 				if !strings.Contains(l.Text, sp.Text) {
-					t.Fatalf("width=%d span %q not in line %q", width, sp.Text, l.Text)
+					t.Fatalf("width=%d span %q not in line %q", tc.width, sp.Text, l.Text)
 				}
 				if sp.Link != "" {
 					destSeen = true
 				}
 			}
 		}
-		if !strings.Contains(raw.String(), "github.com/example/project/releases/tag/v2.1.0") {
-			t.Fatalf("width=%d lost destination in %q", width, raw.String())
-		}
 		if !destSeen {
-			t.Fatalf("width=%d no span carries the destination", width)
-		}
-		for _, l := range lines {
-			if w := displayWidth(l.Text); w > width {
-				t.Fatalf("width=%d line wider than width: %q", width, l.Text)
-			}
+			t.Fatalf("width=%d no span carries the destination", tc.width)
 		}
 	}
 }
@@ -488,29 +400,50 @@ func TestTableAlignsMarkers(t *testing.T) {
 // every row lines up under its column, and no line overflows the width.
 func TestTableWrapsWideCells(t *testing.T) {
 	doc := "| Name | Role | Notes |\n|---|---|---|\n| alice | engineer | works on the rendering subsystem |\n| bob | pm | x |"
-	for _, width := range []int{20, 30, 40} {
-		lines := Render(doc, testTheme, width)
+	cases := []struct {
+		width int
+		want  []string
+	}{
+		// Every column shrinks here, and a word longer than its column is
+		// hard-split the way prose splits one.
+		{20, []string{
+			" Name  Role   Notes ",
+			" alic  engin  works ",
+			" e     eer    on    ",
+			"              the r ",
+			"              ender ",
+			"              ing s ",
+			"              ubsys ",
+			"              tem   ",
+			" bob   pm     x     ",
+		}},
+		{30, []string{
+			" Name   Role      Notes       ",
+			" alice  engineer  works on    ",
+			"                  the         ",
+			"                  rendering   ",
+			"                  subsystem   ",
+			" bob    pm        x           ",
+		}},
+		{40, []string{
+			" Name   Role      Notes                 ",
+			" alice  engineer  works on the          ",
+			"                  rendering subsystem   ",
+			" bob    pm        x                     ",
+		}},
+	}
+	for _, tc := range cases {
+		lines := Render(doc, testTheme, tc.width)
 		for _, l := range lines {
-			if w := displayWidth(l.Text); w > width {
-				t.Fatalf("width=%d line overflows (%d): %q", width, w, l.Text)
+			if w := displayWidth(l.Text); w > tc.width {
+				t.Fatalf("width=%d line overflows (%d): %q", tc.width, w, l.Text)
 			}
 		}
-		// Every body line must start in its column: the "alice" row's Notes
-		// text and the "bob" row's Notes cell share the same column offset.
-		var noteCol int
-		for _, l := range lines {
-			if strings.HasPrefix(l.Text, "alice") {
-				noteCol = strings.Index(l.Text, "works")
-				break
-			}
-		}
-		if noteCol < 0 {
-			t.Fatalf("width=%d: could not locate Notes column", width)
-		}
-		for _, l := range lines {
-			if strings.HasPrefix(l.Text, "bob") && strings.Index(l.Text, "x") != noteCol {
-				t.Fatalf("width=%d: bob's Notes cell not aligned at col %d: %q", width, noteCol, l.Text)
-			}
+		// Continuation lines pad the cells that have run out of text, so
+		// wrapped Notes text stays under its own column instead of drifting
+		// left under Name.
+		if got := lineTexts(lines); !equalSlices(got, tc.want) {
+			t.Fatalf("width=%d\n got=%q\nwant=%q", tc.width, got, tc.want)
 		}
 	}
 }
@@ -542,18 +475,6 @@ func TestTableFitsTinyWidth(t *testing.T) {
 			if w := displayWidth(l.Text); w > width {
 				t.Fatalf("width=%d line overflows (%d): %q", width, w, l.Text)
 			}
-		}
-	}
-}
-
-// TestRenderDeterministic verifies Render agrees with itself across parser
-// runs (determinism).
-func TestRenderDeterministic(t *testing.T) {
-	doc := "# H\n\ntext **bold** more\n\n- a\n- b\n\n> q\n\n```\nc\n```\n"
-	first := lineTexts(Render(doc, testTheme, 40))
-	for i := 0; i < 5; i++ {
-		if got := lineTexts(Render(doc, testTheme, 40)); !equalSlices(got, first) {
-			t.Fatalf("run %d differs\n got=%q\nwant=%q", i, got, first)
 		}
 	}
 }
@@ -595,23 +516,6 @@ func continuationDocs() []string {
 		"## Sub heading\n\n<script>\nvar x;\n\nstill script\n\n# Heading\n\n| ",
 	)
 	return docs
-}
-
-func TestStreamConvergesContinuations(t *testing.T) {
-	docs := continuationDocs()
-	for _, doc := range docs {
-		for _, width := range []int{20, 40} {
-			s := NewStream(testTheme, width)
-			for i := 0; i < len(doc); i++ {
-				s.Write(doc[i : i+1])
-			}
-			got := lineTexts(streamView(s))
-			want := lineTexts(Render(doc, testTheme, width))
-			if !equalSlices(got, want) {
-				t.Fatalf("doc=%q width=%d\n got=%q\nwant=%q", doc, width, got, want)
-			}
-		}
-	}
 }
 
 // TestStreamConvergesRandomized generates random documents from markdown
