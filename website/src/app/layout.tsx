@@ -13,7 +13,7 @@ const jetbrains = JetBrains_Mono({
   subsets: ["latin"],
 });
 
-const title = `kon · the coding agent that starts in ${startupMs} ms`;
+const title = `kon · coding harness for foxes =˄▾˄=`;
 const description = `kon is a terminal coding agent in one native binary. It starts in ${startupMs} ms, weighs ${binaryMb} MB, and runs natively on Windows, macOS, and Linux.`;
 
 export const metadata: Metadata = {
