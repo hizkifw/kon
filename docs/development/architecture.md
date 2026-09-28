@@ -38,10 +38,10 @@ kon owns orchestration, persistence, and compaction.
 ## CLI surface
 
 `cmd/kon` owns startup wiring and CLI metadata. Each subcommand lives in its own
-file (`run.go`, `docs.go`, `models.go`, `upgrade.go`) as a thin adapter: it
-parses its flags, resolves paths, and delegates the work to an `internal/`
-package that owns the logic (`internal/headless`, `docs/product`,
-`internal/catalog`, `internal/selfupdate`). Subcommands register in one table in
+file (`run.go`, `docs.go`, `models.go`, `upgrade.go`, `tool.go`) as a thin
+adapter: it parses its flags, resolves paths, and delegates the work to an
+`internal/` package that owns the logic (`internal/headless`, `docs/product`,
+`internal/catalog`, `internal/selfupdate`, `internal/web`). Subcommands register in one table in
 `cli.go`; the root `--help` index is rendered from that table, so a new command
 cannot be accepted without also being documented in help.
 
@@ -52,6 +52,14 @@ first word of the message. Help is recognized only among leading flags, so a
 message that mentions `-h` is still sent. `kon run` is the one command with exit
 statuses beyond 1 (2 for usage, 130 for an interrupt), carried by `exitError`
 in `main.go`.
+
+`kon tool <name>` runs a tool the agent reaches through its shell rather than
+through a model-facing schema. The system prompt names each one and points at
+`kon tool --help`, so a new tool costs a line in new sessions' prompts instead
+of a schema in every request, and the model can page or pipe its output with
+ordinary commands. Tools register in their own table in `tool.go`, which
+renders `kon tool --help`. `kon tool webfetch` needs no config or storage, so
+it starts as fast as `kon --version`.
 
 `kon run` builds its runtime with `app.Start` options, which override the
 default model and effort without writing the config. `internal/headless` is a
@@ -258,8 +266,8 @@ compaction entry points to the first retained entry. Context projection combines
 4. messages appended after it.
 
 The system prompt is built once when the session is created. It carries the
-built-in rules, the absolute path to the current kon executable and guidance to
-consult `kon docs` for self-questions, then any `AGENTS.md`-style project
+built-in rules, the absolute path to the current kon executable, guidance to
+consult `kon docs` for self-questions, and the `kon tool` commands, then any `AGENTS.md`-style project
 instructions discovered by walking up from the working directory (outermost
 first, tagged with their paths), the working directory, and finally the user's
 configured instructions. Because the prompt is persisted verbatim and never
@@ -351,7 +359,9 @@ the compact `12.4k`/`1.0m` rendering, so every displayed figure matches.
 
 ## Dependency policy
 
-Direct dependencies are Bubble Tea, Bubbles, and Lip Gloss. The provider layer
+Direct dependencies are Bubble Tea, Bubbles, and Lip Gloss, with goldmark for
+Markdown rendering and `golang.org/x/net/html` for parsing fetched pages the way
+a browser does, which real-world HTML needs. The provider layer
 uses only the Go standard library: Chat Completions, Responses, and Messages
 request bodies and SSE streams are parsed in-tree so token accounting and streaming stay exact and
 inspected. JSON, typed-ID generation, files, subprocesses, and release

@@ -198,6 +198,32 @@ Tool calls run serially in the directory where kon was started:
   a background job instead. The tool description tells the model which
   interpreter it is.
 
+### Web pages
+
+The agent reads web pages by running `kon tool webfetch <url>` in its shell;
+the system prompt tells it the command exists. You can run it yourself too:
+
+```sh
+kon tool webfetch go.dev/doc/effective_go > effective_go.md
+```
+
+An HTML page prints as Markdown: headings, lists, code blocks, tables, and
+links, without scripts, buttons, or decoration. When the page marks its
+`<main>` content, only that prints, so a site's sidebars stay out; otherwise
+its header, navigation, and footer print with it. Every tab of a tabbed code
+sample is kept. Links within the page's site print as paths from its root
+(`/about`), and others as full URLs. When the server redirects, kon notes the
+final URL on stderr, since paths start from that site. JSON, plain text, and
+other text print as they arrived, and anything else, like an image or a PDF,
+is an error. A URL without
+a scheme is fetched over https, at most the first 5 MiB is read, and a fetch
+gives up after 30 seconds. A page that builds its content with JavaScript has
+little text in its HTML, and kon says so rather than printing an empty page.
+Requests identify themselves as kon, and a site behind bot protection may
+refuse them.
+
+`kon tool --help` lists the tools the agent can run this way.
+
 ### Background jobs
 
 For servers, watchers, and long builds, the model can start a shell command as

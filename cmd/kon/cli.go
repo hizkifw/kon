@@ -21,11 +21,11 @@ type command struct {
 // commands returns kon's subcommands in display order. The root help index and
 // lookup both read from here, so a new command only registers in one place.
 func commands() []command {
-	return []command{runCommand(), docsCommand(), modelsCommand(), upgradeCommand()}
+	return []command{runCommand(), docsCommand(), modelsCommand(), upgradeCommand(), toolCommand()}
 }
 
-func lookup(name string) (command, bool) {
-	for _, cmd := range commands() {
+func lookup(cmds []command, name string) (command, bool) {
+	for _, cmd := range cmds {
 		if cmd.name == name {
 			return cmd, true
 		}
@@ -68,7 +68,7 @@ func rootUsage() string {
 // which keeps "kon --resume docs" meaning a resume rather than a docs request.
 func run(args []string) error {
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
-		cmd, ok := lookup(args[0])
+		cmd, ok := lookup(commands(), args[0])
 		if !ok {
 			return fmt.Errorf("unknown command %q (try --help)", args[0])
 		}

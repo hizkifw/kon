@@ -34,7 +34,8 @@ XDG_CONFIG_HOME="$(mktemp -d)" XDG_DATA_HOME="$(mktemp -d)" go run ./cmd/kon
 
 Prefer the standard library. Add a dependency only when it removes substantial,
 well-tested platform work. The only current direct dependencies are Bubble Tea,
-Bubbles, and Lip Gloss (with goldmark for markdown rendering).
+Bubbles, and Lip Gloss (with goldmark for markdown rendering and
+golang.org/x/net/html for parsing fetched pages).
 
 Each package owns one boundary. Do not reach across them.
 
@@ -50,6 +51,7 @@ Each package owns one boundary. Do not reach across them.
 | `internal/login` | `/login` choices per service and connection verification | wire backends or config writes |
 | `internal/session` | domain messages and append-only context tree | provider requests |
 | `internal/tools` | tool registry, bounded tool schemas and execution | agent orchestration |
+| `internal/web` | `kon tool` web access: fetching pages as Markdown | tool schemas or agent state |
 | `internal/typedid` | identifier construction and parsing | storage or provider policy |
 | `internal/tokens` | the token count type and its compact display | usage policy or estimation |
 | `internal/buildinfo` | build version and the outgoing User-Agent | configuration or network clients |

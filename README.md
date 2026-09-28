@@ -65,6 +65,10 @@ release do not appear in the path returned by the new release.
 then runs the new version's migrations. `kon upgrade --check` only reports.
 kon never checks for updates on startup.
 
+`kon tool webfetch <url>` prints a web page as Markdown. The agent uses it to
+read documentation from its shell, and `kon tool --help` lists the tools it
+has this way.
+
 `kon models` lists bundled or cached model IDs offline. Run
 `kon models --refresh` to explicitly fetch the latest catalog from models.dev;
 kon never refreshes it on startup.
