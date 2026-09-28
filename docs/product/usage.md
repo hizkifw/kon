@@ -66,9 +66,21 @@ Type `/` at the start of the prompt to see the available commands.
 | `/jobs [id]` | Pick a background job or subagent to preview, or show one's recent output |
 | `/kill <id>` | Stop a running background job; the agent is told you stopped it |
 | `/queue [item\|clear]` | Pick a pending steer or queued message to pull back for editing, or drop them all |
+| `/copy [last\|all]` | Copy the last reply, or the whole conversation, to the clipboard |
 
 `/clear` is a hidden alias for `/new`: typing it works, and completing it fills
 in `/new`.
+
+`/copy` copies the Markdown the model wrote rather than the wrapped text on
+screen; `/copy all` adds your prompts as quotes and one line per tool call.
+It reaches your terminal's clipboard with the OSC 52 escape sequence, which
+works over SSH in most terminals (iTerm2 needs it enabled under General →
+Selection). Inside tmux, kon hands the text to tmux 3.2 or newer, which copies
+it with tmux's default settings and also keeps it as a paste buffer. When kon
+runs over SSH inside a tmux on your own machine, that tmux needs
+`set -g set-clipboard on` to pass the copy through. kon also sets the
+clipboard of the machine it runs on with `pbcopy`, `wl-copy`, `xclip`, or
+`xsel`, which covers a local terminal without OSC 52, such as macOS Terminal.
 
 ## Steering and queueing
 

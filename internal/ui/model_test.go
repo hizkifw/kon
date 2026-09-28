@@ -653,7 +653,7 @@ func newMultiModel(t testing.TB, names ...string) Model {
 func TestRegistryCompleteDispatchesToArgument(t *testing.T) {
 	m := newMultiModel(t, "fast", "review", "reason")
 
-	got := m.commands.completion(m, "/co")
+	got := m.commands.completion(m, "/com")
 	if len(got) != 1 || got[0].Value != "/compact" {
 		t.Fatalf("command completion = %#v", got)
 	}

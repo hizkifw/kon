@@ -319,6 +319,18 @@ func defaultRegistry() *registry {
 			return m.managePending(args)
 		},
 	})
+	registry.register(slashCommand{
+		name:    "copy",
+		summary: "copy the last reply, or the whole conversation, to the clipboard",
+		arguments: []argument{{
+			name:     "last|all",
+			optional: true,
+			complete: completeCopy,
+		}},
+		run: func(m Model, args []string) (tea.Model, tea.Cmd) {
+			return m.copyTranscript(args)
+		},
+	})
 	return registry
 }
 
