@@ -3,6 +3,7 @@ package provider
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -594,6 +595,8 @@ type chatChoice struct {
 	Index        int       `json:"index"`
 	Delta        chatDelta `json:"delta"`
 	FinishReason *string   `json:"finish_reason"`
+	// Usage is where Moonshot reports usage, instead of on the chunk.
+	Usage *chatUsage `json:"usage"`
 }
 
 type chatDelta struct {
@@ -698,18 +701,27 @@ func (e *chatError) apiError(body []byte) *APIError {
 	return apiErr
 }
 
+// chatUsage is a server's token report. Servers disagree on where the prompt
+// cache's share goes: OpenAI and OpenRouter report hits in
+// prompt_tokens_details, DeepSeek as prompt_cache_hit_tokens, and Kimi as a
+// top-level cached_tokens. Only OpenRouter reports what was written to the
+// cache, which it bills above the input rate for some upstreams.
 type chatUsage struct {
 	PromptTokens        tokens.Count `json:"prompt_tokens"`
 	CompletionTokens    tokens.Count `json:"completion_tokens"`
 	TotalTokens         tokens.Count `json:"total_tokens"`
 	PromptTokensDetails *struct {
-		CachedTokens tokens.Count `json:"cached_tokens"`
+		CachedTokens     tokens.Count `json:"cached_tokens"`
+		CacheWriteTokens tokens.Count `json:"cache_write_tokens"`
 	} `json:"prompt_tokens_details"`
+	PromptCacheHitTokens tokens.Count `json:"prompt_cache_hit_tokens"`
+	CachedTokens         tokens.Count `json:"cached_tokens"`
 }
 
 // usage converts the server's report. chat completions prompt_tokens covers
 // every input token including the cached share, so kon stores it as-is and
-// records the cached portion separately for context management.
+// records the cache's shares separately. Reads and writes are separate counts,
+// neither included in the other.
 func (u *chatUsage) usage() *session.Usage {
 	if u == nil || (u.PromptTokens == 0 && u.CompletionTokens == 0 && u.TotalTokens == 0) {
 		return nil
@@ -719,9 +731,14 @@ func (u *chatUsage) usage() *session.Usage {
 		total = u.PromptTokens + u.CompletionTokens
 	}
 	usage := &session.Usage{PromptTokens: u.PromptTokens, CompletionTokens: u.CompletionTokens, TotalTokens: total}
+	var details, written tokens.Count
 	if u.PromptTokensDetails != nil {
-		usage.CachedTokens = u.PromptTokensDetails.CachedTokens
+		details, written = u.PromptTokensDetails.CachedTokens, u.PromptTokensDetails.CacheWriteTokens
 	}
+	// The first nonzero report wins, since a server may send a zero in the
+	// OpenAI field beside its own count.
+	usage.CachedTokens = cmp.Or(details, u.PromptCacheHitTokens, u.CachedTokens)
+	usage.CacheWriteTokens = written
 	return usage
 }
 
@@ -843,6 +860,9 @@ func applyChatChunk(state *chatStreamState, payload string, emit func(Event)) er
 	for _, choice := range chunk.Choices {
 		if choice.Index != 0 {
 			continue
+		}
+		if chunk.Usage == nil {
+			chunk.Usage = choice.Usage
 		}
 		if text := choice.Delta.Content; text != "" {
 			state.appendText(session.PartText, text)

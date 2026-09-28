@@ -13,6 +13,7 @@ import (
 	"github.com/hizkifw/kon/internal/buildinfo"
 	"github.com/hizkifw/kon/internal/provider/wire"
 	"github.com/hizkifw/kon/internal/session"
+	"github.com/hizkifw/kon/internal/tokens"
 	"github.com/hizkifw/kon/internal/typedid"
 )
 
@@ -445,6 +446,52 @@ func TestChatStreamSurfacesHTTPError(t *testing.T) {
 	var apiErr *APIError
 	if !errors.As(err, &apiErr) || apiErr.Status != http.StatusUnauthorized || apiErr.Code != "invalid_api_key" {
 		t.Fatalf("err = %#v", err)
+	}
+}
+
+// TestChatUsageReadsEachServersCacheFields covers where each server puts the
+// prompt cache's share: hits and writes are separate counts, and a zero in
+// the OpenAI field does not hide a server's own count.
+func TestChatUsageReadsEachServersCacheFields(t *testing.T) {
+	for name, tc := range map[string]struct {
+		report        string
+		cached, write tokens.Count
+	}{
+		"openai":     {`{"prompt_tokens":100,"completion_tokens":5,"prompt_tokens_details":{"cached_tokens":60}}`, 60, 0},
+		"openrouter": {`{"prompt_tokens":100,"completion_tokens":5,"prompt_tokens_details":{"cached_tokens":60,"cache_write_tokens":30}}`, 60, 30},
+		"deepseek":   {`{"prompt_tokens":100,"completion_tokens":5,"prompt_cache_hit_tokens":70,"prompt_cache_miss_tokens":30,"prompt_tokens_details":{"cached_tokens":0}}`, 70, 0},
+		"kimi":       {`{"prompt_tokens":100,"completion_tokens":5,"cached_tokens":80}`, 80, 0},
+		"uncached":   {`{"prompt_tokens":100,"completion_tokens":5}`, 0, 0},
+	} {
+		var report chatUsage
+		if err := json.Unmarshal([]byte(tc.report), &report); err != nil {
+			t.Fatal(err)
+		}
+		got := report.usage()
+		if got.PromptTokens != 100 || got.CachedTokens != tc.cached || got.CacheWriteTokens != tc.write {
+			t.Errorf("%s: usage = %+v, want %d cached and %d written of 100", name, got, tc.cached, tc.write)
+		}
+	}
+}
+
+// TestChatStreamReadsUsageFromTheChoice covers Moonshot, which reports usage
+// on the final choice rather than on the chunk.
+func TestChatStreamReadsUsageFromTheChoice(t *testing.T) {
+	events := strings.Join([]string{
+		sse(`{"choices":[{"index":0,"delta":{"content":"hi"}}]}`),
+		sse(`{"choices":[{"index":0,"delta":{},"finish_reason":"stop","usage":{"prompt_tokens":19,"completion_tokens":13,"total_tokens":32,"cached_tokens":16}}]}`),
+		"data: [DONE]\n\n",
+	}, "")
+	model := newTestModel(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, events)
+	})
+	response, err := model.Stream(context.Background(), []session.Message{session.TextMessage(session.RoleUser, "hi")}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u := response.Usage; u == nil || u.PromptTokens != 19 || u.CompletionTokens != 13 || u.CachedTokens != 16 {
+		t.Fatalf("usage = %#v", response.Usage)
 	}
 }
 
