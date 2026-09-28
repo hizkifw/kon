@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -54,28 +55,98 @@ func TestRunRejectsUnknownCommand(t *testing.T) {
 	}
 }
 
+// The expected help is written out rather than rebuilt from commands(), so a
+// command, summary, or flag list that drops out of the printed text fails the
+// comparison instead of vanishing from both sides of it.
+const rootHelp = `usage: kon [--resume [<id>]] [--help] [--version]
+       kon <command> [flags]
+
+Start a full-screen kon agent session in the current directory.
+
+  --resume, -r          resume the most recent session in this directory
+  --resume=<id>         resume a specific session
+  --help, -h            show this help
+  --version             print the version
+
+commands:
+  run      send one prompt without the full-screen UI
+  docs     extract the bundled product guide
+  models   list bundled or cached model IDs offline
+  upgrade  install the latest kon release
+
+Run "kon <command> --help" for command flags.
+
+On exit, kon prints the session ID so the session can be resumed later.
+`
+
+const runHelp = `usage: kon run [flags] [message...]
+
+send one prompt without the full-screen UI
+
+Send one prompt in the current directory and stream the reply to stdout.
+The message is the arguments after the flags, or piped stdin when there
+are none. With --stdin, stdin is appended to the arguments after a blank line.
+Tools run without confirmation, as they do in the full-screen UI.
+
+  --model <name>         use this model for this run; the config is not changed
+  --effort <level>       use this reasoning effort for this run
+  --resume, -r           continue the most recent session in this directory
+  --resume=<id>          continue a specific session
+  --format text|json     stream text (default), or write one JSON event per line
+  --stdin                append stdin to the message
+
+Exit status is 0 when the turn completes, 1 on error, 2 on a usage error,
+and 130 when interrupted.
+`
+
+// stdoutOf runs the CLI with args and returns what it printed. Help goes
+// straight to os.Stdout, so the test swaps in a pipe for the call.
+func stdoutOf(t *testing.T, args ...string) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	printed := make(chan string)
+	go func() {
+		b, _ := io.ReadAll(r)
+		r.Close()
+		printed <- string(b)
+	}()
+	stdout := os.Stdout
+	os.Stdout = w
+	runErr := run(args)
+	os.Stdout = stdout
+	w.Close()
+	out := <-printed
+	if runErr != nil {
+		t.Fatalf("kon %s: %v", strings.Join(args, " "), runErr)
+	}
+	return out
+}
+
 // TestRootUsageListsEveryCommand guards the help index against drift: a command
 // that is registered but missing from the root help is invisible to users.
 func TestRootUsageListsEveryCommand(t *testing.T) {
-	usage := rootUsage()
 	for _, cmd := range commands() {
 		if cmd.name == "" || cmd.summary == "" || cmd.synopsis == "" {
 			t.Fatalf("command %+v is missing help metadata", cmd)
 		}
-		if !strings.Contains(usage, cmd.name) {
-			t.Fatalf("root usage does not mention command %q:\n%s", cmd.name, usage)
-		}
+	}
+	if got := stdoutOf(t, "--help"); got != rootHelp {
+		t.Fatalf("kon --help printed:\n%s\nwant:\n%s", got, rootHelp)
 	}
 }
 
 func TestCommandHelp(t *testing.T) {
+	if got := stdoutOf(t, "run", "--help"); got != runHelp {
+		t.Fatalf("kon run --help printed:\n%s\nwant:\n%s", got, runHelp)
+	}
+	// Every command answers --help with its own usage, not an error or the
+	// root index.
 	for _, cmd := range commands() {
-		help := cmd.help()
-		if !strings.Contains(help, cmd.synopsis) || !strings.Contains(help, cmd.summary) {
-			t.Fatalf("help for %q is missing its synopsis or summary:\n%s", cmd.name, help)
-		}
-		if err := run([]string{cmd.name, "--help"}); err != nil {
-			t.Fatalf("%s --help: %v", cmd.name, err)
+		if got := stdoutOf(t, cmd.name, "--help"); !strings.HasPrefix(got, "usage: kon "+cmd.name) {
+			t.Fatalf("kon %s --help printed:\n%s", cmd.name, got)
 		}
 	}
 }

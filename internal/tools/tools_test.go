@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -34,6 +35,42 @@ func TestWriteEditRead(t *testing.T) {
 	}
 }
 
+// TestWriteEditKeepFileMode guards executable scripts: replacing a file's
+// content must not drop its execute bits.
+func TestWriteEditKeepFileMode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows files have no POSIX permission bits")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "build.sh")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\necho old\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Set the mode explicitly so the umask cannot weaken the starting point.
+	if err := os.Chmod(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	executor := New(dir, false, nil)
+	for _, call := range []struct {
+		tool string
+		args map[string]any
+	}{
+		{"edit", map[string]any{"path": "build.sh", "old_text": "old", "new_text": "new"}},
+		{"write", map[string]any{"path": "build.sh", "content": "#!/bin/sh\necho newer\n"}},
+	} {
+		if result, failed := executor.Execute(context.Background(), call.tool, raw(call.args), nil); failed {
+			t.Fatalf("%s = %q", call.tool, result.Content)
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, want := info.Mode().Perm(), os.FileMode(0o755); got != want {
+			t.Fatalf("%s left the file mode %v, want %v", call.tool, got, want)
+		}
+	}
+}
+
 func TestEditRejectsAmbiguousAndUnknownArguments(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "x"), []byte("same same"), 0o644); err != nil {
@@ -59,6 +96,20 @@ func TestShellCapturesExitCode(t *testing.T) {
 	}
 	if !strings.Contains(result.Content, "(took ") {
 		t.Fatalf("shell result is missing the wall-clock duration: %q", result.Content)
+	}
+	// A nonzero exit is a failed call, and the code survives both in the text
+	// the model reads and in the details the transcript replays.
+	command = "echo failing; exit 3"
+	if runtime.GOOS == "windows" && shellName() == "cmd.exe" {
+		command = "echo failing& exit 3"
+	}
+	result, failed = New(t.TempDir(), false, nil).Execute(context.Background(), "shell", raw(map[string]any{"command": command, "timeout": 10}), nil)
+	if !failed || !result.IsError || !strings.Contains(result.Content, "failing") || !strings.Contains(result.Content, "exit code: 3") {
+		t.Fatalf("failing shell = %q, failed=%v, IsError=%v", result.Content, failed, result.IsError)
+	}
+	var details shellDetails
+	if err := json.Unmarshal(result.Details, &details); err != nil || details.ExitCode == nil || *details.ExitCode != 3 {
+		t.Fatalf("failing shell details = %s, err=%v; want exit_code 3", result.Details, err)
 	}
 }
 
@@ -126,12 +177,14 @@ func TestShellCancelInterruptsCommand(t *testing.T) {
 		defer close(done)
 		// A foreground child (not `sleep … &`: async children have SIGINT
 		// ignored by POSIX) proves the interrupt reaches the process group.
+		// The subshell reports ready only after the trap is set, then becomes
+		// the sleep, so no interrupt can land before either is in place.
 		_, failed = executor.Execute(ctx, "shell", raw(map[string]any{
-			"command": `trap 'echo handled > interrupt.txt' INT; sleep 31415`,
+			"command": `trap 'echo handled > interrupt.txt' INT; (: > ready; exec sleep 31415)`,
 			"timeout": 600,
 		}), nil)
 	}()
-	time.Sleep(300 * time.Millisecond)
+	waitUntil(t, "the command to start", fileExists(filepath.Join(dir, "ready")))
 	cancel()
 	select {
 	case <-done:
@@ -145,7 +198,7 @@ func TestShellCancelInterruptsCommand(t *testing.T) {
 		t.Fatalf("cancelled command did not receive the interrupt: %v", err)
 	}
 	// The interrupt must reach the shell's children too.
-	if out, err := exec.Command("pgrep", "-f", "sleep 31415").Output(); err == nil && len(out) > 0 {
+	if out := processesMatching(t, "sleep 31415"); out != "" {
 		t.Fatalf("cancelled command left a running child: %s", out)
 	}
 }
@@ -157,18 +210,25 @@ func TestShellKillsCommandThatIgnoresInterrupt(t *testing.T) {
 	grace := shellInterruptGrace
 	shellInterruptGrace = 300 * time.Millisecond
 	defer func() { shellInterruptGrace = grace }()
-	executor := New(t.TempDir(), false, nil)
+	dir := t.TempDir()
+	executor := New(dir, false, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	// A failure would otherwise leave the loop spinning after the test exits.
+	t.Cleanup(func() { _ = exec.Command("pkill", "-KILL", "-f", "kon-ignores-int").Run() })
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
+		// A child of the shell ignores the interrupt and loops. WaitDelay
+		// kills only the shell itself, so the child ends only if the grace
+		// period kill reaches the whole process group. The trailing exit keeps
+		// the shell from replacing itself with the child.
 		executor.Execute(ctx, "shell", raw(map[string]any{
-			"command": `trap '' INT; while :; do :; done`,
+			"command": `sh -c 'trap "" INT; : > ready; while :; do :; done' kon-ignores-int; exit`,
 			"timeout": 600,
 		}), nil)
 	}()
-	time.Sleep(300 * time.Millisecond)
+	waitUntil(t, "the command to start", fileExists(filepath.Join(dir, "ready")))
 	start := time.Now()
 	cancel()
 	select {
@@ -179,24 +239,44 @@ func TestShellKillsCommandThatIgnoresInterrupt(t *testing.T) {
 	if elapsed := time.Since(start); elapsed > 5*time.Second {
 		t.Fatalf("kill did not follow the interrupt grace: %v", elapsed)
 	}
+	waitUntil(t, "the grace period kill to end the child that ignores the interrupt", func() bool {
+		return processesMatching(t, "kon-ignores-int") == ""
+	})
 }
 
 func TestKillEscalationForceKillsRunningCommand(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("test relies on POSIX signal delivery")
 	}
-	executor := New(t.TempDir(), false, nil)
+	dir := t.TempDir()
+	executor := New(dir, false, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	if executor.Interrupt(2) {
 		t.Fatal("kill escalation reported a command while idle")
 	}
+	// A failure would otherwise leave the loop running after the test exits.
+	t.Cleanup(func() { _ = exec.Command("pkill", "-KILL", "-f", "kon-survives-interrupt").Run() })
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		executor.Execute(ctx, "shell", raw(map[string]any{"command": "sleep 30", "timeout": 600}), nil)
+		// The command survives every interrupt, noting each one it catches, so
+		// only a force kill can end it.
+		executor.Execute(ctx, "shell", raw(map[string]any{
+			"command": `trap ': > interrupted' INT; : > ready; while :; do sleep 1; done # kon-survives-interrupt`,
+			"timeout": 600,
+		}), nil)
 	}()
-	time.Sleep(300 * time.Millisecond)
+	waitUntil(t, "the command to start", fileExists(filepath.Join(dir, "ready")))
+	// Run tracks the command only once Start returns, which can trail the
+	// shell's ready file, so the first press may briefly find nothing.
+	waitUntil(t, "the interrupt to find the running command", func() bool { return executor.Interrupt(1) })
+	waitUntil(t, "the command to catch the interrupt", fileExists(filepath.Join(dir, "interrupted")))
+	select {
+	case <-done:
+		t.Fatal("the first interrupt ended a command that handles it")
+	default:
+	}
 	if !executor.Interrupt(2) {
 		t.Fatal("kill escalation did not find the running command")
 	}
@@ -216,13 +296,13 @@ func TestShellReportsTickingProgressWhileRunning(t *testing.T) {
 	}
 	executor := New(t.TempDir(), false, nil)
 	var mu sync.Mutex
-	var statuses []string
+	var snapshots []Display
 	report := func(d Display) {
 		if d.State != StateRunning || d.Status == "" {
 			return
 		}
 		mu.Lock()
-		statuses = append(statuses, d.Status)
+		snapshots = append(snapshots, d)
 		mu.Unlock()
 	}
 	// A command that outlives several live-display ticks.
@@ -235,17 +315,35 @@ func TestShellReportsTickingProgressWhileRunning(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if len(statuses) < 2 {
-		t.Fatalf("expected repeated progress snapshots, got %v", statuses)
+	if len(snapshots) < 2 {
+		t.Fatalf("expected repeated progress snapshots, got %+v", snapshots)
 	}
 	// Every snapshot renders elapsed over the 5s budget, and the clock advances.
-	for _, s := range statuses {
-		if !strings.HasSuffix(s, " / 5s") {
-			t.Fatalf("progress status is missing the timeout budget: %q", s)
+	for _, d := range snapshots {
+		if !strings.HasSuffix(d.Status, " / 5s") {
+			t.Fatalf("progress status is missing the timeout budget: %q", d.Status)
 		}
 	}
-	if statuses[0] == statuses[len(statuses)-1] {
-		t.Fatalf("progress clock did not advance: %v", statuses)
+	if first, last := snapshots[0].Status, snapshots[len(snapshots)-1].Status; first == last {
+		t.Fatalf("progress clock did not advance: %q to %q", first, last)
+	}
+	// Each snapshot shows the command and its output so far: nothing before
+	// the echo lands, and the echoed line once it has.
+	sawOutput := false
+	for _, d := range snapshots {
+		if d.Summary != "echo start; sleep 1" {
+			t.Fatalf("running snapshot summary = %q", d.Summary)
+		}
+		switch {
+		case len(d.Lines) == 0:
+		case len(d.Lines) == 1 && d.Lines[0] == "start":
+			sawOutput = true
+		default:
+			t.Fatalf("running snapshot lines = %q, want the output so far", d.Lines)
+		}
+	}
+	if !sawOutput {
+		t.Fatalf("no running snapshot showed the command's output; last = %+v", snapshots[len(snapshots)-1])
 	}
 	// The finished result carries the exit-code status instead of the clock.
 	shell := &shellTool{}
@@ -274,6 +372,47 @@ func TestShellReturnsWhenGrandchildHoldsOutput(t *testing.T) {
 	if elapsed >= 2*time.Second {
 		t.Fatalf("a grandchild holding the output pipe stalled the result: %v", elapsed)
 	}
+}
+
+// waitUntil polls cond until it holds, failing after a generous timeout. The
+// signal tests synchronize on what a command has done, never on how long it
+// ought to have taken.
+func waitUntil(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+func fileExists(path string) func() bool {
+	return func() bool {
+		_, err := os.Stat(path)
+		return err == nil
+	}
+}
+
+// processesMatching lists the processes whose command line contains pattern.
+// Without pgrep the test skips, rather than passing a check it never made.
+func processesMatching(t *testing.T, pattern string) string {
+	t.Helper()
+	pgrep, err := exec.LookPath("pgrep")
+	if err != nil {
+		t.Skip("pgrep is not installed, so surviving processes cannot be checked")
+	}
+	out, err := exec.Command(pgrep, "-f", pattern).Output()
+	var exit *exec.ExitError
+	if errors.As(err, &exit) && exit.ExitCode() == 1 {
+		// pgrep exits 1 when nothing matches.
+		return ""
+	}
+	if err != nil {
+		t.Fatalf("pgrep: %v", err)
+	}
+	return string(out)
 }
 
 func raw(value any) json.RawMessage {

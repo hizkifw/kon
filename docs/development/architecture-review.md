@@ -428,6 +428,10 @@ Live view and tools:
   `Lines()` and the closing tag, kept in `ClosureLine`, never shows.
 - [ ] `fitLine` counts escape bytes as cells and can drop the SGR reset.
 - [ ] `read` counts a trailing newline as an extra line.
+- [ ] Shell resolution is documented as lazy (`internal/tools/shell.go`), but
+  `defaultDisplays` registers the shell tool during package initialization,
+  and `Register` reads its definition, so every start resolves the shell
+  before `main` runs. The tools tests reset `shellBackendOnce` for this.
 - [ ] `edit` counts matches with `bytes.Count`, so overlapping occurrences pass
   the exactly-once check; CRLF files cannot be edited across lines.
 - [ ] A prompt that begins with `/` (a path) is always parsed as a command.

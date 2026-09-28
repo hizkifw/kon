@@ -4,8 +4,18 @@ package tools
 
 import (
 	"errors"
+	"os"
+	"sync"
 	"testing"
 )
+
+func TestMain(m *testing.M) {
+	// The shell tests use POSIX syntax, which the developer's $SHELL (fish, say) may reject.
+	os.Setenv("SHELL", "/bin/sh")
+	// The display registry's package initialization already resolved the shell.
+	shellBackendOnce = sync.Once{}
+	os.Exit(m.Run())
+}
 
 func TestResolveShellForPrefersConfiguredShell(t *testing.T) {
 	found := func(path string) func(string) (string, error) {

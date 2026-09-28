@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"math/rand/v2"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -208,26 +209,37 @@ func TestInstallReplacesTarget(t *testing.T) {
 
 func TestInstallLeavesTargetOnFailure(t *testing.T) {
 	sum := sha256.Sum256([]byte("different"))
-	for name, r := range map[string]*release{
-		"checksum mismatch": {
+	// Random bytes do not compress, so this otherwise valid release archive
+	// still exceeds the download limit after gzip.
+	padding := make([]byte, maxArchiveSize)
+	rand.NewChaCha8([32]byte{}).Read(padding)
+	for name, c := range map[string]struct {
+		release *release
+		want    string // the cause the error must name
+	}{
+		"checksum mismatch": {&release{
 			archive:  tarGz(t, entryName(), script("kon v0.2.0")),
 			checksum: hex.EncodeToString(sum[:]) + "  ./" + archiveName("v0.2.0") + "\n",
-		},
-		"no checksum entry": {
+		}, "checksum mismatch"},
+		"no checksum entry": {&release{
 			archive:  tarGz(t, entryName(), script("kon v0.2.0")),
 			checksum: strings.Repeat("0", 64) + "  ./other.tar.gz\n",
-		},
-		"missing binary":    {archive: tarGz(t, "README.md", "hi")},
-		"wrong version":     {archive: tarGz(t, entryName(), script("kon v0.1.0"))},
-		"binary won't run":  {archive: tarGz(t, entryName(), "#!/bin/sh\nexit 3\n")},
-		"corrupt archive":   {archive: []byte("not gzip")},
-		"oversized archive": {archive: bytes.Repeat([]byte{0}, maxArchiveSize+1)},
+		}, "no checksum for"},
+		"missing binary":    {&release{archive: tarGz(t, "README.md", "hi")}, "release archive has no"},
+		"wrong version":     {&release{archive: tarGz(t, entryName(), script("kon v0.1.0"))}, `reports "kon v0.1.0"`},
+		"binary won't run":  {&release{archive: tarGz(t, entryName(), "#!/bin/sh\nexit 3\n")}, "does not run"},
+		"corrupt archive":   {&release{archive: []byte("not a gzip archive")}, "gzip: invalid header"},
+		"oversized archive": {&release{archive: tarGz(t, entryName(), script("kon v0.2.0"), "padding", string(padding))}, "exceeds size limit"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir, target := installTarget(t)
-			u := r.serve(t)
-			if err := u.Install(context.Background(), mustVersion(t, "v0.2.0"), target); err == nil {
+			u := c.release.serve(t)
+			err := u.Install(context.Background(), mustVersion(t, "v0.2.0"), target)
+			if err == nil {
 				t.Fatal("Install succeeded, want an error")
+			}
+			if !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("Install error = %v, want it to name %q", err, c.want)
 			}
 			if got, _ := os.ReadFile(target); string(got) != "old" {
 				t.Fatalf("target = %q, want it untouched", got)
