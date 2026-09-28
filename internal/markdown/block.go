@@ -3,6 +3,7 @@ package markdown
 import (
 	"bytes"
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/yuin/goldmark/ast"
@@ -24,17 +25,34 @@ type blockRenderer struct {
 	buf   []byte
 }
 
+// unwrapped is the width of a renderer that does not wrap: wider than any
+// line, and small enough that the width arithmetic cannot overflow.
+const unwrapped = math.MaxInt32
+
+// unwrappedRuleWidth is how long a thematic break draws when lines are not
+// wrapped. There is no width for it to span, so it takes a fixed length short
+// enough to fit a narrow terminal.
+const unwrappedRuleWidth = 40
+
+// newBlockRenderer builds a renderer that wraps at width, or not at all when
+// width is below 1.
 func newBlockRenderer(theme Theme, width int) *blockRenderer {
+	if width < 1 {
+		width = unwrapped
+	}
 	return &blockRenderer{theme: theme, width: width}
 }
 
 // indented returns a copy of the renderer whose wrapping width is reduced by
 // the given number of columns. It is used for content that will have prefix
 // columns added after wrapping (a list marker, a blockquote bar), so the
-// prefixed line still fits the renderer's width instead of overflowing.
+// prefixed line still fits the renderer's width instead of overflowing. An
+// unwrapped renderer stays unwrapped.
 func (r *blockRenderer) indented(by int) *blockRenderer {
 	c := *r
-	c.width = max(1, r.width-by)
+	if r.width != unwrapped {
+		c.width = max(1, r.width-by)
+	}
 	return &c
 }
 
@@ -435,7 +453,11 @@ func (r *blockRenderer) renderBlock(n ast.Node, source []byte, end int) block {
 	case ast.KindHeading:
 		b.lines = r.headingLines(n.(*ast.Heading), source)
 	case ast.KindThematicBreak:
-		b.lines = []Line{Plain(ruleLine(r.width))}
+		width := r.width
+		if width == unwrapped {
+			width = unwrappedRuleWidth
+		}
+		b.lines = []Line{Plain(ruleLine(width))}
 	case ast.KindFencedCodeBlock, ast.KindCodeBlock, ast.KindHTMLBlock:
 		b.lines = r.codeLines(n.Lines(), source)
 	case ast.KindBlockquote:

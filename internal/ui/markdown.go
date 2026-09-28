@@ -2,6 +2,7 @@ package ui
 
 import (
 	"image/color"
+	"io"
 	"strings"
 	"unicode"
 
@@ -12,7 +13,8 @@ import (
 
 // markdownStyles maps markdown style roles onto the transcript palette. A
 // role with no entry renders with the slab's foreground and no extra
-// attribute.
+// attribute, and a role with no foreground, like emphasis, in the slab's
+// foreground with its attributes.
 func markdownStyles() map[markdown.Style]part {
 	return map[markdown.Style]part{
 		markdown.StyleHeading:       {fg: colorHeadingFg, bold: true},
@@ -22,8 +24,8 @@ func markdownStyles() map[markdown.Style]part {
 		markdown.StyleQuote:         {fg: colorQuoteFg},
 		markdown.StyleQuoteMark:     {fg: colorFaint},
 		markdown.StyleListBullet:    {fg: colorToolName},
-		markdown.StyleEmph:          {fg: colorAgentFg, italic: true},
-		markdown.StyleStrong:        {fg: colorAgentFg, bold: true},
+		markdown.StyleEmph:          {italic: true},
+		markdown.StyleStrong:        {bold: true},
 		markdown.StyleLink:          {fg: colorLink},
 		markdown.StyleLinkURL:       {fg: colorFaint},
 		markdown.StyleStrikethrough: {fg: colorFaint, strike: true},
@@ -223,38 +225,43 @@ func slabLineContinuous(bg color.Color, width int, segments ...part) string {
 		if avail < 1 {
 			break
 		}
-		text := segment.text
-		if lipgloss.Width(text) > avail {
-			text = ansi.Truncate(text, avail, "…")
+		if lipgloss.Width(segment.text) > avail {
+			segment.text = ansi.Truncate(segment.text, avail, "…")
 		}
-		style := lipgloss.NewStyle().Foreground(segment.fg).Background(bg)
-		if segment.bg != nil {
-			style = style.Background(segment.bg)
-		}
-		if segment.bold {
-			style = style.Bold(true)
-		}
-		if segment.italic {
-			style = style.Italic(true)
-		}
-		if segment.underline {
-			style = style.Underline(true)
-		}
-		if segment.strike {
-			style = style.Strikethrough(true)
-		}
-		rendered := style.Render(text)
-		if segment.link != "" {
-			// OSC 8 hyperlink: terminals that support it make the span
-			// clickable; others show the text (and the visible URL) unchanged.
-			// The sequence is zero-width, so width accounting is unaffected.
-			rendered = osc8Link(segment.link) + rendered + osc8Close()
-		}
-		out.WriteString(rendered)
-		used += lipgloss.Width(text)
+		out.WriteString(paintPart(segment, bg))
+		used += lipgloss.Width(segment.text)
 	}
 	out.WriteString(bgSpaces(bg, max(0, width-used)))
 	return out.String()
+}
+
+// paintPart renders one segment on bg, or on the segment's own background
+// when it has one.
+func paintPart(segment part, bg color.Color) string {
+	style := lipgloss.NewStyle().Foreground(segment.fg).Background(bg)
+	if segment.bg != nil {
+		style = style.Background(segment.bg)
+	}
+	if segment.bold {
+		style = style.Bold(true)
+	}
+	if segment.italic {
+		style = style.Italic(true)
+	}
+	if segment.underline {
+		style = style.Underline(true)
+	}
+	if segment.strike {
+		style = style.Strikethrough(true)
+	}
+	rendered := style.Render(segment.text)
+	if segment.link != "" {
+		// OSC 8 hyperlink: terminals that support it make the span
+		// clickable; others show the text (and the visible URL) unchanged.
+		// The sequence is zero-width, so width accounting is unaffected.
+		rendered = osc8Link(segment.link) + rendered + osc8Close()
+	}
+	return rendered
 }
 
 // osc8Link opens an OSC 8 hyperlink to target. Control bytes are stripped
@@ -323,4 +330,52 @@ func (m *markdownLive) currentLines() []string {
 func (m *markdownLive) pending() string {
 	out := append(append([]string{}, m.finalized()...), m.currentLines()...)
 	return strings.Join(out, "\n")
+}
+
+// PrintMarkdown renders the markdown read from src onto dst the way kon shows
+// a reply, without the transcript's padding, and with prose in the terminal's
+// own text color. Each block prints once it closes, so a reply piped in from a
+// model streams through as it is written; the last block prints when src
+// ends. Lines wrap at width, or not at all when width is below 1.
+func PrintMarkdown(dst io.Writer, src io.Reader, width int) error {
+	stream := markdown.NewStream(markdown.Theme{}, width)
+	printed := 0
+	// flush writes every line closed since the last flush in one write, so a
+	// writer that downsamples colors never sees an escape sequence split.
+	flush := func() error {
+		lines := stream.Lines()
+		if printed == len(lines) {
+			return nil
+		}
+		var out strings.Builder
+		for _, line := range lines[printed:] {
+			for _, segment := range markdownSegments(line, markdownPalette, lipgloss.NoColor{}) {
+				if segment.text != "" {
+					out.WriteString(paintPart(segment, colorAgentBg))
+				}
+			}
+			out.WriteByte('\n')
+		}
+		printed = len(lines)
+		_, err := io.WriteString(dst, out.String())
+		return err
+	}
+	buf := make([]byte, 32<<10)
+	for {
+		n, err := src.Read(buf)
+		if n > 0 {
+			stream.Write(string(buf[:n]))
+			if err := flush(); err != nil {
+				return err
+			}
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+	}
+	stream.Finish()
+	return flush()
 }

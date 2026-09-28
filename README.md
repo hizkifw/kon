@@ -54,13 +54,15 @@ Run `kon` in any project. Connect a provider with `/login`, pick a model with
 | `kon --resume` | Reopen the latest session here |
 | `kon --incognito` | Start a session that is never saved |
 | `kon run <message>` | Send one prompt and stream the reply to stdout |
+| `kon md [file]` | Render Markdown in the terminal, as it streams in |
 | `kon upgrade` | Install the latest verified release |
 | `kon models` | List models offline; `--refresh` updates the catalog |
 | `kon docs` | Unpack the user guide as Markdown |
 | `kon tool webfetch <url>` | Print a web page as Markdown |
 
 `kon run` is built for pipelines: `git diff | kon run --stdin review this`. Add
-`--format json` for one event per line. `kon --help` lists every flag.
+`--format json` for one event per line, or pipe the reply into `kon md` to see
+it rendered as it streams. `kon --help` lists every flag.
 
 ## Documentation
 

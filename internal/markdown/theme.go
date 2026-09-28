@@ -28,6 +28,9 @@
 // their widest cell when the table fits, and a table too wide shrinks its
 // widest columns and wraps text inside each cell, so the tabular shape holds at
 // any width (a width below one cell per column falls back to wrapped rows).
+// A width below 1 turns wrapping off instead: lines keep their natural
+// length, tables their natural column widths, and a rule draws at a fixed
+// length, since there is no width for it to span.
 // Adjacent blocks are separated by a blank line (see appendBlocks), giving headings, paragraphs, lists, tables, quotes, code,
 // and rules room to breathe; the blank lines are output only and never
 // re-enter the parsed source. Spans are emitted after wrapping, annotating

@@ -21,7 +21,7 @@ type command struct {
 // commands returns kon's subcommands in display order. The root help index and
 // lookup both read from here, so a new command only registers in one place.
 func commands() []command {
-	return []command{runCommand(), docsCommand(), modelsCommand(), upgradeCommand(), toolCommand()}
+	return []command{runCommand(), mdCommand(), docsCommand(), modelsCommand(), upgradeCommand(), toolCommand()}
 }
 
 func lookup(cmds []command, name string) (command, bool) {

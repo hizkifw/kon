@@ -1,13 +1,18 @@
 package ui
 
 import (
+	"bufio"
 	"fmt"
 	"image/color"
+	"io"
 	"strings"
 	"testing"
+	"testing/iotest"
+	"time"
 	"unicode/utf8"
 
 	"github.com/charmbracelet/x/ansi"
+	"github.com/hizkifw/kon/internal/markdown"
 )
 
 // TestMarkdownAssistantRendersStructure checks that an assistant message
@@ -314,5 +319,84 @@ func TestMarkdownLinkNoControlInjection(t *testing.T) {
 	out := strings.Join(tr.linesFor(80), "\n")
 	if want := "\x1b]8;;https://x.example/abcd\x1b\\"; !strings.Contains(out, want) {
 		t.Fatalf("link target not stripped to %q:\n%q", want, out)
+	}
+}
+
+// TestPrintMarkdownMatchesRender checks that printing a document streamed in
+// one byte at a time shows the same lines a from-scratch render does, wrapped
+// or not.
+func TestPrintMarkdownMatchesRender(t *testing.T) {
+	doc := "# Heading\n\nprose with **bold** and a [link](https://example.com) " +
+		strings.Repeat("that wraps ", 12) + "\n\n- one\n- [x] two\n\n> quoted\n\n" +
+		"| a | b |\n|---|---|\n| 1 | 2 |\n\n---\n\n```go\nfunc main() {}\n```"
+	for _, width := range []int{0, 20, 80} {
+		var out strings.Builder
+		if err := PrintMarkdown(&out, iotest.OneByteReader(strings.NewReader(doc)), width); err != nil {
+			t.Fatal(err)
+		}
+		var want strings.Builder
+		for _, line := range markdown.Render(doc, markdown.Theme{}, width) {
+			want.WriteString(line.Text + "\n")
+		}
+		if got := ansi.Strip(out.String()); got != want.String() {
+			t.Fatalf("width=%d\n got=%q\nwant=%q", width, got, want.String())
+		}
+	}
+}
+
+// TestPrintMarkdownStreamsClosedBlocks checks that a block prints once it
+// closes rather than when input ends, which is what lets a reply piped in
+// from a model render while it is written.
+func TestPrintMarkdownStreamsClosedBlocks(t *testing.T) {
+	in, feed := io.Pipe()
+	out, printed := io.Pipe()
+	t.Cleanup(func() { feed.Close(); out.Close() })
+	done := make(chan error, 1)
+	go func() {
+		done <- PrintMarkdown(printed, in, 40)
+		printed.Close()
+	}()
+	// A printer that held blocks until input ended would block the reads
+	// below for good; fail it instead.
+	timeout := time.AfterFunc(5*time.Second, func() { out.Close() })
+	defer timeout.Stop()
+	lines := bufio.NewScanner(out)
+	next := func(want string) {
+		t.Helper()
+		if !lines.Scan() {
+			t.Fatalf("output ended before %q: %v", want, lines.Err())
+		}
+		if got := ansi.Strip(lines.Text()); got != want {
+			t.Fatalf("printed %q, want %q", got, want)
+		}
+	}
+	if _, err := io.WriteString(feed, "# Title\n\nfirst paragraph\n\nsecond"); err != nil {
+		t.Fatal(err)
+	}
+	next("Title")
+	next("")
+	next("first paragraph")
+	feed.Close()
+	next("")
+	next("second")
+	if lines.Scan() {
+		t.Fatalf("printed %q after the last block", lines.Text())
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestPrintMarkdownLeavesProseUnstyled checks that plain prose prints in the
+// terminal's own color, with no escapes, and that empty input prints nothing.
+func TestPrintMarkdownLeavesProseUnstyled(t *testing.T) {
+	for in, want := range map[string]string{"just some words": "just some words\n", "": ""} {
+		var out strings.Builder
+		if err := PrintMarkdown(&out, strings.NewReader(in), 80); err != nil {
+			t.Fatal(err)
+		}
+		if out.String() != want {
+			t.Fatalf("PrintMarkdown(%q) = %q, want %q", in, out.String(), want)
+		}
 	}
 }

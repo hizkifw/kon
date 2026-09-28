@@ -50,7 +50,8 @@ type Stream struct {
 	done    bool
 }
 
-// NewStream builds a stream renderer.
+// NewStream builds a stream renderer that wraps at width, or not at all when
+// width is below 1.
 func NewStream(theme Theme, width int) *Stream {
 	return &Stream{theme: theme, width: width}
 }
@@ -172,7 +173,7 @@ func (s *Stream) tailLines() []Line {
 // Render parses text from scratch and returns display lines for every closed
 // block. This is the from-scratch reference the streaming path must converge
 // to: for the same source text, Stream.Lines() after the final Write must
-// equal Render, block for block.
+// equal Render, block for block. A width below 1 leaves lines unwrapped.
 func Render(text string, theme Theme, width int) []Line {
 	r := newBlockRenderer(theme, width)
 	source := []byte(text)

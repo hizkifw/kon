@@ -161,6 +161,27 @@ a `type`:
 Events are whole messages, not streamed fragments. New fields and event types
 may be added, so ignore ones you do not recognize.
 
+### Rendering Markdown
+
+`kon md` prints Markdown the way kon shows a reply: headings, emphasis, lists,
+quotes, code, tables, and clickable links. It reads a file, or piped stdin when
+no file is named:
+
+```sh
+kon md README.md
+kon run "explain the build" | kon md
+```
+
+Each block prints as soon as it closes, so a reply piped in from `kon run`
+renders while the model writes it; the last block prints when the input ends.
+Lines wrap at 80 columns. `--width <n>` (or `-w <n>`) wraps at `n` instead, and
+`--width 0` turns wrapping off, leaving long lines for the terminal to wrap.
+
+Color and links are written only when stdout is a terminal, so
+`kon md README.md > notes.txt` writes plain wrapped text. `NO_COLOR` turns
+colors off, and `CLICOLOR_FORCE=1` keeps them in a pipe, as for `less -R`. The
+colors are kon's own, chosen for a dark terminal background.
+
 ## Upgrading
 
 `kon upgrade` installs the latest GitHub release over the running executable.

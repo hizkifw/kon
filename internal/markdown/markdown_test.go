@@ -148,7 +148,7 @@ func TestStreamConvergesToRender(t *testing.T) {
 		"# H\n\none\n\ntwo\n\n- a\n- b\n\n| x |\n|---|\n| 1 |\n\n> q\n\nend",
 	}
 	for _, doc := range docs {
-		for _, width := range []int{20, 40, 80} {
+		for _, width := range []int{0, 20, 40, 80} {
 			for _, chunk := range []int{1, 3, 7} {
 				want := lineTexts(Render(doc, testTheme, width))
 				s := NewStream(testTheme, width)
@@ -239,6 +239,34 @@ func TestLinesFitWidth(t *testing.T) {
 					t.Fatalf("width=%d doc=%q\n line width %d > %d: %q", width, doc, w, width, l.Text)
 				}
 			}
+		}
+	}
+}
+
+// TestUnwrappedRender checks that a width below 1 turns wrapping off: each
+// block renders as it would at a width wider than any of its lines, and a
+// rule, which has no such width to span, draws at a fixed length.
+func TestUnwrappedRender(t *testing.T) {
+	docs := []string{
+		"a long paragraph of ordinary prose " + strings.Repeat("that goes on ", 20),
+		"# " + strings.Repeat("heading words ", 12),
+		"- outer item " + strings.Repeat("words ", 20) + "\n  - nested item " + strings.Repeat("words ", 20),
+		"> " + strings.Repeat("quoted words ", 20),
+		"| col one | col two |\n|---|---|\n| " + strings.Repeat("cell ", 30) + " | x |",
+		"```\n" + strings.Repeat("code line words ", 20) + "\n```",
+	}
+	for _, doc := range docs {
+		want := lineTexts(Render(doc, testTheme, 10_000))
+		for _, width := range []int{0, -1} {
+			if got := lineTexts(Render(doc, testTheme, width)); !equalSlices(got, want) {
+				t.Fatalf("width=%d doc=%q\n got=%q\nwant=%q", width, doc, got, want)
+			}
+		}
+	}
+	for _, doc := range []string{"---", "> ---", "- item\n\n  ***"} {
+		lines := Render(doc, testTheme, 0)
+		if n := strings.Count(lines[len(lines)-1].Text, "─"); n != unwrappedRuleWidth {
+			t.Fatalf("doc=%q: rule is %d cells long, want %d", doc, n, unwrappedRuleWidth)
 		}
 	}
 }

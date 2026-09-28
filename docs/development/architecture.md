@@ -51,9 +51,17 @@ The default command — the full-screen TUI in `session.go` — parses its flags
 hand because `--resume` takes an optional value that the standard `flag` package
 cannot express. `kon run` parses by hand for the same reason, and stops at the
 first word of the message. Help is recognized only among leading flags, so a
-message that mentions `-h` is still sent. `kon run` is the one command with exit
-statuses beyond 1 (2 for usage, 130 for an interrupt), carried by `exitError`
-in `main.go`.
+message that mentions `-h` is still sent. `kon run` and `kon md` exit 2 on a
+usage error, and `kon run` 130 on an interrupt; `exitError` in `main.go`
+carries those statuses.
+
+`kon md` prints Markdown through `ui.PrintMarkdown`, which drives the same
+`markdown.Stream` as the transcript and paints its lines with the transcript
+palette, without the slab padding. It prints only frozen lines, which never
+change, so its output is append-only and safe for a pipe; the open tail prints
+once input ends. `lipgloss.Writer` fits the colors to stdout, dropping every
+escape when stdout is not a terminal. A width below 1 renders unwrapped, which
+`internal/markdown` supports directly so a rule still draws at a fixed length.
 
 `kon tool <name>` runs a tool the agent reaches through its shell rather than
 through a model-facing schema. The system prompt names each one and points at
