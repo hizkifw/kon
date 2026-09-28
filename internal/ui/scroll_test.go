@@ -59,9 +59,11 @@ func TestScrollViewPaging(t *testing.T) {
 
 func TestScrollViewWheel(t *testing.T) {
 	s := scrollViewWith(100, 10)
+	// One notch scrolls three lines. The expectation is a literal because the
+	// view's own setting would also match a view that never scrolls.
 	s.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
-	if s.YOffset() != s.mouseDelta {
-		t.Fatalf("wheel down offset = %d, want %d", s.YOffset(), s.mouseDelta)
+	if s.YOffset() != 3 {
+		t.Fatalf("wheel down offset = %d, want 3", s.YOffset())
 	}
 	s.Update(tea.MouseWheelMsg{Button: tea.MouseWheelUp})
 	if s.YOffset() != 0 {

@@ -65,6 +65,7 @@ func TestMarkdownStreamMatchesSettledBlock(t *testing.T) {
 		"> quoted\n\n> more",
 		"```go\nfunc main() {}\n```",
 		"a very long paragraph that will wrap across several lines at a narrow width for sure",
+		"Intro with **bold**.\n\n1. first\n2. second\n\n> note",
 		"",
 	}
 	for _, in := range inputs {
@@ -81,6 +82,12 @@ func TestMarkdownStreamMatchesSettledBlock(t *testing.T) {
 			want := plain(strings.Join(settled.linesFor(width), "\n"))
 			if got != want {
 				t.Fatalf("width=%d input=%q\nstream=%q\nsettle=%q", width, in, got, want)
+			}
+			// Finishing the stream folds it into history, which must reproduce
+			// the settled block exactly.
+			streamed.finishStream()
+			if after := plain(strings.Join(streamed.linesFor(width), "\n")); after != want {
+				t.Fatalf("width=%d input=%q: finalize shifted output\nafter=%q\nsettle=%q", width, in, after, want)
 			}
 		}
 	}
@@ -161,9 +168,9 @@ func TestMarkdownLinksClickable(t *testing.T) {
 }
 
 // TestMarkdownTableTinted checks that a table paints with the row tints
-// (header and alternate-row backgrounds), that the tints span the tabular
-// region without punching holes, and that every painted line still fills the
-// viewport exactly.
+// (header and alternate-row backgrounds) and that the tints span the tabular
+// region without punching holes. TestMarkdownLinesFitViewport covers the
+// width of every painted line.
 func TestMarkdownTableTinted(t *testing.T) {
 	doc := "| Name | Qty |\n|:--|--:|\n| alice | 12 |\n| bob | 3 |\n| cara | 4 |"
 	for _, width := range []int{20, 40} {
@@ -185,8 +192,9 @@ func TestMarkdownTableTinted(t *testing.T) {
 			}
 		}
 		for _, line := range lines {
-			if got := ansi.StringWidth(line); got != width {
-				t.Fatalf("width=%d: painted line width %d: %q", width, got, plain(line))
+			if lo, hi, contiguous := highlightRun(line); hi > 0 && (lo != 1 || !contiguous) {
+				t.Fatalf("width=%d: tint [%d,%d) contiguous=%v, want one run from column 1 on line %q",
+					width, lo, hi, contiguous, plain(line))
 			}
 		}
 	}
@@ -194,9 +202,9 @@ func TestMarkdownTableTinted(t *testing.T) {
 
 // TestMarkdownTableHighlightRectangular checks that the row highlight is a
 // consistent rectangle: every table line's tinted cells form one contiguous run
-// starting at the left edge, and that run is the same width on the header, the
-// body rows, and the wrapped continuation lines. This is what keeps a table's
-// highlight aligned instead of ragged or short of the right edge.
+// starting at the left content edge, and that run is the same width on the
+// header, the body rows, and the wrapped continuation lines. This is what keeps
+// a table's highlight aligned instead of ragged or short of the right edge.
 func TestMarkdownTableHighlightRectangular(t *testing.T) {
 	doc := "| Name | Description |\n|---|---|\n| alice | a fairly long description that wraps |\n| bob | short |\n| cara | another long description that also wraps here |"
 	for _, width := range []int{24, 40} {
@@ -205,9 +213,15 @@ func TestMarkdownTableHighlightRectangular(t *testing.T) {
 		tr.add(block{kind: blockAssistant, text: doc})
 		wantLo, wantHi := -1, -1
 		for _, line := range tr.linesFor(width) {
-			lo, hi := highlightRun(line)
+			lo, hi, contiguous := highlightRun(line)
 			if hi <= 0 {
 				continue // an untinted row or a non-table line
+			}
+			// Column 0 is the slab's own padding cell, so the tint begins at
+			// the first content column.
+			if lo != 1 || !contiguous {
+				t.Fatalf("width=%d: highlight run [%d,%d) contiguous=%v, want one run from column 1 on line %q",
+					width, lo, hi, contiguous, plain(line))
 			}
 			if wantLo < 0 {
 				wantLo, wantHi = lo, hi
@@ -225,13 +239,14 @@ func TestMarkdownTableHighlightRectangular(t *testing.T) {
 }
 
 // highlightRun returns the half-open cell range [lo,hi) covered by the table
-// row background. lo is always 0 for a table line; hi is the number of
-// contiguous highlighted cells, or -1 when the line carries no table tint.
-func highlightRun(line string) (lo, hi int) {
+// row background, or hi == 0 when the line carries no table tint. The range
+// spans the first to the last tinted cell, so contiguous reports whether every
+// cell inside it is tinted; a gap would show as a hole in the row.
+func highlightRun(line string) (lo, hi int, contiguous bool) {
 	tinted := func(bg string) bool {
 		return bg == bgSeq(colorTableHeaderBg) || bg == bgSeq(colorTableRowBg)
 	}
-	lo, hi = -1, 0
+	lo, hi, contiguous = -1, 0, true
 	cell := 0
 	bg := ""
 	for i := 0; i < len(line); {
@@ -264,13 +279,15 @@ func highlightRun(line string) (lo, hi int) {
 		if tinted(bg) {
 			if lo < 0 {
 				lo = cell
+			} else if cell > hi {
+				contiguous = false
 			}
 			hi = cell + w
 		}
 		cell += w
 		i += size
 	}
-	return lo, hi
+	return lo, hi, contiguous
 }
 
 // bgSeq returns the SGR fragment that selects c as a background color, as
@@ -297,24 +314,5 @@ func TestMarkdownLinkNoControlInjection(t *testing.T) {
 	out := strings.Join(tr.linesFor(80), "\n")
 	if want := "\x1b]8;;https://x.example/abcd\x1b\\"; !strings.Contains(out, want) {
 		t.Fatalf("link target not stripped to %q:\n%q", want, out)
-	}
-}
-
-// TestMarkdownStreamFinalizeMatchesRender checks that finishing a stream folds
-// into a block whose render equals the streamed view.
-func TestMarkdownStreamFinalizeMatchesRender(t *testing.T) {
-	in := "Intro with **bold**.\n\n1. first\n2. second\n\n> note"
-	for _, width := range []int{20, 60} {
-		var tr transcript
-		tr.cwd = "/tmp"
-		for i := 0; i < len(in); i += 2 {
-			tr.appendStream(in[i:min(i+2, len(in))])
-		}
-		live := plain(strings.Join(tr.linesFor(width), "\n"))
-		tr.finishStream()
-		after := plain(strings.Join(tr.linesFor(width), "\n"))
-		if live != after {
-			t.Fatalf("width=%d: finalize shifted output\n live=%q\nafter=%q", width, live, after)
-		}
 	}
 }
