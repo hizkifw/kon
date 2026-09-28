@@ -41,8 +41,12 @@ func TestFollowingSessionOpensReadOnlyWithItsTurnRunning(t *testing.T) {
 	if got := transcriptText(m); !strings.Contains(got, "fix it") || strings.Contains(got, "Stopped abruptly") {
 		t.Fatalf("a running turn was replayed as stopped:\n%s", got)
 	}
-	if strings.Contains(transcriptText(m), "needs configuration") {
-		t.Fatal("a followed session introduced itself as unconfigured")
+	// The replayed history holds no assistant message, so one here can only be
+	// the unconfigured greeting.
+	for _, b := range m.transcript.blocks {
+		if b.kind == blockAssistant {
+			t.Fatalf("a followed session introduced itself as unconfigured:\n%s", transcriptText(m))
+		}
 	}
 }
 

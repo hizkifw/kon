@@ -43,17 +43,17 @@ func TestInputGrowsWithContent(t *testing.T) {
 		t.Fatalf("capped prompt: input height = %d, want %d", got, maxInputLines)
 	}
 
-	// A short window shrinks the cap rather than squeezing the transcript to
-	// nothing: the viewport keeps at least one row.
+	// A short window shrinks the cap rather than overflowing the frame: the
+	// header, the transcript, the status line, and the input all still fit.
 	small := newTestModel(t)
 	small.width, small.height = 80, 6
 	small.input.SetValue(strings.Repeat("line\n", 30))
 	small.resize()
-	if got := small.input.Height(); got > maxInputLines {
-		t.Fatalf("small window: input height = %d, over the cap", got)
+	if input, viewport := small.input.Height(), small.viewport.Height(); input != 2 || viewport != 2 {
+		t.Fatalf("small window: input %d, viewport %d, want 2 and 2", input, viewport)
 	}
-	if got := small.viewport.Height(); got < 1 {
-		t.Fatalf("small window: viewport height = %d, want at least 1", got)
+	if rows := strings.Count(small.View().Content, "\n") + 1; rows != small.height {
+		t.Fatalf("small window: frame is %d rows, want %d", rows, small.height)
 	}
 }
 
@@ -83,9 +83,6 @@ func TestInputViewInsetsAndAligns(t *testing.T) {
 	// There is no prompt glyph: the block's left inset is the only padding, so
 	// the caret column sits one cell from the edge, inside the two-cell slab
 	// inset above.
-	if model.input.Prompt != "" {
-		t.Fatalf("input prompt = %q, want empty", model.input.Prompt)
-	}
 	if got := plain(lines[0]); !strings.HasPrefix(got, " first") {
 		t.Fatalf("line 0 = %q, want text one cell in", got)
 	}

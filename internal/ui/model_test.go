@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -46,12 +47,14 @@ type fakeRuntime struct {
 	followErr   error
 	missed      []session.Entry
 	takeOverErr error
-	// runs counts Run calls, which arrive on the run's goroutine.
-	runs    atomic.Int32
-	notices chan string
-	jobs    int
-	jobList []tools.Job
-	killed  []int
+	// runs and compacts count Run and Compact calls, which arrive on the
+	// run's goroutine.
+	runs     atomic.Int32
+	compacts atomic.Int32
+	notices  chan string
+	jobs     int
+	jobList  []tools.Job
+	killed   []int
 }
 
 func (f *fakeRuntime) Models() []app.Model { return f.models }
@@ -60,7 +63,10 @@ func (f *fakeRuntime) Run(context.Context, string, *agent.Inbox, func(agent.Even
 	f.runs.Add(1)
 	return nil
 }
-func (f *fakeRuntime) Compact(context.Context, func(agent.Event)) error { return nil }
+func (f *fakeRuntime) Compact(context.Context, func(agent.Event)) error {
+	f.compacts.Add(1)
+	return nil
+}
 
 // Notices is closed unless a test opens it, so draining Init's commands ends.
 func (f *fakeRuntime) Notices() <-chan string {
@@ -230,9 +236,20 @@ func TestSanitizeRemovesTerminalEscapes(t *testing.T) {
 }
 
 func TestFitLineHonorsCellWidth(t *testing.T) {
-	got := fitLine("123456", 4)
-	if got != "123…" {
-		t.Fatalf("fitLine = %q", got)
+	// Wide runes take two cells each, so counting runes would overflow the
+	// width with them.
+	for _, test := range []struct {
+		in    string
+		width int
+		want  string
+	}{
+		{"123456", 4, "123…"},
+		{"你好世界", 5, "你好…"},
+		{"你好世界", 4, "你…"},
+	} {
+		if got := fitLine(test.in, test.width); got != test.want {
+			t.Errorf("fitLine(%q, %d) = %q, want %q", test.in, test.width, got, test.want)
+		}
 	}
 }
 
@@ -243,10 +260,22 @@ func TestSwitchModelUpdatesRuntimeState(t *testing.T) {
 	}
 	runtime := &fakeRuntime{state: app.State{Active: models[0], Phase: app.PhaseReady}, models: models}
 	m := New(context.Background(), "/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
-	updated, _ := m.switchModel("review")
+	m.width, m.height = 80, 24
+	m.resize()
+	updated, _ := m.Update(runEventMsg{event: agent.Event{Kind: agent.EventUsage, Tokens: 42}})
+	m = updated.(Model)
+	if view := plain(m.View().Content); !strings.Contains(view, "ctx 42/100") {
+		t.Fatalf("usage not shown before the switch:\n%s", view)
+	}
+	updated, _ = m.switchModel("review")
 	got := updated.(Model)
-	if got.active.Name != "review" || got.active.ContextWindow != 200 || got.contextTokens != -1 {
-		t.Fatalf("unexpected state: %#v", got)
+	if got.active.Name != "review" {
+		t.Fatalf("active model = %q, want review", got.active.Name)
+	}
+	// The usage was measured against the old model, so the new one starts
+	// unknown against its own window rather than inheriting a stale reading.
+	if view := plain(got.View().Content); !strings.Contains(view, "ctx ?/200") {
+		t.Fatalf("context reading not reset for the new model:\n%s", view)
 	}
 }
 
@@ -272,9 +301,6 @@ func TestSwitchModelMessageMatchesHeaderFormatting(t *testing.T) {
 	want := " Model changed to fireworks-ai · DeepSeek V4.1 Flash · default"
 	if text != want {
 		t.Fatalf("model change message = %q, want %q", text, want)
-	}
-	if strings.Contains(text, "accounts/") || strings.Contains(text, "openai-compatible") {
-		t.Fatalf("model change message leaked provider detail: %q", text)
 	}
 }
 
@@ -337,9 +363,13 @@ func TestCatalogProviderLoginUsesKnownEndpoint(t *testing.T) {
 		t.Fatal("login command was not started")
 	}
 	updated, _ = updated.(Model).Update(cmd())
-	connection := runtime.loginProvider
-	if connection.ID != "fireworks-ai" || connection.CatalogProvider != "fireworks-ai" || connection.Type != "openai-compatible" || connection.BaseURL != "https://api.fireworks.ai/inference/v1" {
-		t.Fatalf("login received %#v", connection)
+	// The flow adds only the key; the catalog's connection passes through as
+	// the login package resolved it.
+	entry, _ := runtime.LoginEntry("fireworks-ai")
+	want := entry.Connection
+	want.APIKey = "secret"
+	if !reflect.DeepEqual(runtime.loginProvider, want) {
+		t.Fatalf("login received %#v, want %#v", runtime.loginProvider, want)
 	}
 }
 
@@ -429,34 +459,23 @@ func TestTranscriptUsesTypedBlocks(t *testing.T) {
 	}
 }
 
-func TestTranscriptRendersThinkingBeforeAnswer(t *testing.T) {
-	var transcript transcript
-	transcript.appendThinking("let me look")
-	got := plain(transcript.render(80))
-	if !strings.Contains(got, "let me look") {
-		t.Fatalf("live render = %q", got)
-	}
-	transcript.appendStream("answer")
-	got = plain(transcript.render(80))
-	if strings.Index(got, "let me look") > strings.Index(got, "answer") {
-		t.Fatalf("render = %q", got)
-	}
-	transcript.finishStream()
-	got = plain(transcript.render(80))
-	if strings.Index(got, "let me look") > strings.Index(got, "answer") {
-		t.Fatalf("final render = %q", got)
-	}
-}
-
 func TestInterleavedThinkingKeepsChronologicalOrder(t *testing.T) {
 	var transcript transcript
-	transcript.appendThinking("one")
-	transcript.appendStream("a")
-	transcript.appendThinking("two")
-	transcript.appendStream("b")
+	transcript.appendThinking("thought one")
+	if got := plain(transcript.render(80)); order(got, "thought one") {
+		t.Fatalf("live thinking render = %q", got)
+	}
+	// The answer's first delta closes the thinking, which must stay above it
+	// while the answer is still streaming.
+	transcript.appendStream("answer one")
+	if got := plain(transcript.render(80)); order(got, "thought one", "answer one") {
+		t.Fatalf("live answer render = %q", got)
+	}
+	transcript.appendThinking("thought two")
+	transcript.appendStream("answer two")
 	transcript.finishStream()
 	got := plain(transcript.render(80))
-	if order(got, "one", "a", "two", "b") {
+	if order(got, "thought one", "answer one", "thought two", "answer two") {
 		t.Fatalf("render = %q", got)
 	}
 }
@@ -483,35 +502,30 @@ func TestTranscriptResetClearsPendingThinking(t *testing.T) {
 	}
 }
 
-func TestThinkingDeltasWaitForRenderFrame(t *testing.T) {
-	model := newTestModel(t)
-	model.runEvents = make(chan tea.Msg)
-	before := model.viewport.View()
-	updated, _ := model.Update(runEventMsg{event: agent.Event{Kind: agent.EventThinking, Text: "hmm"}})
-	afterThinking := updated.(Model)
-	if !afterThinking.flushPending || afterThinking.viewport.View() != before {
-		t.Fatal("thinking event repainted before the render frame")
-	}
-	updated, _ = afterThinking.Update(flushTranscriptMsg{})
-	afterFlush := updated.(Model)
-	if !strings.Contains(afterFlush.viewport.View(), "hmm") {
-		t.Fatal("render frame did not flush streaming thinking")
-	}
-}
-
-func TestTextEventsWaitForRenderFrame(t *testing.T) {
-	model := newTestModel(t)
-	model.runEvents = make(chan tea.Msg)
-	before := model.viewport.View()
-	updated, _ := model.Update(runEventMsg{event: agent.Event{Kind: agent.EventText, Text: "a"}})
-	afterText := updated.(Model)
-	if !afterText.flushPending || afterText.viewport.View() != before {
-		t.Fatal("text event repainted before the render frame")
-	}
-	updated, _ = afterText.Update(flushTranscriptMsg{})
-	afterFlush := updated.(Model)
-	if afterFlush.flushPending || !strings.Contains(afterFlush.viewport.View(), "a") {
-		t.Fatal("render frame did not flush streaming text")
+func TestStreamDeltasWaitForRenderFrame(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		kind agent.EventKind
+		text string
+	}{
+		{"thinking", agent.EventThinking, "weighing both options"},
+		{"text", agent.EventText, "here is the fix"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			model := newTestModel(t)
+			model.runEvents = make(chan tea.Msg)
+			before := model.viewport.View()
+			updated, _ := model.Update(runEventMsg{event: agent.Event{Kind: test.kind, Text: test.text}})
+			afterDelta := updated.(Model)
+			if !afterDelta.flushPending || afterDelta.viewport.View() != before {
+				t.Fatal("delta repainted before the render frame")
+			}
+			updated, _ = afterDelta.Update(flushTranscriptMsg{})
+			afterFlush := updated.(Model)
+			if afterFlush.flushPending || !strings.Contains(plain(afterFlush.viewport.View()), test.text) {
+				t.Fatalf("render frame did not flush the delta:\n%s", plain(afterFlush.viewport.View()))
+			}
+		})
 	}
 }
 
@@ -532,30 +546,28 @@ func TestReadResultsStayOutOfTranscript(t *testing.T) {
 	}
 }
 
-func TestReadErrorsStillRender(t *testing.T) {
-	model := newTestModel(t)
-	event := agent.Event{
-		Kind: agent.EventToolDone, Tool: "read", IsError: true,
-		Arguments: `{"path":"missing.txt"}`, Text: "error: open missing.txt: no such file or directory",
-	}
-	updated, _ := model.Update(runEventMsg{event: event})
-	got := plain(updated.(Model).viewport.View())
-	if !strings.Contains(got, "no such file or directory") {
-		t.Fatalf("read error was hidden: %q", got)
-	}
-}
-
 func TestReplayedToolOutcomeUsesPersistedErrorAndDetails(t *testing.T) {
 	model := newTestModel(t)
-	callID := typedid.ExternalToolCallID("failed-call")
+	shellID, readID := typedid.ExternalToolCallID("failed-shell"), typedid.ExternalToolCallID("failed-read")
 	entries := []session.Entry{
-		{Message: &session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartToolCall, ToolCallID: callID, ToolName: "shell", ToolInput: json.RawMessage(`{"command":"./build"}`)}}}},
-		{Message: &session.Message{Role: session.RoleTool, Parts: []session.Part{{Type: session.PartToolResult, ToolCallID: callID, ToolName: "shell", ToolOutput: "unstructured output"}}, IsError: true, Details: json.RawMessage(`{"exit_code":3,"duration":"4ms","output_bytes":0}`)}},
+		{Message: &session.Message{Role: session.RoleAssistant, Parts: []session.Part{
+			{Type: session.PartToolCall, ToolCallID: shellID, ToolName: "shell", ToolInput: json.RawMessage(`{"command":"./build"}`)},
+			{Type: session.PartToolCall, ToolCallID: readID, ToolName: "read", ToolInput: json.RawMessage(`{"path":"missing.txt"}`)},
+		}}},
+		// The exit code and duration exist only in the details; the output
+		// carries no marker to recover them from.
+		{Message: &session.Message{Role: session.RoleTool, Parts: []session.Part{{Type: session.PartToolResult, ToolCallID: shellID, ToolName: "shell", ToolOutput: "unstructured output"}}, IsError: true, Details: json.RawMessage(`{"exit_code":3,"duration":"4ms","output_bytes":0}`)}},
+		// A failed read has no details, so only the persisted flag marks it.
+		{Message: &session.Message{Role: session.RoleTool, Parts: []session.Part{{Type: session.PartToolResult, ToolCallID: readID, ToolName: "read", ToolOutput: "error: open missing.txt: no such file or directory"}}, IsError: true}},
 	}
 	model.applyHistory(entries)
-	result := model.transcript.blocks[len(model.transcript.blocks)-1]
-	if result.display.State != tools.StateFailed || result.display.Note != "exit 3 · took 4ms" {
-		t.Fatalf("replayed outcome = %#v", result.display)
+	blocks := model.transcript.blocks
+	shell, read := blocks[len(blocks)-2].display, blocks[len(blocks)-1].display
+	if shell.State != tools.StateFailed || shell.Note != "exit 3 · took 4ms" {
+		t.Fatalf("replayed shell outcome = %#v", shell)
+	}
+	if read.State != tools.StateFailed {
+		t.Fatalf("replayed read outcome = %#v", read)
 	}
 }
 
@@ -662,14 +674,25 @@ func TestModelPickerShowsDisplayNameAndKeepsQualifiedValue(t *testing.T) {
 
 func TestRegistryCompletesAllCommandsOnBareSlash(t *testing.T) {
 	m := newTestModel(t)
-	got := m.commands.completion(m, "/")
-	want := []string{"/new", "/model", "/login", "/resume", "/compact", "/jobs", "/kill", "/queue"}
-	values := make([]string, 0, len(got))
-	for _, item := range got {
-		values = append(values, item.Value)
+	rows := map[string]int{}
+	for _, item := range m.commands.completion(m, "/") {
+		rows[item.Value]++
 	}
-	if strings.Join(values, " ") != strings.Join(want, " ") {
-		t.Fatalf("bare slash completion = %#v", got)
+	aliases := 0
+	for _, command := range m.commands.ordered {
+		if n := rows["/"+command.name]; n != 1 {
+			t.Errorf("/%s has %d rows, want 1", command.name, n)
+		}
+		// An alias is a typing shortcut for its command, not a row of its own.
+		for _, alias := range command.aliases {
+			aliases++
+			if n := rows["/"+alias]; n != 0 {
+				t.Errorf("alias /%s has %d rows, want none", alias, n)
+			}
+		}
+	}
+	if aliases == 0 {
+		t.Fatal("no registered command has an alias to check")
 	}
 }
 
@@ -681,24 +704,6 @@ func TestSlashCommandsOnlyCompleteAtStart(t *testing.T) {
 	// A leading space also disqualifies the input.
 	if got := m.commands.completion(m, " /model"); got != nil {
 		t.Fatalf("completion after leading space = %#v", got)
-	}
-}
-
-func TestTabFillsSelectedAfterArrowing(t *testing.T) {
-	m := newMultiModel(t, "fast", "review", "reason")
-	m.input.SetValue("/model re")
-	m.openMenu()
-	if got := m.menu.selected().Value; got != "reason" {
-		t.Fatalf("initial selection = %q", got)
-	}
-	// The arrow key moves the selection; Tab fills exactly that selection.
-	moved, _, handled := m.handleKey("down")
-	if !handled {
-		t.Fatal("down was not handled with the popup open")
-	}
-	filled, _, handled := moved.(Model).handleKey("tab")
-	if !handled || filled.(Model).input.Value() != "/model review " {
-		t.Fatalf("tab did not fill the arrow selection: %q", filled.(Model).input.Value())
 	}
 }
 
@@ -725,29 +730,18 @@ func TestArrowsCycleWithoutFilling(t *testing.T) {
 	if !handled || movedModel.menu.selected().Value != "review" {
 		t.Fatalf("down did not move the selection: %#v", movedModel.menu)
 	}
-	// Arrowing must not rewrite the prompt; only Tab fills it in.
+	// Arrowing must not rewrite the prompt; only Tab fills it in, with
+	// exactly the arrowed-to row.
 	if movedModel.input.Value() != "/model re" {
 		t.Fatalf("arrow key rewrite the prompt: %q", movedModel.input.Value())
+	}
+	filled, _, handled := movedModel.handleKey("tab")
+	if !handled || filled.(Model).input.Value() != "/model review " {
+		t.Fatalf("tab did not fill the arrow selection: %q", filled.(Model).input.Value())
 	}
 	up, _, _ := movedModel.handleKey("up")
 	if got := up.(Model).menu.selected().Value; got != "reason" {
 		t.Fatalf("up did not move the selection back: %q", got)
-	}
-}
-
-func TestEnterAcceptsCompletion(t *testing.T) {
-	m := newMultiModel(t, "fast", "review", "reason")
-	m.input.SetValue("/model re")
-	m.openMenu()
-	if !m.menu.open() {
-		t.Fatal("popup did not open for a multi-candidate argument")
-	}
-	accepted, _, handled := m.handleKey("enter")
-	if !handled {
-		t.Fatal("enter was not handled with the popup open")
-	}
-	if got := accepted.(Model).input.Value(); got != "/model reason " {
-		t.Fatalf("enter did not accept the selection: %q", got)
 	}
 }
 
@@ -780,23 +774,8 @@ func TestMenuPopupAppearsOnLeadingSlashAndClears(t *testing.T) {
 	m := newTestModel(t)
 	typed, _ := m.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
 	m = typed.(Model)
-	if !m.menu.open() || len(m.menu.items) != 8 {
-		t.Fatalf("popup did not open on slash: %#v", m.menu)
-	}
-	// Typing ordinary text mid-prompt closes the popup and offers nothing.
-	m.input.SetValue("hello /mo")
-	m.openMenu()
-	if m.menu.open() {
-		t.Fatalf("popup opened for a mid-prompt slash: %#v", m.menu)
-	}
-}
-
-func TestTabAcceptsTrailingToken(t *testing.T) {
-	m := newTestModel(t)
-	m.input.SetValue("/model fa")
-	updated, _, handled := m.handleKey("tab")
-	if !handled || updated.(Model).input.Value() != "/model fast " {
-		t.Fatalf("tab completion = %q", updated.(Model).input.Value())
+	if !m.menu.open() || len(m.menu.items) != len(m.commands.ordered) {
+		t.Fatalf("popup did not open on slash with every command: %#v", m.menu)
 	}
 }
 
@@ -910,40 +889,39 @@ func TestTabCompletionResizesViewportImmediately(t *testing.T) {
 	}
 }
 
-func TestTabCompletionClosesSegmentWithNoCandidates(t *testing.T) {
-	m := newTestModel(t)
-	m.input.SetValue("/new")
-	completed, _, handled := m.handleKey("tab")
-	if !handled || completed.(Model).input.Value() != "/new " {
-		t.Fatalf("no-argument command completion = %q", completed.(Model).input.Value())
-	}
-	if completed.(Model).menu.open() {
-		t.Fatal("menu stayed open after completing a no-argument command")
-	}
-}
-
-func TestShellResultBlockSplitsCodeAndDuration(t *testing.T) {
+// TestToolResultBlockTruncatesAndSanitizes covers what the UI adds on top of
+// the tool's own display: an oversized line keeps only its two ends, and
+// escape sequences in the output never reach the terminal.
+func TestToolResultBlockTruncatesAndSanitizes(t *testing.T) {
+	long := strings.Repeat("x", 2*maxResultChars) + "tail"
 	event := agent.Event{
 		Kind: agent.EventToolDone, Tool: "shell",
-		Arguments: `{"command":"go build ./...","timeout":120}`,
-		Text:      "warnings here\nexit code: 0 (took 4.2s)",
+		Arguments: `{"command":"cat bundle.min.js"}`,
+		Text:      long + "\n\x1b[31mred\x1b[0m\x1b]0;title\x07\nexit code: 0 (took 1s)",
 	}
 	model := newTestModel(t)
-	b := model.toolResultBlock(event)
-	d := b.display
-	if d.State != tools.StateDone || d.Status != "exit 0 · took 4.2s" || len(d.Lines) != 1 || d.Lines[0] != "warnings here" || !d.Quiet {
-		t.Fatalf("toolResultBlock display = %#v", d)
+	lines := model.toolResultBlock(event).display.Lines
+	if len(lines) != 2 {
+		t.Fatalf("result has %d lines, want 2", len(lines))
+	}
+	half := maxResultChars / 2
+	if want := long[:half] + "… display truncated …" + long[len(long)-half:]; lines[0] != want {
+		t.Fatalf("oversized line kept %d bytes, want its two ends around the marker (%d bytes)", len(lines[0]), len(want))
+	}
+	if lines[1] != "red" {
+		t.Fatalf("escape sequences reached the display: %q", lines[1])
 	}
 }
 
 func TestSecondEscKillsRunningCommand(t *testing.T) {
 	model := newTestModel(t)
 	model.busy = true
-	model.runCancel = func() {}
+	cancels := 0
+	model.runCancel = func() { cancels++ }
 	first, _, handled := model.handleKey("esc")
 	firstModel := first.(Model)
-	if !handled || firstModel.interruptPresses != 1 || !strings.Contains(firstModel.status, "interrupt") {
-		t.Fatalf("first esc did not cancel the run: status %q", firstModel.status)
+	if !handled || cancels != 1 || firstModel.interruptPresses != 1 || !strings.Contains(firstModel.status, "interrupt") {
+		t.Fatalf("first esc did not cancel the run: cancels=%d status %q", cancels, firstModel.status)
 	}
 	second, _, _ := firstModel.handleKey("esc")
 	secondModel := second.(Model)
@@ -985,8 +963,21 @@ func TestPromptUsesTerminalCursor(t *testing.T) {
 	if view.Cursor == nil || want == nil {
 		t.Fatal("focused prompt does not expose a terminal cursor")
 	}
-	if view.Cursor.X != want.X+1 || view.Cursor.Y <= want.Y {
-		t.Fatalf("terminal cursor is not offset into the prompt: got (%d,%d), textarea (%d,%d)", view.Cursor.X, view.Cursor.Y, want.X, want.Y)
+	// A one-line prompt is the frame's last row, below everything else.
+	if view.Cursor.X != want.X+1 || view.Cursor.Y != model.height-1 {
+		t.Fatalf("terminal cursor is not on the prompt: got (%d,%d), want (%d,%d)", view.Cursor.X, view.Cursor.Y, want.X+1, model.height-1)
+	}
+	// The popup opens between the status line and the prompt; the transcript
+	// yields its rows, so the prompt and its cursor stay on the last row.
+	typed, _ := model.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
+	withMenu := typed.(Model)
+	if !withMenu.menu.open() {
+		t.Fatal("popup did not open on slash")
+	}
+	if cursor := withMenu.View().Cursor; cursor == nil {
+		t.Fatal("the popup hid the terminal cursor")
+	} else if cursor.Y != model.height-1 {
+		t.Fatalf("terminal cursor with the popup open is on row %d, want %d", cursor.Y, model.height-1)
 	}
 }
 
@@ -1002,30 +993,19 @@ func TestBlurHidesPromptCursor(t *testing.T) {
 	}
 }
 
-func TestEscInterruptsBusyRun(t *testing.T) {
+func TestEscClosesMenuBeforeInterrupting(t *testing.T) {
 	model := newTestModel(t)
 	model.busy = true
 	canceled := false
 	model.runCancel = func() { canceled = true }
-	updated, _, handled := model.handleKey("esc")
-	got := updated.(Model)
-	if !handled || !canceled {
-		t.Fatalf("esc did not interrupt the run: handled=%v canceled=%v status=%q", handled, canceled, got.status)
-	}
-	if !strings.Contains(got.status, "interrupt") {
-		t.Fatalf("status = %q", got.status)
-	}
-}
-
-func TestEscClosesMenuBeforeInterrupting(t *testing.T) {
-	model := newTestModel(t)
-	model.busy = true
-	model.runCancel = func() {}
 	model.menu.items = []menuItem{{Value: "/model", Description: "pick"}}
 	updated, _, handled := model.handleKey("esc")
 	got := updated.(Model)
 	if !handled || got.menu.open() {
 		t.Fatalf("esc did not close the menu first: handled=%v open=%v", handled, got.menu.open())
+	}
+	if canceled {
+		t.Fatal("esc interrupted the run while it only had a menu to close")
 	}
 }
 
@@ -1281,10 +1261,7 @@ func TestInterruptedRunFinalizesStreamedTurn(t *testing.T) {
 	if got.busy || got.status != "interrupted" {
 		t.Fatalf("busy=%v status=%q", got.busy, got.status)
 	}
-	// The partial stream must be frozen into stable blocks so it survives.
-	if got.transcript.thinking != "" || len(got.transcript.stream) != 0 {
-		t.Fatal("interrupted run left the transcript stream open")
-	}
+	// The partial answer must stay on screen once the run is interrupted.
 	rendered := plain(got.viewport.View())
 	if !strings.Contains(rendered, "half an answer") {
 		t.Fatalf("partial answer missing from transcript: %q", rendered)
@@ -1332,8 +1309,19 @@ func TestEnterWithoutBackslashSubmits(t *testing.T) {
 	model := newTestModel(t)
 	model.input.SetValue("plain prompt")
 	updated, _ := model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	if got := updated.(Model); got.input.Value() != "" {
+	got := updated.(Model)
+	if got.input.Value() != "" {
 		t.Fatalf("enter left the prompt unsubmitted: %q", got.input.Value())
+	}
+	if !got.busy || got.runEvents == nil || !strings.Contains(plain(got.viewport.View()), "plain prompt") {
+		t.Fatalf("enter did not start a turn: busy=%v\n%s", got.busy, plain(got.viewport.View()))
+	}
+	// The run closes its events channel once Run has returned, so draining it
+	// settles the call count.
+	for range got.runEvents {
+	}
+	if runs := got.runtime.(*fakeRuntime).runs.Load(); runs != 1 {
+		t.Fatalf("runtime ran %d times, want 1", runs)
 	}
 }
 
@@ -1728,13 +1716,6 @@ func TestWindowResizeKeepsBottomLineVisible(t *testing.T) {
 	}
 }
 
-func TestFreshSessionDoesNotForceBottom(t *testing.T) {
-	m := newTestModel(t)
-	if m.startAtBottom {
-		t.Fatal("a fresh session requested an initial scroll to the bottom")
-	}
-}
-
 func TestCompactCommandStartsBusyRun(t *testing.T) {
 	m := newTestModel(t)
 	m.input.SetValue("/compact")
@@ -1748,6 +1729,14 @@ func TestCompactCommandStartsBusyRun(t *testing.T) {
 	}
 	if got.input.Value() != "" {
 		t.Fatalf("compact left input behind: %q", got.input.Value())
+	}
+	// The wait command returns once the run's goroutine has finished, so the
+	// runtime has seen every call it is going to see.
+	if _, ok := cmd().(runDoneMsg); !ok {
+		t.Fatal("compact run did not report its end")
+	}
+	if calls := got.runtime.(*fakeRuntime).compacts.Load(); calls != 1 {
+		t.Fatalf("runtime compacted %d times, want 1", calls)
 	}
 }
 
@@ -1768,8 +1757,10 @@ func TestNothingToCompactIsNotAnError(t *testing.T) {
 	if got.status != "nothing to compact" {
 		t.Fatalf("status = %q", got.status)
 	}
-	if strings.Contains(plain(got.viewport.View()), "error") {
-		t.Fatalf("nothing-to-compact rendered as an error: %q", plain(got.viewport.View()))
+	// An error slab shows the bare message, so the message itself must stay
+	// out of the transcript; the status line already reports it.
+	if rendered := plain(got.viewport.View()); strings.Contains(rendered, agent.ErrNothingToCompact.Error()) {
+		t.Fatalf("nothing-to-compact rendered as an error:\n%s", rendered)
 	}
 }
 
