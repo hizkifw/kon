@@ -84,6 +84,13 @@ func TestInlineSpans(t *testing.T) {
 			wantText: "a & b <tag> A",
 		},
 		{
+			// Decoded, these would clear the screen, set the window title,
+			// and open an 8-bit CSI.
+			name:     "control character references dropped",
+			in:       "a &#x1b;[2J b &#27;]0;t&#7; c &#x9b;2J &Tab;d",
+			wantText: "a [2J b ]0;t c 2J d",
+		},
+		{
 			name:     "backslash escape",
 			in:       `a \*literal\* b`,
 			wantText: "a *literal* b",

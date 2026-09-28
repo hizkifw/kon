@@ -212,29 +212,31 @@ func abbreviateHome(path string) string {
 	return path
 }
 
+// sanitize removes escape sequences and control characters other than newline
+// and tab from text bound for the screen. It shares ansiStripper's state
+// machine so an OSC (a window title, a hyperlink) is dropped whole rather than
+// leaving its payload behind as text once the ESC is gone.
 func sanitize(s string) string {
+	var strip ansiStripper
+	return dropC1(strings.ReplaceAll(strip.strip(s), "\r", ""))
+}
+
+// dropC1 removes C1 control characters (U+0080-U+009F), which some terminals
+// act on like the ESC sequences they abbreviate: U+009B is CSI. In UTF-8 each
+// is 0xC2 followed by 0x80-0x9F, and 0xC2 is only ever a lead byte, so a byte
+// scan cannot split another character.
+func dropC1(s string) string {
+	if strings.IndexByte(s, 0xc2) < 0 {
+		return s
+	}
 	var out strings.Builder
-	for i := 0; i < len(s); {
-		if s[i] == 0x1b {
-			i++
-			if i < len(s) && s[i] == '[' {
-				i++
-				for i < len(s) {
-					b := s[i]
-					i++
-					if b >= 0x40 && b <= 0x7e {
-						break
-					}
-				}
-			}
-			continue
-		}
-		if s[i] < 0x20 && s[i] != '\n' && s[i] != '\t' {
+	out.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		if s[i] == 0xc2 && i+1 < len(s) && s[i+1] >= 0x80 && s[i+1] <= 0x9f {
 			i++
 			continue
 		}
 		out.WriteByte(s[i])
-		i++
 	}
 	return out.String()
 }

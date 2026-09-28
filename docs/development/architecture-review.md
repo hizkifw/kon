@@ -412,7 +412,13 @@ Live view and tools:
 - [ ] Tabs count as zero or one cell but render as four, so code blocks and
   shell output overflow the width.
 - [ ] A multi-line status (an HTML error body) breaks the frame and reaches the
-  terminal unsanitized; `sanitize` also leaves OSC 8 remnants.
+  terminal unsanitized.
+- [x] `sanitize` left an OSC's payload (a window title, an OSC 8 link) behind as
+  text. It now shares `ansiStripper`'s state machine and also drops C1
+  controls.
+- [x] A character reference such as `&#27;` decoded into a live control
+  character after `sanitize` had run, so assistant markdown could send escapes
+  to the terminal. `unescape` in `internal/markdown` now drops them.
 - [ ] Markdown span styling locates spans with `strings.Index`, so a code span
   or link styles the first matching word instead of itself.
 - [ ] `fitLine` counts escape bytes as cells and can drop the SGR reset.
@@ -427,8 +433,8 @@ Installers and display:
   while kon runs, and can invalidate the macOS signature); write a temp file
   and `mv`. Its `/releases/latest` fallback never triggers because the parsed
   version is `releases`.
-- [ ] Token counts from 999,950 to 999,999 display as "1000.0k"
-  (`internal/tokens/tokens.go`).
+- [x] Token counts from 999,950 to 999,999 displayed as "1000.0k"
+  (`internal/tokens/tokens.go`); they now read "1.0m".
 - [ ] The catalog generator validates less than the runtime decodes, so an
   upstream type change silently removes a provider's models.
 

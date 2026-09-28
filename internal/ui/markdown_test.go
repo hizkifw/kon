@@ -31,6 +31,28 @@ func TestMarkdownAssistantRendersStructure(t *testing.T) {
 	}
 }
 
+// TestMarkdownCharacterReferencesCannotEmitEscapes feeds an assistant message
+// that spells control characters as character references through both the
+// streamed and the settled render. Decoded verbatim, they would reach the
+// terminal as live escapes after sanitize had already passed the text.
+func TestMarkdownCharacterReferencesCannotEmitEscapes(t *testing.T) {
+	text := "clear &#x1b;[2J title &#27;]0;pwned&#7; csi &#x9b;2J"
+	var streamed, settled transcript
+	streamed.appendStream(sanitize(text))
+	settled.add(block{kind: blockAssistant, text: sanitize(text)})
+	for name, tr := range map[string]*transcript{"streamed": &streamed, "settled": &settled} {
+		out := strings.Join(tr.linesFor(60), "\n")
+		for _, escape := range []string{"\x1b[2J", "\x1b]0;", "\x07", "\u009b"} {
+			if strings.Contains(out, escape) {
+				t.Fatalf("%s render emitted %q:\n%q", name, escape, out)
+			}
+		}
+		if !strings.Contains(plain(out), "title ]0;pwned csi 2J") {
+			t.Fatalf("%s render lost the surrounding text:\n%s", name, plain(out))
+		}
+	}
+}
+
 // TestMarkdownStreamMatchesSettledBlock is the integration's core invariant:
 // a message streamed through the live markdown renderer must equal the same
 // message rendered as a settled block, so folding a finished stream into
@@ -124,8 +146,14 @@ func TestMarkdownLinksClickable(t *testing.T) {
 			t.Fatalf("width=%d: no OSC 8 hyperlink emitted", width)
 		}
 		got := visible.String()
-		for _, want := range []string{"release notes", "https://github.com/example/project/releases/tag/v2.1.0", "https://example.com/docs"} {
-			if !strings.Contains(got, want) {
+		if !strings.Contains(got, "release notes") {
+			t.Fatalf("width=%d: visible text missing the label:\n%s", width, got)
+		}
+		// A long URL wraps across lines at its punctuation, so compare the
+		// URLs with the wrap and padding whitespace taken out.
+		unwrapped := strings.Join(strings.Fields(got), "")
+		for _, want := range []string{"https://github.com/example/project/releases/tag/v2.1.0", "https://example.com/docs"} {
+			if !strings.Contains(unwrapped, want) {
 				t.Fatalf("width=%d: visible text missing %q:\n%s", width, want, got)
 			}
 		}
@@ -259,30 +287,16 @@ func fgSeq(c color.Color) string {
 	return fmt.Sprintf("38;2;%d;%d;%d", r>>8, g>>8, b>>8)
 }
 
-// TestMarkdownLinkNoControlInjection checks that control bytes in a link
-// destination cannot break out of the OSC 8 sequence and inject terminal
-// escapes: every ESC in the painted line must begin a well-formed sequence
-// (CSI "\x1b[", OSC "\x1b]", or the ST terminator "\x1b\\"), never a bare
-// escape. Percent-encoded control bytes are left verbatim in the URL, so
-// they stay inert text rather than becoming terminal control.
+// TestMarkdownLinkNoControlInjection checks that control characters in a link
+// destination never reach the OSC 8 target, where a BEL, ESC, or C1 ST would
+// end the sequence early and run the rest of the URL as terminal input.
 func TestMarkdownLinkNoControlInjection(t *testing.T) {
 	var tr transcript
 	tr.cwd = "/tmp"
-	tr.add(block{kind: blockAssistant, text: "go [here](https://x.example/a%07b%1bc) now"})
-	for _, line := range tr.linesFor(60) {
-		for i := 0; i < len(line); i++ {
-			if line[i] != 0x1b {
-				continue
-			}
-			if i+1 >= len(line) {
-				t.Fatalf("trailing ESC byte: %q", line)
-			}
-			switch line[i+1] {
-			case '[', ']', '\\':
-			default:
-				t.Fatalf("stray ESC byte followed by %q at %d: %q", line[i+1], i, line)
-			}
-		}
+	tr.add(block{kind: blockAssistant, text: "go [here](https://x.example/a\x07b\x1bc\u009cd) now"})
+	out := strings.Join(tr.linesFor(80), "\n")
+	if want := "\x1b]8;;https://x.example/abcd\x1b\\"; !strings.Contains(out, want) {
+		t.Fatalf("link target not stripped to %q:\n%q", want, out)
 	}
 }
 

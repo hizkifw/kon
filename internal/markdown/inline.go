@@ -2,6 +2,7 @@ package markdown
 
 import (
 	"strings"
+	"unicode"
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/yuin/goldmark/ast"
@@ -28,6 +29,11 @@ type piece struct {
 // same three passes its URL escaper runs); the HTML writer's own Write()
 // is not usable here because it re-escapes output for HTML destinations
 // ("&" -> "&amp;"), which would leak entities back into terminal text.
+//
+// A reference can name a control character ("&#27;" is ESC, "&#x9b;" is CSI),
+// and once decoded it would reach the terminal as a live escape sequence.
+// Callers strip escape sequences from the source, so dropping every control
+// character decoding produced keeps the text as inert as its source.
 func unescape(raw []byte) string {
 	if len(raw) == 0 {
 		return ""
@@ -38,7 +44,14 @@ func unescape(raw []byte) string {
 	v := util.UnescapePunctuations(raw)
 	v = util.ResolveNumericReferences(v)
 	v = util.ResolveEntityNames(v)
-	return string(v)
+	return strings.Map(dropControl, string(v))
+}
+
+func dropControl(r rune) rune {
+	if unicode.IsControl(r) {
+		return -1
+	}
+	return r
 }
 
 // inlinePieces walks an inline subtree collecting styled pieces. Soft line
