@@ -36,6 +36,7 @@ own docs:
 | 6 native builds | the target list in `scripts/release.sh` |
 | about 30 ms off every launch, streaming throughput | `docs/development/benchmarking.md` and commit `acab5ff` |
 | Windows behavior | `docs/product/usage.md`, `docs/development/index.md`, `docs/development/session-format.md`, `docs/development/architecture.md` |
+| Incognito behavior | the Incognito and Scripting sections of `docs/product/usage.md` |
 
 Re-measure before a release that could move them.
 
