@@ -210,7 +210,7 @@ Each entry in `providers`:
 | `catalog_provider` | string | no | models.dev provider key, when `id` differs from it. |
 | `base_url` | string | for `openai-compatible` | API root. Other types default to their public endpoint. |
 | `api_key` | string | no | Sent as a bearer token, or as `x-api-key` for `anthropic`. |
-| `headers` | object | no | Extra HTTP headers, which may override kon's own. |
+| `headers` | object | no | Extra HTTP headers, which may override kon's own. An Anthropic `anthropic-beta` value is joined with any beta kon adds. |
 
 Each entry in `models`:
 
@@ -221,7 +221,7 @@ Each entry in `models`:
 | `model` | string | to run | The provider's model ID, sent as written. |
 | `base_url` | string | for `openai-compatible` | API root. `openai` defaults to `https://api.openai.com/v1`, `openrouter` to `https://openrouter.ai/api/v1`, `ollama` to `http://localhost:11434/v1`, `openai-responses` to `https://api.openai.com/v1`, and `anthropic` to `https://api.anthropic.com/v1`. |
 | `api_key` | string | no | Sent as a bearer token, or as `x-api-key` for `anthropic`. |
-| `headers` | object | no | Extra HTTP headers, which may override kon's own. |
+| `headers` | object | no | Extra HTTP headers, which may override kon's own. An Anthropic `anthropic-beta` value is joined with any beta kon adds. |
 | `context_window_tokens` | integer | no | Context limit. `0` means unknown; otherwise it must exceed the compaction budgets you set, combined. |
 | `max_output_tokens` | integer | no | The most the model writes in one reply. It sizes the compaction summary; `0` or omitted means unknown. |
 | `vision` | boolean | no | Accepts image input. |

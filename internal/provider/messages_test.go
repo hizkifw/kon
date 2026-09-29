@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -225,6 +226,48 @@ func TestMessagesDropsMismatchedThinking(t *testing.T) {
 	// request asks again.
 	if _, err := model.Stream(context.Background(), hi, nil, nil); err != nil || len(bodies) != 3 || betas[2] != thinkingBindingBeta || !strings.Contains(string(bodies[2]), "drop_block") {
 		t.Fatalf("second request: %v, betas = %q", err, betas)
+	}
+}
+
+// A profile's own betas are kept, with the binding beta added once.
+func TestMessagesJoinsConfiguredBetas(t *testing.T) {
+	var betas []string
+	model := newMessagesTestModel(t, func(w http.ResponseWriter, r *http.Request) {
+		betas = append(betas, r.Header.Get("anthropic-beta"))
+		if len(betas) == 1 {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = io.WriteString(w, `{"type":"error","error":{"type":"invalid_request_error","message":"The block is bound to a different conversation."}}`)
+			return
+		}
+		_, _ = io.WriteString(w, sse(`{"type":"content_block_start","index":0,"content_block":{"type":"text","text":"ok"}}`)+sse(`{"type":"message_stop"}`))
+	})
+	model.headers = map[string]string{"anthropic-beta": "context-1m-2025-08-07"}
+	if _, err := model.Stream(context.Background(), []session.Message{session.TextMessage(session.RoleUser, "hi")}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"context-1m-2025-08-07", "context-1m-2025-08-07," + thinkingBindingBeta}; !slices.Equal(betas, want) {
+		t.Fatalf("betas = %q, want %q", betas, want)
+	}
+	if got := withBeta("a, "+thinkingBindingBeta, thinkingBindingBeta); got != "a, "+thinkingBindingBeta {
+		t.Fatalf("withBeta repeated the beta: %q", got)
+	}
+}
+
+// Only a rejection of the thinking type teaches that a model needs budgeted
+// thinking; an error that merely mentions adaptive thinking does not.
+func TestMessagesAdaptiveThinkingError(t *testing.T) {
+	for body, want := range map[string]bool{
+		"thinking.type: Input tag 'adaptive' does not match the expected tags":                      true,
+		"adaptive thinking is not supported on this model":                                          true,
+		"claude-haiku-4-5 does not support adaptive thinking":                                       true,
+		"output_config.effort: 'xhigh' requires adaptive thinking":                                  false,
+		"thinking.display: 'summarized' is not supported with adaptive":                             false,
+		"thinking.block_binding requires thinking.type adaptive":                                    false,
+		"thinking.type.enabled is not supported for this model. Use thinking.type.adaptive instead": false,
+	} {
+		if got := isAdaptiveThinkingError(body); got != want {
+			t.Errorf("isAdaptiveThinkingError(%q) = %v, want %v", body, got, want)
+		}
 	}
 }
 

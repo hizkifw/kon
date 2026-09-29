@@ -383,7 +383,7 @@ func (m *messagesModel) learn(err error) bool {
 		m.outputCap = limit
 		return true
 	}
-	if m.reasoning && !m.budgetThinking && strings.Contains(body, "adaptive") {
+	if m.reasoning && !m.budgetThinking && isAdaptiveThinkingError(body) {
 		m.budgetThinking = true
 		return true
 	}
@@ -410,6 +410,17 @@ func outputLimit(body string) tokens.Count {
 	return tokens.Count(limit)
 }
 
+// adaptiveThinkingPattern finds a rejection of the thinking type itself, such
+// as "thinking.type: Input tag 'adaptive' does not match the expected tags".
+// The field path comes first in the API's messages; matching "adaptive"
+// anywhere would also catch an error about a field sent alongside it, and switch a model that needs adaptive thinking to a budget
+// it rejects, for good.
+var adaptiveThinkingPattern = regexp.MustCompile(`thinking\.type:[^\n]*\badaptive\b|\badaptive thinking is not supported\b|\bdoes not support adaptive thinking\b`)
+
+func isAdaptiveThinkingError(body string) bool {
+	return adaptiveThinkingPattern.MatchString(body)
+}
+
 // isBoundThinkingError reports the rejection of a thinking block whose
 // recorded conversation no longer matches the request. kon's compaction keeps
 // recent turns verbatim after a summary, which changes what precedes their
@@ -418,6 +429,19 @@ func outputLimit(body string) tokens.Count {
 // the setting is kept for the rest of the model's life.
 func isBoundThinkingError(body string) bool {
 	return strings.Contains(body, "bound to a different conversation")
+}
+
+// withBeta adds beta to a comma-separated anthropic-beta value, once.
+func withBeta(betas, beta string) string {
+	for existing := range strings.SplitSeq(betas, ",") {
+		if strings.TrimSpace(existing) == beta {
+			return betas
+		}
+	}
+	if strings.TrimSpace(betas) == "" {
+		return beta
+	}
+	return betas + "," + beta
 }
 
 func (m *messagesModel) stream(ctx context.Context, payload messagesRequest, emit func(Event)) (Response, error) {
@@ -436,12 +460,14 @@ func (m *messagesModel) stream(ctx context.Context, payload messagesRequest, emi
 	for key, value := range m.spec.AuthHeaders(m.apiKey) {
 		request.Header.Set(key, value)
 	}
-	if payload.Thinking != nil && payload.Thinking.BlockBinding != nil {
-		request.Header.Set("anthropic-beta", thinkingBindingBeta)
-	}
 	// Configured headers come last so a profile can override any of these.
 	for key, value := range m.headers {
 		request.Header.Set(key, value)
+	}
+	// Betas a profile configures join the one kon needs rather than replace
+	// it: both are feature flags, and dropping kon's would fail the request.
+	if payload.Thinking != nil && payload.Thinking.BlockBinding != nil {
+		request.Header.Set("anthropic-beta", withBeta(request.Header.Get("anthropic-beta"), thinkingBindingBeta))
 	}
 	response, err := m.client.Do(request)
 	if err != nil {
