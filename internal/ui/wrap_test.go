@@ -8,9 +8,9 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
-// TestPlainWrapperMatchesLipgloss guards the streaming word wrapper against
-// lipgloss.Wrap, which the block renderers use. If they diverge, a message
-// repainted live and later folded into a stable block would shift.
+// TestPlainWrapperMatchesLipgloss checks the streaming word wrapper against
+// lipgloss.Wrap as a reference, so its handling of wide characters, hyphens,
+// and hard wraps stays conventional as the fast paths change.
 func TestPlainWrapperMatchesLipgloss(t *testing.T) {
 	inputs := []string{
 		"",
