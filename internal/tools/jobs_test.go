@@ -224,7 +224,32 @@ func TestSubagentNoticeQuotesWholeAnswer(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("no notice")
 	}
-	if tail := jobs.List()[0].Tail(1); tail != "log line 40" {
+	if tail := fileTail(jobs.List()[0].Output, 1); tail != "log line 40" {
 		t.Fatalf("output tail = %q; the full log should stay in output", tail)
+	}
+}
+
+func TestReadOutputReadsOnFromAnOffsetWithinALimit(t *testing.T) {
+	job := Job{Output: filepath.Join(t.TempDir(), "output")}
+	if data, next, err := job.ReadOutput(0, 4); err != nil || len(data) != 0 || next != 0 {
+		t.Fatalf("before any output: %q, %d, %v", data, next, err)
+	}
+	if err := os.WriteFile(job.Output, []byte("0123456789"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		offset, limit, start int64
+		want                 string
+	}{
+		{0, 100, 0, "0123456789"},
+		{3, 100, 3, "3456789"},
+		// Past the limit only the end is read, starting after offset.
+		{0, 4, 6, "6789"},
+		{10, 4, 10, ""},
+	} {
+		data, start, err := job.ReadOutput(tc.offset, tc.limit)
+		if err != nil || string(data) != tc.want || start != tc.start {
+			t.Fatalf("ReadOutput(%d, %d) = %q, %d, %v; want %q, %d", tc.offset, tc.limit, data, start, err, tc.want, tc.start)
+		}
 	}
 }

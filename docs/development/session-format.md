@@ -102,7 +102,7 @@ IDs counting up from 1 per session:
 - `pid`: the process, which leads its own process group on Unix.
 - `output`: combined stdout and stderr, capped at 16 MiB.
 - `exit`: written when the job ends. It holds the exit code, or a reason:
-  `killed: stopped by user` after `/kill`, `killed: kon exited` when the
+  `killed: stopped by user` after ⇧K in `/jobs`, `killed: kon exited` when the
   session closed, `signal: …` when something else ended it, or `lost: …` for a
   job whose kon exited without recording it.
 - `session`: a `kon run` subagent's own session ID, which it writes through

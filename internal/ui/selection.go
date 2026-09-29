@@ -130,14 +130,23 @@ func (m Model) pointAt(x, y int) (point, int) {
 // nothing until the pointer moves; a double click selects the word pressed
 // on and a triple click the paragraph, straight away.
 func (m Model) pressMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
-	m.activeTranscript().selection = nil
 	if len(m.drawers) > 0 {
 		// The dimmed area around the top drawer only takes a click to close it.
 		if r := drawerRect(m.width, m.height, len(m.drawers)-1); !r.contains(msg.X, msg.Y) {
 			m.closeDrawer()
 			return m, nil
 		}
+		if msg.Button == tea.MouseLeft {
+			if updated, cmd, ok := m.clickDrawer(msg.X, msg.Y); ok {
+				return updated, cmd
+			}
+		}
+		// A list has no text to select.
+		if m.topDrawer().list != nil {
+			return m, nil
+		}
 	}
+	m.activeTranscript().selection = nil
 	view, area := m.surface()
 	if msg.Button != tea.MouseLeft || len(m.drawers) == 0 && m.preview != nil || !area.contains(msg.X, msg.Y) || len(view.lines) == 0 {
 		m.click = click{}
@@ -204,7 +213,7 @@ func (m *Model) moveHead(p point) {
 func (m Model) wheelMouse(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 	view, _ := m.surface()
 	view.Update(msg)
-	if m.activeTranscript().selection != nil {
+	if t := m.activeTranscript(); t != nil && t.selection != nil {
 		p, _ := m.pointAt(msg.X, msg.Y)
 		m.moveHead(p)
 	}
@@ -214,6 +223,9 @@ func (m Model) wheelMouse(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 // scrollSelection scrolls toward the edge a drag is held past and moves the
 // selection's head onto the line brought in.
 func (m Model) scrollSelection(msg selectScrollMsg) (tea.Model, tea.Cmd) {
+	if m.activeTranscript() == nil {
+		return m, nil
+	}
 	sel := m.activeTranscript().selection
 	if sel == nil || sel.edge == 0 || msg.epoch != m.selectEpoch {
 		return m, nil
@@ -233,6 +245,9 @@ func (m Model) scrollSelection(msg selectScrollMsg) (tea.Model, tea.Cmd) {
 // click without a drag selects nothing, so clicking to focus the window never
 // replaces what is on the clipboard.
 func (m Model) releaseMouse(tea.MouseReleaseMsg) (tea.Model, tea.Cmd) {
+	if m.activeTranscript() == nil {
+		return m, nil
+	}
 	sel := m.activeTranscript().selection
 	m.activeTranscript().selection = nil
 	m.click.down = false

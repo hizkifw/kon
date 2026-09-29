@@ -50,7 +50,8 @@ func (m *Model) refreshTranscript(toBottom bool) {
 }
 
 // activeTranscript is the transcript the mouse works on: the top drawer's when
-// one is open, otherwise the one the main viewport shows.
+// one is open, which is nil for a list, otherwise the one the main viewport
+// shows.
 func (m *Model) activeTranscript() *transcript {
 	if d := m.topDrawer(); d != nil {
 		return d.transcript

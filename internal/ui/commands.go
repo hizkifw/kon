@@ -300,25 +300,9 @@ func defaultRegistry() *registry {
 	})
 	registry.register(slashCommand{
 		name:    "jobs",
-		summary: "list background jobs and subagents, or show one's output",
-		arguments: []argument{{
-			name:     "id",
-			optional: true,
-			complete: completeJobs(false),
-		}},
-		run: func(m Model, args []string) (tea.Model, tea.Cmd) {
-			return m.listJobs(args)
-		},
-	})
-	registry.register(slashCommand{
-		name:    "kill",
-		summary: "stop a running background job",
-		arguments: []argument{{
-			name:     "id",
-			complete: completeJobs(true),
-		}},
-		run: func(m Model, args []string) (tea.Model, tea.Cmd) {
-			return m.killJob(args[0])
+		summary: "watch background jobs and subagents",
+		run: func(m Model, _ []string) (tea.Model, tea.Cmd) {
+			return m.openJobs()
 		},
 	})
 	registry.register(slashCommand{

@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"reflect"
 	"slices"
 	"strings"
@@ -54,7 +55,9 @@ type fakeRuntime struct {
 	notices  chan string
 	jobs     int
 	jobList  []tools.Job
-	killed   []int
+	// subagentPath is the session file OpenSubagent opens, if any.
+	subagentPath string
+	killed       []int
 	// subagentCost is the cost SubagentUsage reports.
 	subagentCost float64
 
@@ -91,8 +94,11 @@ func (f *fakeRuntime) KillJob(id int) error {
 	f.killed = append(f.killed, id)
 	return nil
 }
-func (f *fakeRuntime) SubagentPreview(typedid.SessionID, int) ([]session.Entry, error) {
-	return f.previewEntries, f.previewErr
+func (f *fakeRuntime) OpenSubagent(typedid.SessionID) (*session.View, error) {
+	if f.subagentPath == "" {
+		return nil, errors.New("no subagent sessions")
+	}
+	return session.OpenView(f.subagentPath)
 }
 func (f *fakeRuntime) NewSession() error { return nil }
 func (f *fakeRuntime) Login(_ context.Context, provider config.Provider) (int, bool, error) {

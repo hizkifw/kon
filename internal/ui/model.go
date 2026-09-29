@@ -68,10 +68,10 @@ type Runtime interface {
 	Notices() <-chan string
 	RunningJobs() int
 	// Jobs lists the session's background jobs, KillJob stops one, and
-	// SubagentPreview reads the tail of a subagent job's own session.
+	// OpenSubagent opens a subagent job's own session to follow it.
 	Jobs() []tools.Job
 	KillJob(id int) error
-	SubagentPreview(id typedid.SessionID, maxTurns int) ([]session.Entry, error)
+	OpenSubagent(id typedid.SessionID) (*session.View, error)
 	// ContextUsage reports the last provider-reported context size and whether it
 	// is known, so a resumed session can show it instead of an unknown value.
 	ContextUsage() (tokens.Count, bool)
@@ -120,6 +120,10 @@ type Model struct {
 	drawers   []*drawer
 	side      *sideChat
 	sideSpent float64
+	// jobsView is the /jobs drawers while they are open, and jobsEpoch
+	// counts their reads' chains, so one from drawers since closed stops.
+	jobsView  *jobsView
+	jobsEpoch int
 	// interruptPresses counts Esc presses that interrupted the run in
 	// flight, so the harness can escalate: the first cancels the run
 	// (interrupting a running command), the second kills it.
@@ -290,6 +294,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateRun(msg)
 	case runTickMsg:
 		return m.tickRun(msg)
+	case jobsTickMsg:
+		return m.tickJobs(msg)
+	case jobsPolledMsg:
+		return m.applyJobsPolled(msg)
 	case tea.WindowSizeMsg:
 		// Anchor the bottom edge across the resize, so a reader at the bottom
 		// keeps the last line in view. A width change rewraps the transcript,

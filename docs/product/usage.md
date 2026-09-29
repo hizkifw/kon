@@ -64,8 +64,7 @@ Type `/` at the start of the prompt to see the available commands.
 | `/resume [id]` | List sessions for this directory, or switch to one |
 | `/compact` | Summarize older context now; the summary streams into the transcript |
 | `/btw <question>` | Ask a temporary side question using the current context |
-| `/jobs [id]` | Pick a background job or subagent to preview, or show one's recent output |
-| `/kill <id>` | Stop a running background job; the agent is told you stopped it |
+| `/jobs` | Watch background jobs and subagents in a drawer, and stop them |
 | `/queue [item\|clear]` | Pick a pending steer or queued message to pull back for editing, or drop them all |
 | `/copy [last\|all]` | Copy the last reply, or the whole conversation, to the clipboard |
 
@@ -150,8 +149,9 @@ markup anyway, kon adds a "Nothing was executed" note to the side answer.
 
 Press Esc or Ctrl+C, or click the dimmed area, to close the drawer and cancel
 an unfinished side answer. This leaves the main task running.
-Scroll with the mouse wheel, PgUp/PgDn, or Home/End; select text to copy it
-before closing. Each `/btw` starts a fresh
+Scroll with the mouse wheel, ↑/↓ or j/k, PgUp/PgDn, or Home/End; select text
+to copy it before closing. A row along the drawer's foot names the keys it
+takes, and clicking one works like pressing it. Each `/btw` starts a fresh
 question. Side questions and answers are never added to the main conversation,
 saved session, or prompt history. They still go to your configured provider
 and use tokens; reported costs are shown for the current session until you
@@ -388,6 +388,19 @@ command, foreground or background, gets `KON_JOBS` (that directory) and
 `KON_SESSION` (the session ID) in its environment, so the agent can list jobs
 with `ls $KON_JOBS` and read or stop them with ordinary commands.
 
+`/jobs` lists the session's jobs in a drawer, running ones above finished
+ones, each newest first, and keeps the list current while it is open. Each
+job's status is marked and colored: `● running`, `✓ done` in green,
+`■ stopped by you` (or by kon exiting) in yellow, and `✗ failed, exit N` or
+`✗ ended by signal (…)`, for a job something else killed, in red. Move with ↑/↓ or j/k, and press Enter, or click a
+highlighted row, to open that job in a drawer of its own. It follows the job's
+output as it is written, the way a terminal shows it: a line redrawn with a
+carriage return, as a progress bar does, shows only its latest state. The
+drawer keeps the last 5,000 lines and points at the output file for the rest.
+Press ⇧K twice, in the list or in a job's drawer, to stop a running job; any
+other key between the presses cancels. Esc goes back to the list, and Esc
+again to the conversation. The agent is told when you stop a job.
+
 Jobs belong to the kon that started them. Quitting kon, `/new`, and `/resume`
 kill every job still running, and its `exit` file records why. A job whose kon
 crashed is marked lost the next time the session opens. `kon run` supports
@@ -403,7 +416,8 @@ session. What it spends is added to the status bar's cost as each of its
 responses arrives, read from its session file. A subagent of an incognito
 session saves no session, so its spend is not counted. When it finishes, the exit notice quotes its whole final answer,
 while the job's output keeps its full turn log. In
-`/jobs`, a subagent's row previews its own conversation. Subagent sessions stay
+`/jobs`, a subagent's drawer shows its own conversation and follows it as each
+message is saved; an incognito subagent's drawer shows its output instead. Subagent sessions stay
 out of `--resume` and the `/resume` list, which belong to the sessions you
 started.
 

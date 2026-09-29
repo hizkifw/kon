@@ -44,7 +44,13 @@ tool choice set to none; unexpected tool calls are rejected without execution.
 The UI renders text and errors into a temporary transcript, shown in a drawer,
 while the main runner keeps streaming into its own. Drawers are a stack of
 surfaces painted over the dimmed screen; only the top one takes keys and the
-mouse, so there is only ever one transcript to scroll or select in. The runtime owns cancellation
+mouse, so there is only ever one transcript to scroll or select in. A drawer
+shows a transcript or a list, and declares its actions: each is a key and a
+label in the drawer's hint row, a click on the label presses the key, and a
+destructive one asks for a second press. `/jobs` stacks a list of jobs under
+the job opened from it. Both are refreshed by one chain of reads off the
+update loop: a command's output is read from where the last read ended, and a
+subagent's session through a `session.View`, as a followed session is. The runtime owns cancellation
 of both requests and waits for both on close. The snapshot includes image
 data, so side-request cleanup does not block session or model switches.
 The store serializes context snapshots and appends with the same mutex.

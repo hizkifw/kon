@@ -341,14 +341,14 @@ func (r *Runtime) KillJob(id int) error {
 	return jobs.Kill(id)
 }
 
-// SubagentPreview returns the last maxTurns user turns of a subagent's
-// session, which runs in this workspace, for a read-only preview.
-func (r *Runtime) SubagentPreview(id typedid.SessionID, maxTurns int) ([]session.Entry, error) {
+// OpenSubagent opens a subagent's session, which runs in this workspace,
+// to follow it read-only as the subagent writes it.
+func (r *Runtime) OpenSubagent(id typedid.SessionID) (*session.View, error) {
 	summary, err := session.Find(r.paths.Sessions, r.cwd, id)
 	if err != nil {
 		return nil, err
 	}
-	return session.TailEntries(summary.Path, maxTurns)
+	return session.OpenView(summary.Path)
 }
 
 // SubagentUsage adds up what the live session's subagents, and theirs in

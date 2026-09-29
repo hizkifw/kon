@@ -153,8 +153,34 @@ func (j *Jobs) List() []Job {
 	return jobs
 }
 
-// Tail returns up to n trailing lines of a job's output.
-func (job Job) Tail(n int) string { return fileTail(job.Output, n) }
+// ReadOutput returns the job's output from offset to where it ends now, or
+// only its last limit bytes when there is more, with the offset the bytes
+// start at: past offset when earlier ones were left out. A job that has not
+// written anything yet has no output file, which reads as empty.
+func (job Job) ReadOutput(offset, limit int64) ([]byte, int64, error) {
+	f, err := os.Open(job.Output)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, offset, nil
+	}
+	if err != nil {
+		return nil, offset, err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, offset, err
+	}
+	start := max(offset, info.Size()-limit)
+	if start >= info.Size() {
+		return nil, offset, nil
+	}
+	data := make([]byte, info.Size()-start)
+	n, err := f.ReadAt(data, start)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return nil, offset, err
+	}
+	return data[:n], start, nil
+}
 
 // Kill stops a running job and everything it spawned, on the user's behalf.
 // The agent still gets the exit notice, which says the user stopped it.

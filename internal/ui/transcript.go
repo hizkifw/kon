@@ -30,6 +30,9 @@ const (
 	// blockCompaction is a compaction's summary, whole, with its marker line
 	// under it.
 	blockCompaction
+	// blockOutput is a command's output, one line of text per line, shown as
+	// written rather than as Markdown.
+	blockOutput
 )
 
 // block is one entry in the transcript. Tool calls arrive as a blockTool
@@ -670,6 +673,8 @@ func (t *transcript) renderBlock(b block, width int) []string {
 		return append(lines, markerLines(b.marker, width)...)
 	case blockModel, blockModels:
 		return dimLines(normalizeText(b.text), width)
+	case blockOutput:
+		return outputLines(b.text, width)
 	default:
 		return nil
 	}
@@ -848,6 +853,18 @@ func separatorLine(text string, width int) string {
 func dimLines(text string, width int) []string {
 	style := lipgloss.NewStyle().Foreground(colorFaint).Width(width)
 	return strings.Split(style.Render(text), "\n")
+}
+
+// outputLines wraps each line of a command's output, inset one cell like
+// message slabs, in the terminal's own text color.
+func outputLines(text string, width int) []string {
+	var out []string
+	for _, line := range strings.Split(text, "\n") {
+		for _, part := range wrapPlain(line, max(1, width-1)) {
+			out = append(out, " "+part)
+		}
+	}
+	return out
 }
 
 // markerLines renders a turn marker (the running indicator or a frozen total) in
