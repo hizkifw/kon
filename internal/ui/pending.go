@@ -22,7 +22,7 @@ const maxPendingRows = 3
 // request. Several steers stack and arrive together.
 func (m Model) steer(text string) (tea.Model, tea.Cmd) {
 	if err := m.history.append(m.cwd, text); err != nil {
-		m.message = "error: " + err.Error()
+		m.say(toneDanger, "error: "+err.Error())
 		return m, nil
 	}
 	m.inbox.Push(text)
@@ -43,7 +43,7 @@ func (m Model) canQueue() bool {
 func (m Model) enqueue() (tea.Model, tea.Cmd) {
 	text := strings.TrimSpace(m.input.Value())
 	if err := m.history.append(m.cwd, text); err != nil {
-		m.message = "error: " + err.Error()
+		m.say(toneDanger, "error: "+err.Error())
 		return m, nil
 	}
 	m.queued = append(slices.Clone(m.queued), text)
@@ -89,7 +89,7 @@ func (m Model) dispatchPending(err error) (tea.Model, tea.Cmd) {
 		return m.sendQueued()
 	}
 	if errors.Is(err, context.Canceled) {
-		m.message = "interrupted · queue held, Enter sends the next"
+		m.say(toneDanger, "interrupted · queue held, Enter sends the next")
 	}
 	return m, nil
 }

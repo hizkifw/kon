@@ -50,7 +50,7 @@ func (m Model) startSideChat(question string) (tea.Model, tea.Cmd) {
 	}
 	state := m.runtime.State()
 	if state.Phase != app.PhaseReady && state.Phase != app.PhaseRunning {
-		m.message = "configure a model and open a writable session before using /btw"
+		m.say(toneWarn, "configure a model and open a writable session before using /btw")
 		return m, nil
 	}
 	m.message = ""

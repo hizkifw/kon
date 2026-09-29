@@ -29,7 +29,7 @@ type loginDoneMsg struct {
 
 func (m Model) startLogin(providerID string) (tea.Model, tea.Cmd) {
 	if m.busy {
-		m.message = "agent is busy; Esc interrupts"
+		m.say(toneWarn, "agent is busy; Esc interrupts")
 		return m, nil
 	}
 	input := textinput.New()
@@ -38,7 +38,7 @@ func (m Model) startLogin(providerID string) (tea.Model, tea.Cmd) {
 	input.Focus()
 	entry, ok := m.runtime.LoginEntry(providerID)
 	if !ok {
-		m.message = "unsupported provider: " + providerID
+		m.say(toneWarn, "unsupported provider: "+providerID)
 		return m, nil
 	}
 	m.login = &loginFlow{
@@ -107,7 +107,7 @@ func (m Model) updateLogin(msg tea.Msg) (tea.Model, tea.Cmd) {
 					value = f.entry.DefaultURL
 				}
 				if value == "" {
-					m.message = "provider URL is required"
+					m.say(toneWarn, "provider URL is required")
 					return m, nil
 				}
 				f.connection.BaseURL = value
@@ -120,7 +120,7 @@ func (m Model) updateLogin(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			if value == "" && !f.entry.KeyOptional {
-				m.message = "API key is required"
+				m.say(toneWarn, "API key is required")
 				return m, nil
 			}
 			f.connection.APIKey = value
@@ -155,16 +155,16 @@ func (m Model) finishLogin(done loginDoneMsg) (tea.Model, tea.Cmd) {
 	m.login.pending = false
 	m.login.cancel = nil
 	if done.err != nil {
-		m.message = "login failed: " + done.err.Error()
+		m.say(toneDanger, "login failed: "+done.err.Error())
 		return m, nil
 	}
 	providerID := m.login.connection.ID
 	m.login = nil
 	m.syncRuntimeState()
 	if done.verified {
-		m.message = fmt.Sprintf("%s connected · %d models found · choose with /model", providerID, done.count)
+		m.say(toneSuccess, fmt.Sprintf("%s connected · %d models found · choose with /model", providerID, done.count))
 	} else {
-		m.message = providerID + " saved · model listing unavailable · add an explicit model"
+		m.say(toneWarn, providerID+" saved · model listing unavailable · add an explicit model")
 	}
 	m.resize()
 	return m, nil

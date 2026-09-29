@@ -119,9 +119,9 @@ func (m Model) killJob(id string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if err := m.runtime.KillJob(n); err != nil {
-		m.message = err.Error()
+		m.say(toneDanger, err.Error())
 		return m, nil
 	}
-	m.message = "stopped job " + id
+	m.say(toneSuccess, "stopped job "+id)
 	return m, nil
 }

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"image/color"
 	"strings"
 	"time"
 
@@ -26,6 +27,45 @@ func (m Model) mode() string {
 		return "needs configuration"
 	}
 	return ""
+}
+
+// tone is how the message reads at a glance: a plain report, something that
+// went right, something to look at before continuing, or something that
+// failed or was lost.
+type tone int
+
+const (
+	toneInfo tone = iota
+	toneSuccess
+	toneWarn
+	toneDanger
+)
+
+func (t tone) color() color.Color {
+	switch t {
+	case toneSuccess:
+		return colorOK
+	case toneWarn:
+		return colorWarn
+	case toneDanger:
+		return colorFail
+	}
+	return colorFaint
+}
+
+// say sets the message in a tone.
+func (m *Model) say(t tone, text string) {
+	m.message, m.tone, m.toned = text, t, text
+}
+
+// messageTone is the tone of the message on the status line. A tone holds
+// only while the message is still the text it was said with, so a plain
+// assignment to message never inherits the last message's color.
+func (m Model) messageTone() tone {
+	if m.message != m.toned {
+		return toneInfo
+	}
+	return m.tone
 }
 
 // statusText is what the status line says after its fixed fields: the mode,
@@ -54,8 +94,9 @@ type flashDoneMsg struct{ epoch int }
 
 // flash shows a passing notice as the message and clears it after
 // flashTimeout.
-func (m *Model) flash(text string) tea.Cmd {
-	m.message, m.flashed = text, text
+func (m *Model) flash(t tone, text string) tea.Cmd {
+	m.say(t, text)
+	m.flashed = text
 	m.flashEpoch++
 	epoch := m.flashEpoch
 	return tea.Tick(flashTimeout, func(time.Time) tea.Msg { return flashDoneMsg{epoch} })

@@ -103,6 +103,10 @@ func (m Model) View() tea.View {
 	if text := m.statusText(); text != "" {
 		status += " · " + text
 	}
+	line := statusStyle.Render(fitLine(status, m.width))
+	if t := m.messageTone(); t != toneInfo && m.search == nil {
+		line = statusStyle.Render(toneLine(fitLine(status, m.width), len(status)-len(oneLine(m.message)), t))
+	}
 	transcript := m.viewport.View()
 	if t := m.mainTranscript(); t.selection != nil {
 		transcript = m.viewport.ViewWith(func(i int, line string) string { return t.highlight(i, line, m.width) })
@@ -111,7 +115,7 @@ func (m Model) View() tea.View {
 	if pending := m.pendingView(); pending != "" {
 		sections = append(sections, pending)
 	}
-	sections = append(sections, statusStyle.Render(fitLine(status, m.width)))
+	sections = append(sections, line)
 	if menu := m.menu.render(m.width); menu != "" {
 		sections = append(sections, menu)
 	}
@@ -209,6 +213,20 @@ func inputView(view string, width int) string {
 		lines[i] = " " + style.Render(line)
 	}
 	return strings.Join(lines, "\n")
+}
+
+// toneLine colors a fitted status line from byte offset at, where the
+// message starts, to its end. The two spans are painted separately with the
+// bar background, since a span's style reset would otherwise clear it for the
+// rest of the line.
+func toneLine(line string, at int, t tone) string {
+	if at >= len(line) {
+		// Truncation cut the message off entirely.
+		return line
+	}
+	faint := lipgloss.NewStyle().Foreground(colorFaint).Background(colorBarBg)
+	toned := lipgloss.NewStyle().Foreground(t.color()).Background(colorBarBg)
+	return faint.Render(line[:at]) + toned.Render(line[at:])
 }
 
 func fitLine(value string, width int) string {

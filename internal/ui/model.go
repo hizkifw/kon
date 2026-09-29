@@ -104,6 +104,10 @@ type Model struct {
 	// a command's result, an error, a passing notice. The mode kon is in,
 	// which lasts as long as the mode does, is apart from it (see mode).
 	message string
+	// tone colors the message; toned is the text it was set for (see
+	// messageTone).
+	tone  tone
+	toned string
 	// configured is whether kon has a model to send to, or follows a session
 	// that has one, as of the last sync with the runtime.
 	configured      bool
@@ -375,11 +379,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case msg.err == nil:
 			m.message = ""
 		case errors.Is(msg.err, context.Canceled):
-			m.message = "interrupted"
+			m.say(toneDanger, "interrupted")
 		case errors.Is(msg.err, agent.ErrNothingToCompact):
 			m.message = "nothing to compact"
 		default:
-			m.message = "error: " + msg.err.Error()
+			m.say(toneDanger, "error: "+msg.err.Error())
 			m.transcript.add(block{kind: blockError, text: msg.err.Error()})
 		}
 		// The elapsed marker is the turn's last line: finalizing the stream and
@@ -604,16 +608,16 @@ func (m Model) handleKey(key string) (tea.Model, tea.Cmd, bool) {
 			m.interruptPresses++
 			m.runCancel()
 			if m.interruptPresses == 1 {
-				m.message = "interrupting… press Esc again to kill the command"
+				m.say(toneDanger, "interrupting… press Esc again to kill the command")
 				if len(m.steering) > 0 {
-					m.message = "interrupting to send your steer now…"
+					m.say(toneDanger, "interrupting to send your steer now…")
 				}
 				return m, nil, true
 			}
 			if m.runtime.Interrupt(m.interruptPresses) {
-				m.message = "killed the command"
+				m.say(toneDanger, "killed the command")
 			} else {
-				m.message = "no command to kill; waiting for the run to cancel"
+				m.say(toneWarn, "no command to kill; waiting for the run to cancel")
 			}
 			return m, nil, true
 		}
@@ -806,7 +810,7 @@ func (m Model) submit() (tea.Model, tea.Cmd) {
 	if strings.HasPrefix(text, "/") {
 		command, err := m.commands.parse(text)
 		if err != nil {
-			m.message = err.Error()
+			m.say(toneWarn, err.Error())
 			return m, nil
 		}
 		return command.run(m)
@@ -818,7 +822,7 @@ func (m Model) submit() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if err := m.history.append(m.cwd, text); err != nil {
-		m.message = "error: " + err.Error()
+		m.say(toneDanger, "error: "+err.Error())
 		return m, nil
 	}
 	m.input.Reset()
@@ -832,7 +836,7 @@ func (m *Model) canSend() bool {
 		return false
 	}
 	if state := m.runtime.State(); !state.Ready() {
-		m.message = state.Problem.Error() + " in " + m.configPath
+		m.say(toneDanger, state.Problem.Error()+" in "+m.configPath)
 		return false
 	}
 	return true

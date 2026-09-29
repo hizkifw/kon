@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // done delivers the end of the notice with the given epoch.
@@ -45,9 +46,9 @@ func TestCopyNoticePassesAndTheModeStays(t *testing.T) {
 
 func TestNoticeClearsOnlyItself(t *testing.T) {
 	m := newTestModel(t)
-	m.flash("first")
+	m.flash(toneInfo, "first")
 	first := m.flashEpoch
-	m.flash("second")
+	m.flash(toneInfo, "second")
 	if m = done(m, first); m.message != "second" {
 		t.Fatalf("the first notice's time took down the second: %q", m.message)
 	}
@@ -58,7 +59,7 @@ func TestNoticeClearsOnlyItself(t *testing.T) {
 
 func TestNoticeLeavesALaterMessage(t *testing.T) {
 	m := newTestModel(t)
-	m.flash("copied selection")
+	m.flash(toneSuccess, "copied selection")
 	m.message = "interrupted"
 	if m = done(m, m.flashEpoch); m.message != "interrupted" {
 		t.Fatalf("the notice's time cleared a later message: %q", m.message)
@@ -119,5 +120,34 @@ func TestAMultiLineMessageKeepsTheStatusLineOneRow(t *testing.T) {
 	}
 	if lines := strings.Split(m.View().Content, "\n"); len(lines) != m.height {
 		t.Fatalf("view is %d rows, want %d", len(lines), m.height)
+	}
+}
+
+// A toned message colors only itself, including when the line is cut short,
+// and a message truncation removed entirely leaves the line as it was.
+func TestToneColorsOnlyTheMessage(t *testing.T) {
+	m := newTestModel(t)
+	m.width = 40
+	m.say(toneDanger, "interrupted · press Esc again to kill the command")
+	row := ""
+	for _, line := range strings.Split(m.View().Content, "\n") {
+		if strings.Contains(ansi.Strip(line), "interrupted") {
+			row = line
+		}
+	}
+	if !strings.Contains(ansi.Strip(row), "…") {
+		t.Fatalf("status row was not cut short: %q", ansi.Strip(row))
+	}
+	fitted := fitLine("~/w · ctx ? · interrupted · press Esc", 20)
+	at := len("~/w · ctx ? · ")
+	if got := toneLine(fitted, at, toneDanger); ansi.Strip(got) != fitted || got == fitted {
+		t.Fatalf("toned line %q", got)
+	}
+	if got := toneLine(fitted, len(fitted)+5, toneDanger); got != fitted {
+		t.Fatalf("a message cut off entirely was still toned: %q", got)
+	}
+	m.message = "plain"
+	if m.messageTone() != toneInfo {
+		t.Fatal("a plain message inherited the last tone")
 	}
 }

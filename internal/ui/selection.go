@@ -243,7 +243,7 @@ func (m Model) releaseMouse(tea.MouseReleaseMsg) (tea.Model, tea.Cmd) {
 	_, area := m.surface()
 	parts := m.activeTranscript().selectedParts(start, end, area.w)
 	if len(parts) == 0 {
-		return m, m.flash("nothing to copy in the selection")
+		return m, m.flash(toneInfo, "nothing to copy in the selection")
 	}
 	return m, copySelection(parts)
 }
@@ -251,9 +251,9 @@ func (m Model) releaseMouse(tea.MouseReleaseMsg) (tea.Model, tea.Cmd) {
 // copied puts a worked-out selection on the clipboard.
 func (m Model) copied(msg selectionTextMsg) (tea.Model, tea.Cmd) {
 	if strings.TrimSpace(msg.text) == "" {
-		return m, m.flash("nothing to copy in the selection")
+		return m, m.flash(toneInfo, "nothing to copy in the selection")
 	}
-	return m, tea.Batch(m.flash("copied selection"), copyToClipboard(msg.text))
+	return m, tea.Batch(m.flash(toneSuccess, "copied selection"), copyToClipboard(msg.text))
 }
 
 // unitAt returns the unit u that covers p: the cell itself, the word there,

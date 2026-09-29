@@ -386,7 +386,7 @@ func modelLabel(option app.Model) string {
 
 func (m Model) newSession() (tea.Model, tea.Cmd) {
 	if err := m.runtime.NewSession(); err != nil {
-		m.message = "error: " + err.Error()
+		m.say(toneDanger, "error: "+err.Error())
 		return m, nil
 	}
 	m.transcript.reset()
@@ -428,13 +428,13 @@ func (m Model) switchModel(name string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if err := m.runtime.SwitchModel(name); err != nil {
-		m.message = "error: " + err.Error()
+		m.say(toneDanger, "error: "+err.Error())
 		return m, nil
 	}
 	m.syncRuntimeState()
 	m.contextTokens = -1
 	m.input.Reset()
-	m.message = "model: " + name + " (saved to config)"
+	m.say(toneSuccess, "model: "+name+" (saved to config)")
 	m.transcript.add(block{kind: blockModel, text: modelChangedText(m.active)})
 	m.refreshTranscript(true)
 	return m, nil
@@ -444,16 +444,16 @@ func (m Model) switchModel(name string) (tea.Model, tea.Cmd) {
 // shows in the header, so the status line only confirms the change.
 func (m Model) cycleEffort() (tea.Model, tea.Cmd) {
 	if m.busy {
-		m.message = "agent is busy; change the effort after this turn"
+		m.say(toneWarn, "agent is busy; change the effort after this turn")
 		return m, nil
 	}
 	effort, err := m.runtime.CycleEffort()
 	if err != nil {
-		m.message = err.Error()
+		m.say(toneDanger, err.Error())
 		return m, nil
 	}
 	m.syncRuntimeState()
-	m.message = "reasoning effort: " + effortLabel(effort) + " (saved to config)"
+	m.say(toneSuccess, "reasoning effort: "+effortLabel(effort)+" (saved to config)")
 	return m, nil
 }
 
@@ -461,7 +461,7 @@ func (m Model) cycleEffort() (tea.Model, tea.Cmd) {
 // operation is in flight and reports when there is nothing safe to compact.
 func (m Model) compact() (tea.Model, tea.Cmd) {
 	if m.busy {
-		m.message = "agent is busy; Esc interrupts"
+		m.say(toneWarn, "agent is busy; Esc interrupts")
 		return m, nil
 	}
 	if !m.takeOver() {
@@ -469,7 +469,7 @@ func (m Model) compact() (tea.Model, tea.Cmd) {
 	}
 	state := m.runtime.State()
 	if !state.Ready() {
-		m.message = state.Problem.Error() + " in " + m.configPath
+		m.say(toneDanger, state.Problem.Error()+" in "+m.configPath)
 		return m, nil
 	}
 	m.input.Reset()
@@ -558,7 +558,7 @@ func (m Model) resume(args []string) (tea.Model, tea.Cmd) {
 	id, err := typedid.ParseSessionID(args[0])
 	if err != nil {
 		m.input.Reset()
-		m.message = "error: " + err.Error()
+		m.say(toneDanger, "error: "+err.Error())
 		return m, nil
 	}
 	if current := m.runtime.SessionID(); current == id {
@@ -568,12 +568,12 @@ func (m Model) resume(args []string) (tea.Model, tea.Cmd) {
 	}
 	if err := m.runtime.Resume(id); err != nil {
 		m.input.Reset()
-		m.message = "error: " + err.Error()
+		m.say(toneDanger, "error: "+err.Error())
 		return m, nil
 	}
 	m.transcript.reset()
 	m.contextTokens = -1
-	m.message = "resumed " + id.String()
+	m.say(toneSuccess, "resumed "+id.String())
 	follow := m.loadSession()
 	m.seedContextUsage()
 	m.input.Reset()
@@ -589,7 +589,7 @@ func (m Model) listSessions() (tea.Model, tea.Cmd) {
 	summaries, err := m.runtime.Sessions()
 	if err != nil {
 		m.input.Reset()
-		m.message = "error: " + err.Error()
+		m.say(toneDanger, "error: "+err.Error())
 		return m, nil
 	}
 	m.input.Reset()

@@ -53,7 +53,7 @@ type block struct {
 
 // Transcript palette. The base is neutral grey: message slabs differ by
 // lightness rather than hue. Green is reserved for success (colorOK); red for
-// failure (colorFail). lipgloss degrades these automatically on terminals with
+// failure (colorFail); amber for a warning (colorWarn). lipgloss degrades these automatically on terminals with
 // smaller color profiles.
 var (
 	// colorAccent is the muted red kon brand accent (header wordmark).
@@ -81,6 +81,7 @@ var (
 	colorOK    = lipgloss.Color("#79C98B")
 	colorRun   = colorFaint // in-flight tools stay quiet
 	colorFail  = lipgloss.Color("#E06C6C")
+	colorWarn  = lipgloss.Color("#D7B56D")
 
 	// Header and status bar share one background so the top and bottom edges
 	// read as a single frame.

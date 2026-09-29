@@ -70,7 +70,7 @@ func (m *Model) applyFollowed(msg followedMsg) tea.Cmd {
 		m.followMode = "read-only: session was removed"
 		return nil
 	case msg.err != nil:
-		m.message = "error: " + msg.err.Error()
+		m.say(toneDanger, "error: "+msg.err.Error())
 		return nil
 	}
 	m.setFollowMode(msg.followed.Free)
@@ -97,11 +97,11 @@ func (m *Model) takeOver() bool {
 	}
 	missed, err := m.runtime.TakeOver()
 	if errors.Is(err, session.ErrInUse) {
-		m.message = "read-only: still open in another session"
+		m.say(toneWarn, "read-only: still open in another session")
 		return false
 	}
 	if err != nil {
-		m.message = "error: " + err.Error()
+		m.say(toneDanger, "error: "+err.Error())
 		return false
 	}
 	m.replay(&m.transcript, m.follow, missed)
