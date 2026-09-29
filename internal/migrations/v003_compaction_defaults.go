@@ -2,6 +2,7 @@ package migrations
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/hizkifw/kon/internal/config"
 )
@@ -22,19 +23,32 @@ func (compactionDefaultsV3) Name() string { return "drop the compaction budgets 
 // derived from the model's window instead. A budget the user changed stays. A
 // config kon cannot read is left for loading to report.
 func (compactionDefaultsV3) Run(_ context.Context, paths config.Paths) error {
-	cfg, ok, err := readInstructionsConfig(paths.ConfigFile)
+	cfg, ok, err := readConfigObject(paths.ConfigFile)
 	if !ok {
 		return err
 	}
-	written := cfg.Compaction
-	if cfg.Compaction.ReserveTokens == writtenReserveTokens {
-		cfg.Compaction.ReserveTokens = 0
-	}
-	if cfg.Compaction.KeepRecentTokens == writtenKeepRecentTokens {
-		cfg.Compaction.KeepRecentTokens = 0
-	}
-	if cfg.Compaction == written {
+	var compaction map[string]json.RawMessage
+	if json.Unmarshal(cfg["compaction"], &compaction) != nil || compaction == nil {
 		return nil
+	}
+	changed := false
+	for field, written := range map[string]int64{
+		"reserve_tokens":     writtenReserveTokens,
+		"keep_recent_tokens": writtenKeepRecentTokens,
+	} {
+		var value int64
+		if json.Unmarshal(compaction[field], &value) == nil && value == written {
+			delete(compaction, field)
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	if len(compaction) == 0 {
+		delete(cfg, "compaction")
+	} else {
+		cfg["compaction"] = mustJSON(compaction)
 	}
 	// The instructions field is kept for the next step to move.
 	return config.WriteJSON(paths.ConfigFile, cfg)

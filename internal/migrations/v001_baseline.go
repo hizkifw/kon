@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/hizkifw/kon/internal/config"
-	"github.com/hizkifw/kon/internal/session"
 )
 
 type baselineV1 struct{}
@@ -32,11 +31,14 @@ func (baselineV1) Run(ctx context.Context, paths config.Paths) error {
 			return nil
 		}
 		version, err := readSessionVersion(path)
+		if errors.Is(err, errNoHeader) {
+			return nil
+		}
 		if err != nil {
 			return fmt.Errorf("read session header %s: %w", path, err)
 		}
-		if version != 1 && version != session.SchemaVersion {
-			return fmt.Errorf("session %s has unsupported version %d; expected 1 or %d", path, version, session.SchemaVersion)
+		if version != 1 && version != sessionV4 {
+			return fmt.Errorf("session %s has unsupported version %d; expected 1 or %d", path, version, sessionV4)
 		}
 		return nil
 	})

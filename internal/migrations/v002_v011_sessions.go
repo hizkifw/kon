@@ -15,11 +15,10 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/hizkifw/kon/internal/config"
-	"github.com/hizkifw/kon/internal/session"
-	"github.com/hizkifw/kon/internal/typedid"
 )
 
 type v011SessionsV2 struct{}
@@ -87,11 +86,14 @@ func migrateV1File(ctx context.Context, path string) error {
 	} else if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
+	if errors.Is(err, errNoHeader) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
-	if version == session.SchemaVersion {
-		if err := session.ValidateFile(path); err != nil {
+	if version == sessionV4 {
+		if err := validateV4File(path); err != nil {
 			return err
 		}
 		if backupExists {
@@ -133,7 +135,7 @@ func migrateV1File(ctx context.Context, path string) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	if err := session.ValidateFile(tmp.Name()); err != nil {
+	if err := validateV4File(tmp.Name()); err != nil {
 		return fmt.Errorf("validate converted session: %w", err)
 	}
 	if !backupExists {
@@ -144,7 +146,7 @@ func migrateV1File(ctx context.Context, path string) error {
 	if err := os.Rename(tmp.Name(), path); err != nil {
 		return fmt.Errorf("install converted session (original at %s): %w", backup, err)
 	}
-	if err := session.ValidateFile(path); err != nil {
+	if err := validateV4File(path); err != nil {
 		return fmt.Errorf("validate installed session (original at %s): %w", backup, err)
 	}
 	return os.Remove(backup)
@@ -209,7 +211,7 @@ func convertV1Line(path string, line []byte, header bool) ([]byte, error) {
 		if err != nil || version != 1 {
 			return nil, errors.New("expected v1 session header")
 		}
-		record["version"] = []byte("4")
+		record["version"] = []byte(strconv.Itoa(sessionV4))
 		return json.Marshal(record)
 	}
 	var kind string
@@ -241,12 +243,19 @@ func readInt(raw json.RawMessage) (int, error) {
 
 func convertV1Message(path string, raw json.RawMessage) (json.RawMessage, error) {
 	var old struct {
-		Role       session.Role       `json:"role"`
-		Content    string             `json:"content"`
-		Parts      []json.RawMessage  `json:"parts"`
-		ToolCalls  []session.ToolCall `json:"tool_calls"`
-		ToolCallID string             `json:"tool_call_id"`
-		Name       string             `json:"name"`
+		Role      string            `json:"role"`
+		Content   string            `json:"content"`
+		Parts     []json.RawMessage `json:"parts"`
+		ToolCalls []struct {
+			ID       string `json:"id"`
+			Function struct {
+				Name      string          `json:"name"`
+				Arguments json.RawMessage `json:"arguments"`
+			} `json:"function"`
+			Metadata json.RawMessage `json:"metadata"`
+		} `json:"tool_calls"`
+		ToolCallID string `json:"tool_call_id"`
+		Name       string `json:"name"`
 	}
 	if err := json.Unmarshal(raw, &old); err != nil {
 		return nil, err
@@ -264,7 +273,7 @@ func convertV1Message(path string, raw json.RawMessage) (json.RawMessage, error)
 		if err := json.Unmarshal(rawPart, &part); err != nil {
 			return nil, err
 		}
-		if part.Type != session.PartImage {
+		if part.Type != v4PartImage {
 			continue
 		}
 		hash, mime, err := saveLegacyImage(path, part.Text)
@@ -281,25 +290,25 @@ func convertV1Message(path string, raw json.RawMessage) (json.RawMessage, error)
 		parts[i], _ = json.Marshal(fields)
 	}
 	switch old.Role {
-	case session.RoleSystem, session.RoleUser:
-		if !hasPart(parts, session.PartText) {
-			parts = append([]json.RawMessage{mustJSON(session.Part{Type: session.PartText, Text: old.Content})}, parts...)
+	case v4RoleSystem, v4RoleUser:
+		if !hasPart(parts, v4PartText) {
+			parts = append([]json.RawMessage{mustJSON(v4Part{Type: v4PartText, Text: old.Content})}, parts...)
 		}
-	case session.RoleAssistant:
-		if old.Content != "" && !hasPart(parts, session.PartText) {
-			parts = append(parts, mustJSON(session.Part{Type: session.PartText, Text: old.Content}))
+	case v4RoleAssistant:
+		if old.Content != "" && !hasPart(parts, v4PartText) {
+			parts = append(parts, mustJSON(v4Part{Type: v4PartText, Text: old.Content}))
 		}
-		if !hasPart(parts, session.PartToolCall) {
+		if !hasPart(parts, v4PartToolCall) {
 			for _, call := range old.ToolCalls {
-				parts = append(parts, mustJSON(session.Part{
-					Type: session.PartToolCall, ToolCallID: call.ID, ToolName: call.Function.Name,
+				parts = append(parts, mustJSON(v4Part{
+					Type: v4PartToolCall, ToolCallID: call.ID, ToolName: call.Function.Name,
 					ToolInput: call.Function.Arguments, ProviderOptions: call.Metadata,
 				}))
 			}
 		}
-	case session.RoleTool:
-		if !hasPart(parts, session.PartToolResult) {
-			result := session.Part{Type: session.PartToolResult, ToolCallID: typedid.ExternalToolCallID(old.ToolCallID), ToolName: old.Name, ToolOutput: old.Content}
+	case v4RoleTool:
+		if !hasPart(parts, v4PartToolResult) {
+			result := v4Part{Type: v4PartToolResult, ToolCallID: old.ToolCallID, ToolName: old.Name, ToolOutput: old.Content}
 			parts = append([]json.RawMessage{mustJSON(result)}, parts...)
 		}
 	default:

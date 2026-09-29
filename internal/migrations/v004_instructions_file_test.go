@@ -80,12 +80,23 @@ func TestEmptyInstructionsCreateNoAgentsFile(t *testing.T) {
 }
 
 func TestInstructionsLeaveAnUnreadableConfig(t *testing.T) {
-	broken := `{"instructions": "x", "unknown": true}`
-	paths := instructionsPaths(t, broken)
+	for _, broken := range []string{`{"instructions": "x"`, `{"instructions": 5}`} {
+		paths := instructionsPaths(t, broken)
+		if err := (instructionsFileV4{}).Run(context.Background(), paths); err != nil {
+			t.Fatal(err)
+		}
+		if got := readFile(t, paths.ConfigFile); got != broken {
+			t.Fatalf("config changed:\n%s", got)
+		}
+	}
+}
+
+func TestInstructionsKeepFieldsTheyDoNotOwn(t *testing.T) {
+	paths := instructionsPaths(t, `{"instructions": "be terse", "unknown": true}`)
 	if err := (instructionsFileV4{}).Run(context.Background(), paths); err != nil {
 		t.Fatal(err)
 	}
-	if got := readFile(t, paths.ConfigFile); got != broken {
-		t.Fatalf("config changed:\n%s", got)
+	if got := readFile(t, paths.ConfigFile); strings.Contains(got, "instructions") || !strings.Contains(got, `"unknown": true`) {
+		t.Fatalf("migrated config:\n%s", got)
 	}
 }

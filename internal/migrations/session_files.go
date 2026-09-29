@@ -4,12 +4,16 @@ import (
 	"bufio"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 )
 
 const legacyBackupSuffix = ".v1.bak"
+
+// errNoHeader marks a file with no readable session header, the normal result
+// of a crash right after a session file was created. No kon version can open
+// one, so steps skip it rather than refuse to start.
+var errNoHeader = errors.New("no session header")
 
 func readSessionVersion(path string) (int, error) {
 	f, err := os.Open(path)
@@ -25,11 +29,8 @@ func readSessionVersion(path string) (int, error) {
 		Type    string `json:"type"`
 		Version int    `json:"version"`
 	}
-	if err := json.Unmarshal(line, &header); err != nil {
-		return 0, fmt.Errorf("parse session header: %w", err)
-	}
-	if header.Type != "session" {
-		return 0, errors.New("invalid session header")
+	if json.Unmarshal(line, &header) != nil || header.Type != "session" {
+		return 0, errNoHeader
 	}
 	return header.Version, nil
 }

@@ -273,27 +273,28 @@ selection that item 9 moves to state would fix both.
 
 ### 18. The tool roster already varies by machine
 
-- [ ] Freeze the tool roster per session (promoted from Tier 3)
+- [x] Decided: do not freeze the roster
 
-The shell tool's description names the platform interpreter
-(`internal/tools/shell.go:86`, via `shellName`). Tool definitions are part of
-the cached prefix, so resuming a session on another OS or shell changes the
-prefix without any MCP or dynamic tools. Persist the roster (or its hash) with
-the session and reuse it on resume.
+The shell tool's description names the resolved interpreter
+(`internal/tools/shell.go`, via `shellName`), so resuming under another shell
+changes the cached prefix. Freezing the definitions per session was rejected:
+a frozen copy would name a shell that no longer runs the commands, and after an
+upgrade it would advertise old schemas to new tool code. Definitions change
+only when the machine or kon changes, and a cache miss then is accepted.
 
 ### 19. Frozen migrations depend on the live session schema
 
-- [ ] Give each migration step frozen copies of the types it writes
+- [x] Give each migration step frozen copies of the types it writes
+- [x] Skip session files with no readable header
 
-`internal/migrations/v002_v011_sessions.go` builds its output from
-`session.Part`, `session.ToolCall`, and `session.Role`, validates with
-`session.ValidateFile`, and compares against `session.SchemaVersion`;
-`v001_baseline.go` checks `session.SchemaVersion` too. The next schema bump will
-change what these historical steps produce. Each step should own the shapes it
-reads and writes and validate against its own target version. A session file
-with no parseable header (the normal result of a crash right after creation)
-also aborts the whole migration, and with it startup; skip or quarantine it
-instead.
+Steps 1 and 2 read and write session format v4 through frozen shapes and a
+frozen v4 validator (`internal/migrations/session_v4.go`) instead of
+`internal/session`, so a later format bump cannot change what they produce.
+The config steps (3 and 4) edit only the top-level fields they own in the raw
+JSON object and write the rest back unchanged, so they no longer decode through
+`config.Config` or materialize its defaults. A session file whose header is
+empty or unparseable, the normal result of a crash right after creation, is
+skipped instead of aborting startup.
 
 ### 20. Record the self-update trust model
 

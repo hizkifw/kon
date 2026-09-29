@@ -151,27 +151,76 @@ func TestV011MigrationResumesAfterFirstRename(t *testing.T) {
 	}
 }
 
+// v4Session was written by the session.Store when v4 was the current format.
+// It is a literal, not written through session.New, because a later format
+// would not be what an unmarked installation held beside its v0.1.1 files.
+const v4Session = `{"type":"session","version":4,"id":"ses_Q2wPz8LkT4mVn1RbX7cY","app_version":"v0.2.0","timestamp":"2026-09-24T10:00:00Z","cwd":"/work"}
+{"type":"message","id":"ent_A1b2C3d4E5f6G7h8I9j0","parent_id":null,"timestamp":"2026-09-24T10:00:00Z","message":{"role":"system","parts":[{"type":"text","text":"new system prompt"}]}}
+{"type":"message","id":"ent_K1l2M3n4O5p6Q7r8S9t0","parent_id":"ent_A1b2C3d4E5f6G7h8I9j0","timestamp":"2026-09-24T10:00:01Z","message":{"role":"user","parts":[{"type":"text","text":"new session"}]}}
+`
+
 func TestV011MigrationKeepsExistingV4Session(t *testing.T) {
 	paths := testPaths(t.TempDir())
 	copyV011Fixture(t, paths.DataDir)
-	store, err := session.New(paths.Sessions, t.TempDir(), "current", "new system prompt")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.AppendMessage(session.TextMessage(session.RoleUser, "new session")); err != nil {
-		t.Fatal(err)
-	}
-	currentPath := store.Path()
-	if err := store.Close(); err != nil {
-		t.Fatal(err)
-	}
-	before, err := os.ReadFile(currentPath)
-	if err != nil {
+	currentPath := filepath.Join(paths.Sessions, "workspace", "current.jsonl")
+	if err := os.WriteFile(currentPath, []byte(v4Session), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	// The previous framework release recorded version 1 for v4 sessions.
 	if err := os.WriteFile(filepath.Join(paths.DataDir, "storage-version"), []byte("1\n"), 0o600); err != nil {
 		t.Fatal(err)
+	}
+	if err := (v011SessionsV2{}).Run(context.Background(), paths); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.ReadFile(currentPath)
+	if err != nil || string(after) != v4Session {
+		t.Fatalf("current session changed: %v", err)
+	}
+}
+
+// Step 2 must produce exactly v4, whatever the current session format is.
+func TestV011StepWritesV4(t *testing.T) {
+	paths := testPaths(t.TempDir())
+	path := copyV011Fixture(t, paths.DataDir)
+	if err := (v011SessionsV2{}).Run(context.Background(), paths); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateV4File(path); err != nil {
+		t.Fatal(err)
+	}
+	version, err := readSessionVersion(path)
+	if err != nil || version != sessionV4 {
+		t.Fatalf("version = %d, %v", version, err)
+	}
+}
+
+func TestV4ValidationRejectsBrokenSessions(t *testing.T) {
+	for name, content := range map[string]string{
+		"later version":  strings.Replace(v4Session, `"version":4`, `"version":5`, 1),
+		"missing parent": strings.Replace(v4Session, `"parent_id":"ent_A1b2C3d4E5f6G7h8I9j0"`, `"parent_id":"ent_Z1b2C3d4E5f6G7h8I9j0"`, 1),
+		"empty user":     strings.Replace(v4Session, `"text":"new session"`, `"text":""`, 1),
+	} {
+		path := filepath.Join(t.TempDir(), "session.jsonl")
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if validateV4File(path) == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}
+
+// A crash right after a session file is created leaves it without a header.
+// No kon can open it, so it must not stop the upgrade either.
+func TestSessionWithoutHeaderIsSkipped(t *testing.T) {
+	paths := testPaths(t.TempDir())
+	path := copyV011Fixture(t, paths.DataDir)
+	dir := filepath.Dir(path)
+	for name, content := range map[string]string{"empty.jsonl": "", "torn.jsonl": `{"type":"sess`} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	g, err := migrate.Enter(context.Background(), paths, Ordered(), nil)
 	if err != nil {
@@ -180,9 +229,11 @@ func TestV011MigrationKeepsExistingV4Session(t *testing.T) {
 	if err := g.Close(); err != nil {
 		t.Fatal(err)
 	}
-	after, err := os.ReadFile(currentPath)
-	if err != nil || !bytes.Equal(before, after) {
-		t.Fatalf("current session changed: %v", err)
+	if err := session.ValidateFile(path); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, filepath.Join(dir, "torn.jsonl")); got != `{"type":"sess` {
+		t.Fatalf("headerless file changed: %q", got)
 	}
 }
 
@@ -191,11 +242,15 @@ func TestV011ExplicitModelHasNoConnection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var model session.ModelSelection
+	var model struct {
+		WireFormat   string `json:"wire_format"`
+		ConnectionID string `json:"connection_id"`
+		ExternalID   string `json:"external_id"`
+	}
 	if err := json.Unmarshal(b, &model); err != nil {
 		t.Fatal(err)
 	}
-	if model.WireFormat != "openai" || model.ConnectionID != "" || model.ExternalID.String() != "gpt-4o" {
+	if model.WireFormat != "openai" || model.ConnectionID != "" || model.ExternalID != "gpt-4o" {
 		t.Fatalf("converted model = %#v", model)
 	}
 }

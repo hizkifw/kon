@@ -55,13 +55,25 @@ func TestCompactionBudgetsTheUserChangedStay(t *testing.T) {
 }
 
 func TestCompactionDefaultsLeaveAnUnreadableConfig(t *testing.T) {
-	broken := `{"compaction": {"reserve_tokens": 16384}, "unknown": true}`
+	broken := `{"compaction": {"reserve_tokens": 16384}`
 	if got, err := runCompactionDefaults(t, broken); err != nil || got != broken {
 		t.Fatalf("err %v, config\n%s", err, got)
 	}
 	paths := config.Paths{ConfigFile: filepath.Join(t.TempDir(), "missing.json")}
 	if err := (compactionDefaultsV3{}).Run(context.Background(), paths); err != nil {
 		t.Fatalf("a missing config failed the migration: %v", err)
+	}
+}
+
+// The step edits only the budgets, so fields today's config does not know
+// survive for loading to report.
+func TestCompactionDefaultsKeepFieldsTheyDoNotOwn(t *testing.T) {
+	got, err := runCompactionDefaults(t, `{"compaction": {"reserve_tokens": 16384, "future": 1}, "unknown": true}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(got, "reserve_tokens") || !strings.Contains(got, `"future": 1`) || !strings.Contains(got, `"unknown": true`) {
+		t.Fatalf("migrated config:\n%s", got)
 	}
 }
 
