@@ -338,44 +338,57 @@ func (m *markdownLive) pending() string {
 // model streams through as it is written; the last block prints when src
 // ends. Lines wrap at width, or not at all when width is below 1.
 func PrintMarkdown(dst io.Writer, src io.Reader, width int) error {
-	stream := markdown.NewStream(markdown.Theme{}, width)
-	printed := 0
-	// flush writes every line closed since the last flush in one write, so a
-	// writer that downsamples colors never sees an escape sequence split.
-	flush := func() error {
-		lines := stream.Lines()
-		if printed == len(lines) {
-			return nil
-		}
-		var out strings.Builder
-		for _, line := range lines[printed:] {
-			for _, segment := range markdownSegments(line, markdownPalette, lipgloss.NoColor{}) {
-				if segment.text != "" {
-					out.WriteString(paintPart(segment, colorAgentBg))
-				}
-			}
-			out.WriteByte('\n')
-		}
-		printed = len(lines)
-		_, err := io.WriteString(dst, out.String())
+	printer := NewMarkdownPrinter(dst, width)
+	if _, err := io.Copy(printer, src); err != nil {
 		return err
 	}
-	buf := make([]byte, 32<<10)
-	for {
-		n, err := src.Read(buf)
-		if n > 0 {
-			stream.Write(string(buf[:n]))
-			if err := flush(); err != nil {
-				return err
+	return printer.Close()
+}
+
+// MarkdownPrinter is PrintMarkdown as a writer, for markdown that arrives in
+// pieces: each Write prints the blocks it closed, and Close prints the rest.
+// One printer renders one document, so kon run uses one per message and an
+// unclosed code fence cannot swallow the next reply.
+type MarkdownPrinter struct {
+	dst     io.Writer
+	stream  *markdown.Stream
+	printed int
+}
+
+// NewMarkdownPrinter prints onto dst, wrapping lines at width, or not at all
+// when width is below 1.
+func NewMarkdownPrinter(dst io.Writer, width int) *MarkdownPrinter {
+	return &MarkdownPrinter{dst: dst, stream: markdown.NewStream(markdown.Theme{}, width)}
+}
+
+func (p *MarkdownPrinter) Write(b []byte) (int, error) {
+	p.stream.Write(string(b))
+	return len(b), p.flush()
+}
+
+// Close prints the open last block. The printer takes no more input after.
+func (p *MarkdownPrinter) Close() error {
+	p.stream.Finish()
+	return p.flush()
+}
+
+// flush writes every line closed since the last flush in one write, so a
+// writer that downsamples colors never sees an escape sequence split.
+func (p *MarkdownPrinter) flush() error {
+	lines := p.stream.Lines()
+	if p.printed == len(lines) {
+		return nil
+	}
+	var out strings.Builder
+	for _, line := range lines[p.printed:] {
+		for _, segment := range markdownSegments(line, markdownPalette, lipgloss.NoColor{}) {
+			if segment.text != "" {
+				out.WriteString(paintPart(segment, colorAgentBg))
 			}
 		}
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return err
-		}
+		out.WriteByte('\n')
 	}
-	stream.Finish()
-	return flush()
+	p.printed = len(lines)
+	_, err := io.WriteString(p.dst, out.String())
+	return err
 }

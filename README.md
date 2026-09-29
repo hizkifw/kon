@@ -70,9 +70,9 @@ need files read or commands run.
 | `kon docs` | Unpack the user guide as Markdown |
 | `kon tool webfetch <url>` | Print a web page as Markdown |
 
-`kon run` is built for pipelines: `git diff | kon run --stdin review this`. Add
-`--format json` for one event per line, or pipe the reply into `kon md` to see
-it rendered as it streams. `kon --help` lists every flag.
+`kon run` is built for pipelines: `git diff | kon run --stdin review this`. On
+a terminal the reply renders as Markdown while it streams; piped, it stays
+plain Markdown. Add `--format json` for one event per line. `kon --help` lists every flag.
 
 ## Documentation
 

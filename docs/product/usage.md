@@ -201,7 +201,10 @@ sending anything, and only in those two cases, so a message given as words
 never waits on a stdin that stays open.
 
 Every assistant message streams to stdout as it is written, separated by blank
-lines. When stderr is a terminal, kon also prints one line per tool call and
+lines. When stdout is a terminal, each message is rendered as `kon md` would
+show it, wrapped to the terminal's width: a block prints once it closes, and
+the last one when the message ends. Piped or redirected, stdout carries the
+Markdown exactly as the model wrote it. When stderr is a terminal, kon also prints one line per tool call and
 the resume hint there. A pipe or log file gets only the conversation.
 
 | Flag | Effect |
@@ -254,11 +257,11 @@ no file is named:
 
 ```sh
 kon md README.md
-kon run "explain the build" | kon md
+curl -s https://example.com/notes.md | kon md
 ```
 
-Each block prints as soon as it closes, so a reply piped in from `kon run`
-renders while the model writes it; the last block prints when the input ends.
+Each block prints as soon as it closes, so Markdown streamed in renders while
+it arrives; the last block prints when the input ends.
 Lines wrap at 80 columns. `--width <n>` (or `-w <n>`) wraps at `n` instead, and
 `--width 0` turns wrapping off, leaving long lines for the terminal to wrap.
 

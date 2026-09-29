@@ -39,6 +39,10 @@ const (
 type Output struct {
 	Format Format
 	Stdout io.Writer
+	// Render, when set, wraps Stdout for each assistant message in text
+	// mode, as kon run does to render Markdown on a terminal. Closing it
+	// ends the message.
+	Render func(io.Writer) io.WriteCloser
 	// Progress receives tool activity and the resume hint in text mode. It
 	// is nil when nobody is watching, so logs hold only the answer.
 	Progress io.Writer
@@ -95,16 +99,20 @@ type textWriter struct {
 	// open marks an assistant message whose text has started, and wrote marks
 	// that some message has, so the next one is set off by a blank line.
 	open, wrote bool
+	// message receives the open message's text: Stdout, or rendered, which
+	// is the message's renderer when Render is set.
+	message  io.Writer
+	rendered io.WriteCloser
 	// newline records whether the output so far ends a line.
 	newline bool
 	err     error
 }
 
-func (w *textWriter) write(s string) {
+func (w *textWriter) write(dst io.Writer, s string) {
 	if w.err != nil || s == "" {
 		return
 	}
-	_, w.err = io.WriteString(w.out.Stdout, s)
+	_, w.err = io.WriteString(dst, s)
 	w.newline = strings.HasSuffix(s, "\n")
 }
 
@@ -117,8 +125,17 @@ func (w *textWriter) progress(format string, args ...any) {
 // endMessage finishes the current message's line, so whatever follows, on
 // stdout or on a shared terminal, starts on its own.
 func (w *textWriter) endMessage() {
-	if w.open && !w.newline {
-		w.write("\n")
+	if !w.open {
+		return
+	}
+	if !w.newline {
+		w.write(w.message, "\n")
+	}
+	if w.rendered != nil {
+		if err := w.rendered.Close(); w.err == nil {
+			w.err = err
+		}
+		w.rendered = nil
 	}
 	w.open = false
 }
@@ -128,11 +145,16 @@ func (w *textWriter) event(e agent.Event) {
 	case agent.EventText:
 		if !w.open {
 			if w.wrote {
-				w.write("\n")
+				w.write(w.out.Stdout, "\n")
 			}
 			w.open, w.wrote = true, true
+			w.message = w.out.Stdout
+			if w.out.Render != nil {
+				w.rendered = w.out.Render(w.out.Stdout)
+				w.message = w.rendered
+			}
 		}
-		w.write(e.Text)
+		w.write(w.message, e.Text)
 	case agent.EventAssistantDone:
 		w.endMessage()
 	case agent.EventToolDone:

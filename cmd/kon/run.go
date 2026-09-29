@@ -11,6 +11,9 @@ import (
 	"strings"
 	"syscall"
 
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/term"
+
 	"github.com/hizkifw/kon/internal/app"
 	"github.com/hizkifw/kon/internal/buildinfo"
 	"github.com/hizkifw/kon/internal/config"
@@ -18,6 +21,7 @@ import (
 	"github.com/hizkifw/kon/internal/session"
 	"github.com/hizkifw/kon/internal/tools"
 	"github.com/hizkifw/kon/internal/typedid"
+	"github.com/hizkifw/kon/internal/ui"
 )
 
 const runSynopsis = "kon run [flags] [message...]"
@@ -27,7 +31,8 @@ func runCommand() command {
 		name:     "run",
 		summary:  "send one prompt without the full-screen UI",
 		synopsis: runSynopsis,
-		detail: "Send one prompt in the current directory and stream the reply to stdout.\n" +
+		detail: "Send one prompt in the current directory and stream the reply to stdout,\n" +
+			"rendered as Markdown when stdout is a terminal.\n" +
 			"The message is the arguments after the flags, or piped stdin when there\n" +
 			"are none. With --stdin, stdin is appended to the arguments after a blank line.\n" +
 			"Tools run without confirmation, as they do in the full-screen UI.\n\n" +
@@ -197,6 +202,13 @@ func runRun(args []string) error {
 		if parsed.format == headless.FormatText && isTerminal(os.Stderr) {
 			out.Progress = os.Stderr
 		}
+		// A person reading the reply sees it rendered, as kon md would show
+		// it; a pipe or file gets the Markdown source.
+		if parsed.format == headless.FormatText && isTerminal(os.Stdout) {
+			out.Stdout = lipgloss.Writer
+			width := terminalWidth(os.Stdout)
+			out.Render = func(w io.Writer) io.WriteCloser { return ui.NewMarkdownPrinter(w, width) }
+		}
 		ctx, stop := interruptible(runtime)
 		defer stop()
 		runErr := headless.Run(ctx, runtime, prompt, out)
@@ -277,6 +289,16 @@ func interruptible(runtime *app.Runtime) (context.Context, func()) {
 		close(done)
 		cancel()
 	}
+}
+
+// terminalWidth is the column count of the terminal f, or 80 when it cannot
+// be read.
+func terminalWidth(f *os.File) int {
+	width, _, err := term.GetSize(f.Fd())
+	if err != nil || width < 1 {
+		return 80
+	}
+	return width
 }
 
 func isTerminal(f *os.File) bool {

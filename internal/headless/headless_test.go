@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"strings"
 	"testing"
 
@@ -83,6 +84,44 @@ func TestTextEndsACancelledMessageLine(t *testing.T) {
 	err := Run(context.Background(), runtime, "hi", Output{Format: FormatText, Stdout: &stdout})
 	if err != context.Canceled || stdout.String() != "half an ans\n" {
 		t.Fatalf("stdout = %q, err = %v", stdout.String(), err)
+	}
+}
+
+// recorder stands in for a Markdown renderer: it brackets each message it
+// wraps, so the test sees where Run opened and closed one.
+type recorder struct{ w io.Writer }
+
+func (r recorder) Write(b []byte) (int, error) { return r.w.Write(b) }
+func (r recorder) Close() error {
+	_, err := io.WriteString(r.w, "]")
+	return err
+}
+
+func TestTextRendersEachMessageSeparately(t *testing.T) {
+	var stdout bytes.Buffer
+	render := func(w io.Writer) io.WriteCloser {
+		io.WriteString(w, "[")
+		return recorder{w}
+	}
+	// Progress goes to the same buffer, so the test sees each message closed
+	// before its tool call is reported.
+	out := Output{Format: FormatText, Stdout: &stdout, Progress: &stdout, Render: render}
+	if err := Run(context.Background(), newScript(t, nil, aToolTurn...), "hi", out); err != nil {
+		t.Fatal(err)
+	}
+	got := stdout.String()
+	if !strings.HasPrefix(got, "[Let me check.\n]✓ shell") || !strings.Contains(got, "\n\n[There is one file.\n]resume with:") {
+		t.Fatalf("stdout = %q", got)
+	}
+}
+
+func TestTextRendersACancelledMessage(t *testing.T) {
+	var stdout bytes.Buffer
+	render := func(w io.Writer) io.WriteCloser { return recorder{w} }
+	runtime := newScript(t, context.Canceled, agent.Event{Kind: agent.EventText, Text: "half an ans"})
+	_ = Run(context.Background(), runtime, "hi", Output{Format: FormatText, Stdout: &stdout, Render: render})
+	if got, want := stdout.String(), "half an ans\n]"; got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
 	}
 }
 

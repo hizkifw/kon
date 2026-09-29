@@ -94,6 +94,10 @@ change, so its output is append-only and safe for a pipe; the open tail prints
 once input ends. `lipgloss.Writer` fits the colors to stdout, dropping every
 escape when stdout is not a terminal. A width below 1 renders unwrapped, which
 `internal/markdown` supports directly so a rule still draws at a fixed length.
+`kon run` renders on a terminal with the same printer, `ui.MarkdownPrinter`,
+one per assistant message: `headless.Output.Render` wraps stdout for each
+message, so `internal/headless` stays free of terminal code, and closing the
+printer at the message's end prints its last block before the next tool line.
 
 `kon tool <name>` runs a tool the agent reaches through its shell rather than
 through a model-facing schema. The system prompt names each one and points at
