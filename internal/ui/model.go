@@ -840,6 +840,7 @@ func (m *Model) busy() bool { return m.turn != nil }
 
 func (m Model) applyTurnEvent(event agent.Event) (tea.Model, tea.Cmd) {
 	commands := []tea.Cmd{m.turn.wait(), m.pollSpend()}
+	m.turn.track(&m.transcript, event)
 	if m.applyAgentEvent(event) {
 		commands = append(commands, m.scheduleFlush())
 	} else {

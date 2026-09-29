@@ -24,6 +24,16 @@ type run struct {
 	// compaction marks a /compact run. Its compaction block is its record,
 	// so it leaves no "Worked for" line behind.
 	compaction bool
+	// retry is the provider retry the run is waiting on or sending, which
+	// the marker shows in place of verb until the run moves on.
+	retry *retryState
+}
+
+type retryState struct {
+	reason       string
+	attempt, max int
+	// at is when the retry is sent; the marker counts down to it.
+	at time.Time
 }
 
 // runMsg is one event from a run, or its end when done is set.
@@ -91,7 +101,25 @@ func (r *run) tick() tea.Cmd {
 
 // paint shows the run's running marker in t as of now.
 func (r *run) paint(t *transcript, now time.Time) {
-	t.liveTimer = runningLabel(r.verb, now.Sub(r.start))
+	verb := r.verb
+	if r.retry != nil {
+		verb = retryVerb(r.retry, now)
+	}
+	t.liveTimer = runningLabel(verb, now.Sub(r.start))
+}
+
+// track follows provider retries: a retry event starts one, and any other
+// event means the retried request got through.
+func (r *run) track(t *transcript, event agent.Event) {
+	switch {
+	case event.Kind == agent.EventRetrying:
+		r.retry = &retryState{reason: event.Text, attempt: event.Attempt, max: event.MaxAttempts, at: time.Now().Add(event.Delay)}
+	case r.retry == nil:
+		return
+	default:
+		r.retry = nil
+	}
+	r.paint(t, time.Now())
 }
 
 // setVerb changes what the marker says, repainting at once rather than on

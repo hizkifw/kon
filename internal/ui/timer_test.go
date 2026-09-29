@@ -359,3 +359,23 @@ func TestTimerStopsTickingWhenRunEnds(t *testing.T) {
 		t.Fatal("a stale tick from the previous turn rescheduled during the next one")
 	}
 }
+
+// A retry replaces the marker's verb with why and which retry it is, counting
+// down to it, and the run's next event restores the verb.
+func TestRunMarkerShowsRetries(t *testing.T) {
+	var tr transcript
+	r := &run{start: time.Now(), verb: "Working"}
+	r.track(&tr, agent.Event{Kind: agent.EventRetrying, Text: "rate limited (429)", Attempt: 2, MaxAttempts: 5, Delay: 12500 * time.Millisecond})
+	if !strings.Contains(tr.liveTimer, "Rate limited (429), retry 2/5 in 12s…") {
+		t.Fatalf("marker = %q", tr.liveTimer)
+	}
+	// Once the wait is over the retry is being sent, so only the count stays.
+	r.paint(&tr, r.retry.at)
+	if !strings.Contains(tr.liveTimer, "Rate limited (429), retry 2/5…") {
+		t.Fatalf("marker while sending = %q", tr.liveTimer)
+	}
+	r.track(&tr, agent.Event{Kind: agent.EventText, Text: "hello"})
+	if r.retry != nil || !strings.Contains(tr.liveTimer, "Working…") {
+		t.Fatalf("marker after the retry got through = %q", tr.liveTimer)
+	}
+}

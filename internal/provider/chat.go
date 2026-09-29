@@ -27,7 +27,9 @@ import (
 // details. kon builds and parses every message itself: request bodies, SSE
 // events, tool-call deltas, and usage reports are all owned here.
 type chatModel struct {
-	client  *http.Client
+	client *http.Client
+	// retry is how transient failures are retried; see retryPolicy.
+	retry   retryPolicy
 	baseURL string
 	apiKey  string
 	headers map[string]string
@@ -66,6 +68,7 @@ func newChatModel(model Spec, spec wire.Spec, readImage func(string) ([]byte, er
 	}
 	return &chatModel{
 		client:    &http.Client{},
+		retry:     defaultRetryPolicy,
 		baseURL:   baseURL,
 		apiKey:    model.APIKey,
 		headers:   model.Headers,
@@ -409,7 +412,14 @@ func (m *chatModel) streamWithUsage(ctx context.Context, payload chatRequest, em
 	return m.stream(ctx, payload, emit)
 }
 
+// stream sends payload, retrying transient failures.
 func (m *chatModel) stream(ctx context.Context, payload chatRequest, emit func(Event)) (Response, error) {
+	return withRetries(ctx, m.retry, emit, func(emit func(Event)) (Response, error) {
+		return m.streamOnce(ctx, payload, emit)
+	})
+}
+
+func (m *chatModel) streamOnce(ctx context.Context, payload chatRequest, emit func(Event)) (Response, error) {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return Response{}, fmt.Errorf("encode chat request: %w", err)
@@ -420,8 +430,7 @@ func (m *chatModel) stream(ctx context.Context, payload chatRequest, emit func(E
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		raw, _ := io.ReadAll(io.LimitReader(response.Body, maxEventSize))
-		return Response{}, parseAPIError(response.StatusCode, raw)
+		return Response{}, responseError(response)
 	}
 	result, err := decodeChatStream(response.Body, emit)
 	if err != nil {
@@ -750,7 +759,7 @@ func decodeChatStream(r io.Reader, emit func(Event)) (Response, error) {
 	// short even though the transport closed cleanly. Report it as an error so
 	// the caller keeps the partial turn instead of mistaking it for complete.
 	if !done && state.Finish == "" {
-		return state.result(), errors.New("read chat stream: connection closed before the stream finished")
+		return state.result(), fmt.Errorf("read chat stream: %w", errStreamClosed)
 	}
 	return state.result(), nil
 }

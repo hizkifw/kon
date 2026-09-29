@@ -25,7 +25,9 @@ import (
 // messagesModel implements Model for Anthropic's Messages API. Like the chat
 // backend it owns every byte on the wire; there is no SDK in between.
 type messagesModel struct {
-	client    *http.Client
+	client *http.Client
+	// retry is how transient failures are retried; see retryPolicy.
+	retry     retryPolicy
 	baseURL   string
 	apiKey    string
 	headers   map[string]string
@@ -70,6 +72,7 @@ func newMessagesModel(model Spec, spec wire.Spec, readImage func(string) ([]byte
 	}
 	return &messagesModel{
 		client:    &http.Client{},
+		retry:     defaultRetryPolicy,
 		baseURL:   baseURL,
 		apiKey:    model.APIKey,
 		headers:   model.Headers,
@@ -444,7 +447,14 @@ func withBeta(betas, beta string) string {
 	return betas + "," + beta
 }
 
+// stream sends payload, retrying transient failures.
 func (m *messagesModel) stream(ctx context.Context, payload messagesRequest, emit func(Event)) (Response, error) {
+	return withRetries(ctx, m.retry, emit, func(emit func(Event)) (Response, error) {
+		return m.streamOnce(ctx, payload, emit)
+	})
+}
+
+func (m *messagesModel) streamOnce(ctx context.Context, payload messagesRequest, emit func(Event)) (Response, error) {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return Response{}, fmt.Errorf("encode messages request: %w", err)
@@ -475,8 +485,7 @@ func (m *messagesModel) stream(ctx context.Context, payload messagesRequest, emi
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		raw, _ := io.ReadAll(io.LimitReader(response.Body, maxEventSize))
-		return Response{}, parseAPIError(response.StatusCode, raw)
+		return Response{}, responseError(response)
 	}
 	result, err := decodeMessagesStream(response.Body, emit)
 	if err != nil {
@@ -625,7 +634,7 @@ func decodeMessagesStream(r io.Reader, emit func(Event)) (Response, error) {
 		return result(), err
 	}
 	if !state.done {
-		return result(), errors.New("read messages stream: connection closed before the stream finished")
+		return result(), fmt.Errorf("read messages stream: %w", errStreamClosed)
 	}
 	return result(), nil
 }

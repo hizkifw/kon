@@ -7,6 +7,7 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hizkifw/kon/internal/agent"
 	"github.com/hizkifw/kon/internal/app"
@@ -181,5 +182,28 @@ func TestJSONReportsAPartialMessageAndTheError(t *testing.T) {
 	}
 	if result := events[2]; result["error"] != context.Canceled.Error() || result["text"] != "half" {
 		t.Fatalf("result = %v", result)
+	}
+}
+
+// A retry is reported on stderr in text, and as its own event in JSON.
+func TestRetriesAreReported(t *testing.T) {
+	retry := agent.Event{Kind: agent.EventRetrying, Text: "rate limited (429)", Attempt: 2, MaxAttempts: 5, Delay: 12 * time.Second}
+	answer := []agent.Event{retry, {Kind: agent.EventText, Text: "done\n"}, {Kind: agent.EventAssistantDone}}
+
+	var stdout, progress bytes.Buffer
+	if err := Run(context.Background(), newScript(t, nil, answer...), "hi", Output{Format: FormatText, Stdout: &stdout, Progress: &progress}); err != nil {
+		t.Fatal(err)
+	}
+	if stdout.String() != "done\n" || !strings.HasPrefix(progress.String(), "rate limited (429), retry 2/5 in 12s\n") {
+		t.Fatalf("stdout = %q, progress = %q", stdout.String(), progress.String())
+	}
+
+	stdout.Reset()
+	if err := Run(context.Background(), newScript(t, nil, answer...), "hi", Output{Format: FormatJSON, Stdout: &stdout}); err != nil {
+		t.Fatal(err)
+	}
+	events := decodeLines(t, stdout.Bytes())
+	if got := events[1]; got["type"] != "retry" || got["reason"] != "rate limited (429)" || got["attempt"] != 2.0 || got["max_attempts"] != 5.0 || got["delay_ms"] != 12000.0 {
+		t.Fatalf("retry event = %v", got)
 	}
 }

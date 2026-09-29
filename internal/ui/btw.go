@@ -51,6 +51,7 @@ func (m Model) startSideChat(question string) (tea.Model, tea.Cmd) {
 
 func (m Model) applySideEvent(event agent.Event) (tea.Model, tea.Cmd) {
 	t := &m.side.transcript
+	m.side.run.track(t, event)
 	switch event.Kind {
 	case agent.EventText:
 		t.appendStream(sanitize(event.Text))

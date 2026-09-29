@@ -34,6 +34,9 @@ type Model interface {
 type Event struct {
 	Text     string
 	Thinking bool
+	// Retry, when set, is the only field: the request failed before
+	// anything streamed and will be sent again.
+	Retry *Retry
 }
 
 // Response is a provider-neutral generation result. Finish carries the

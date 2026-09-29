@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hizkifw/kon/internal/contextfiles"
 	"github.com/hizkifw/kon/internal/provider"
@@ -711,5 +713,53 @@ func TestSystemPromptPointsToShellTools(t *testing.T) {
 	prompt := SystemPrompt("/work", "/usr/local/bin/kon", nil)
 	if !strings.Contains(prompt, "`<kon> tool webfetch <url>`") || !strings.Contains(prompt, "`<kon> tool --help`") {
 		t.Fatalf("shell tools missing from prompt:\n%s", prompt)
+	}
+}
+
+// retryingProvider reports one retry before each response, as a provider does
+// after a transient failure.
+type retryingProvider struct{ fakeProvider }
+
+var testRetry = &provider.Retry{Attempt: 1, Max: 5, Delay: 2 * time.Second, Reason: "overloaded (529)"}
+
+func (p *retryingProvider) Stream(ctx context.Context, messages []session.Message, definitions []session.ToolDefinition, emit func(provider.Event)) (session.Message, error) {
+	emit(provider.Event{Retry: testRetry})
+	return p.fakeProvider.Stream(ctx, messages, definitions, emit)
+}
+
+func (p *retryingProvider) Complete(ctx context.Context, messages []session.Message, definitions []session.ToolDefinition, maxTokens tokens.Count, emit func(provider.Event)) (session.Message, error) {
+	emit(provider.Event{Retry: testRetry})
+	return p.fakeProvider.Complete(ctx, messages, definitions, maxTokens, emit)
+}
+
+// A retry is reported from a turn and from a compaction alike, before the
+// output of the request that got through.
+func TestRunnerReportsProviderRetries(t *testing.T) {
+	store, err := session.New(t.TempDir(), t.TempDir(), "test", "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	runner := New(testLimits, &retryingProvider{}, store, tools.New(t.TempDir(), false, nil))
+	want := Event{Kind: EventRetrying, Text: "overloaded (529)", Attempt: 1, MaxAttempts: 5, Delay: 2 * time.Second}
+	var events []Event
+	if err := runner.Run(context.Background(), strings.Repeat("question ", 80), nil, func(event Event) { events = append(events, event) }); err != nil {
+		t.Fatal(err)
+	}
+	if len(events) < 2 || !reflect.DeepEqual(events[0], want) || events[1].Kind != EventText {
+		t.Fatalf("turn events = %#v", events)
+	}
+	for range 2 {
+		if err := runner.Run(context.Background(), strings.Repeat("question ", 80), nil, func(Event) {}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	events = nil
+	runner.limits.KeepRecentTokens = 1
+	if err := runner.Compact(context.Background(), func(event Event) { events = append(events, event) }); err != nil {
+		t.Fatal(err)
+	}
+	if len(events) < 3 || events[0].Kind != EventCompacting || !reflect.DeepEqual(events[1], want) || events[2].Kind != EventCompactionText {
+		t.Fatalf("compaction events = %#v", events)
 	}
 }

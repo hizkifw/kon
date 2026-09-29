@@ -243,6 +243,7 @@ a `type`:
 | `tool_start` | `call_id`, `tool`, `arguments` (the model's JSON arguments). |
 | `tool_done` | `call_id`, `tool`, `is_error`, `output` (what the model sees), `details` (tool-specific). |
 | `compacted` | `tokens_before`, `estimated`. |
+| `retry` | `reason` (such as `rate limited (429)`), `attempt` of `max_attempts`, and `delay_ms`, the wait before it. The failed request is sent again. |
 | `usage` | `context_tokens`, the context size the provider reported. |
 | `result` | `session_id`, `text` (the last assistant message), `error` when the run failed, `duration_ms`. Written last. |
 

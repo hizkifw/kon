@@ -275,6 +275,21 @@ protocol picks the backend: `chat.go` for OpenAI Chat Completions and its
 dialects, `responses.go` for OpenAI Responses, and `messages.go` for
 Anthropic's Messages API.
 
+Every backend retries a transient failure: status 408, 409, 429, or 5xx, an
+error of an overloaded or rate-limited kind inside the stream, or a dropped or
+timed-out connection. A server's `x-should-retry` header overrides that
+judgement. The wait honors `retry-after-ms` or `retry-after` up to a minute and
+otherwise backs off exponentially from one second to thirty, with jitter, for
+up to five retries. A longer requested wait, such as a spent quota, fails at
+once, and so does a refused connection or an unknown host, since neither
+passes in seconds. A request is retried only until anything streams: a retry
+after that would repeat what the user already saw. Each retry is reported as a
+`provider.Event`, which reaches the UI's running marker ("Rate limited (429),
+retry 2/5 in 12s") and `kon run`'s output as an `EventRetrying`. When the
+retries run out, the error returned says "gave up after 5 retries" and wraps
+the last failure, so the checks that classify it still see the provider's
+error.
+
 The Responses backend runs stateless (`store: false`) so the session file
 stays the source of truth. Each output item is kept verbatim in its part's
 `provider_options` and replayed byte for byte to the model that wrote it,

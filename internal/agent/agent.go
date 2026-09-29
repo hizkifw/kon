@@ -49,6 +49,11 @@ const (
 	EventCompacting
 	// EventCompactionText is a delta of the summary being written.
 	EventCompactionText
+	// EventRetrying reports a provider request that failed before anything
+	// streamed and will be sent again: Text is why, Attempt counts retries
+	// from 1 up to MaxAttempts, and Delay is the wait before this one. It may
+	// come several times; what follows it means the request got through.
+	EventRetrying
 )
 
 type Event struct {
@@ -70,6 +75,14 @@ type Event struct {
 	// presentation of the call so far. It replaces any earlier snapshot for
 	// the same call.
 	Display tools.Display
+	// Attempt, MaxAttempts, and Delay describe an EventRetrying retry.
+	Attempt, MaxAttempts int
+	Delay                time.Duration
+}
+
+// RetryEvent reports a provider retry as an EventRetrying.
+func RetryEvent(retry *provider.Retry) Event {
+	return Event{Kind: EventRetrying, Text: retry.Reason, Attempt: retry.Attempt, MaxAttempts: retry.Max, Delay: retry.Delay}
 }
 
 type Runner struct {
@@ -246,6 +259,10 @@ func (r *Runner) run(ctx context.Context, prompt string, inbox *Inbox, emit func
 			return err
 		}
 		assistant, err := r.provider.Stream(ctx, messages, r.tools.Definitions(), func(event provider.Event) {
+			if event.Retry != nil {
+				emit(RetryEvent(event.Retry))
+				return
+			}
 			if event.Text == "" {
 				return
 			}
@@ -537,7 +554,10 @@ func (r *Runner) summarize(ctx context.Context, items []session.ContextMessage, 
 	maxSummary := r.limits.summaryBudget()
 	// Reasoning is left out: the summary is what the reader is waiting on.
 	forward := func(event provider.Event) {
-		if !event.Thinking && event.Text != "" {
+		switch {
+		case event.Retry != nil:
+			emit(RetryEvent(event.Retry))
+		case !event.Thinking && event.Text != "":
 			emit(Event{Kind: EventCompactionText, Text: event.Text})
 		}
 	}

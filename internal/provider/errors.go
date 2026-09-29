@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // APIError is a provider-side failure: a non-2xx HTTP response, or an error
@@ -18,6 +19,11 @@ type APIError struct {
 	Type    string // provider error type/category, e.g. "invalid_request_error"
 	Message string // human-readable provider message
 	Body    string // raw response, used when the error is not structured
+
+	// retryAfter and shouldRetry are the server's retry hints, from the
+	// Retry-After and X-Should-Retry headers; see retryPolicy.delay.
+	retryAfter  time.Duration
+	shouldRetry string
 }
 
 func (e *APIError) Error() string {

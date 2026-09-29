@@ -27,6 +27,20 @@ func runningLabel(verb string, elapsed time.Duration) string {
 	return mark + " " + verb + "… " + formatDuration(elapsed)
 }
 
+// retryVerb says why a run is retrying and which retry it is on, counting
+// down to it and then naming it while it is sent: "Rate limited (429), retry
+// 2/5 in 12s".
+func retryVerb(retry *retryState, now time.Time) string {
+	verb := fmt.Sprintf("Retry %d/%d", retry.attempt, retry.max)
+	if retry.reason != "" {
+		verb = strings.ToUpper(retry.reason[:1]) + retry.reason[1:] + fmt.Sprintf(", retry %d/%d", retry.attempt, retry.max)
+	}
+	if wait := retry.at.Sub(now); wait >= time.Second {
+		verb += " in " + formatDuration(wait)
+	}
+	return verb
+}
+
 // workedLabel is the finished form of the turn marker: the dot stays filled and
 // the total is frozen. Live and replayed turns both build from here so they
 // render identically.

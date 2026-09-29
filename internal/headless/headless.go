@@ -173,6 +173,8 @@ func (w *textWriter) event(e agent.Event) {
 		w.progress("%s", line)
 	case agent.EventCompacted:
 		w.progress("compacted %s tokens", e.Tokens)
+	case agent.EventRetrying:
+		w.progress("%s, retry %d/%d in %s", e.Text, e.Attempt, e.MaxAttempts, e.Delay.Round(100*time.Millisecond))
 	}
 }
 
@@ -231,6 +233,8 @@ func (w *jsonWriter) event(e agent.Event) {
 		w.write(toolDoneEvent{Type: "tool_done", CallID: e.CallID.String(), Tool: e.Tool, IsError: e.IsError, Output: e.Text, Details: e.Details})
 	case agent.EventCompacted:
 		w.write(compactedEvent{Type: "compacted", TokensBefore: int64(e.Tokens), Estimated: e.Estimated})
+	case agent.EventRetrying:
+		w.write(retryEvent{Type: "retry", Reason: e.Text, Attempt: e.Attempt, MaxAttempts: e.MaxAttempts, DelayMS: e.Delay.Milliseconds()})
 	case agent.EventUsage:
 		// A negative count only resets the estimate after a compaction.
 		if e.Tokens >= 0 {
@@ -301,6 +305,14 @@ type toolDoneEvent struct {
 	IsError bool            `json:"is_error"`
 	Output  string          `json:"output"`
 	Details json.RawMessage `json:"details,omitempty"`
+}
+
+type retryEvent struct {
+	Type        string `json:"type"`
+	Reason      string `json:"reason"`
+	Attempt     int    `json:"attempt"`
+	MaxAttempts int    `json:"max_attempts"`
+	DelayMS     int64  `json:"delay_ms"`
 }
 
 type compactedEvent struct {

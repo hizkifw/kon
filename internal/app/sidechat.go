@@ -50,7 +50,10 @@ func (r *Runtime) SideChat(ctx context.Context, question string, emit func(agent
 
 	forward := func(event provider.Event) {
 		switch {
-		case emit == nil || event.Text == "":
+		case emit == nil:
+		case event.Retry != nil:
+			emit(agent.RetryEvent(event.Retry))
+		case event.Text == "":
 		case event.Thinking:
 			emit(agent.Event{Kind: agent.EventThinking})
 		default:

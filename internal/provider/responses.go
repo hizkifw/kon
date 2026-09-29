@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -24,7 +23,9 @@ import (
 // conversation, so every request carries the whole history, with reasoning
 // replayed from the encrypted items the server returned.
 type responsesModel struct {
-	client    *http.Client
+	client *http.Client
+	// retry is how transient failures are retried; see retryPolicy.
+	retry     retryPolicy
 	baseURL   string
 	apiKey    string
 	headers   map[string]string
@@ -42,6 +43,7 @@ func newResponsesModel(model Spec, spec wire.Spec, readImage func(string) ([]byt
 	}
 	return &responsesModel{
 		client:    &http.Client{},
+		retry:     defaultRetryPolicy,
 		baseURL:   baseURL,
 		apiKey:    model.APIKey,
 		headers:   model.Headers,
@@ -218,7 +220,14 @@ func (m *responsesModel) Complete(ctx context.Context, messages []session.Messag
 	return m.stream(ctx, payload, emit)
 }
 
+// stream sends payload, retrying transient failures.
 func (m *responsesModel) stream(ctx context.Context, payload responsesRequest, emit func(Event)) (Response, error) {
+	return withRetries(ctx, m.retry, emit, func(emit func(Event)) (Response, error) {
+		return m.streamOnce(ctx, payload, emit)
+	})
+}
+
+func (m *responsesModel) streamOnce(ctx context.Context, payload responsesRequest, emit func(Event)) (Response, error) {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return Response{}, fmt.Errorf("encode responses request: %w", err)
@@ -243,8 +252,7 @@ func (m *responsesModel) stream(ctx context.Context, payload responsesRequest, e
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		raw, _ := io.ReadAll(io.LimitReader(response.Body, maxEventSize))
-		return Response{}, parseAPIError(response.StatusCode, raw)
+		return Response{}, responseError(response)
 	}
 	result, err := decodeResponsesStream(response.Body, emit)
 	if err != nil {
@@ -373,7 +381,7 @@ func decodeResponsesStream(r io.Reader, emit func(Event)) (Response, error) {
 		return state.result(), err
 	}
 	if !state.done {
-		return state.result(), errors.New("read responses stream: connection closed before the stream finished")
+		return state.result(), fmt.Errorf("read responses stream: %w", errStreamClosed)
 	}
 	return state.result(), nil
 }
