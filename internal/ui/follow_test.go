@@ -88,8 +88,8 @@ func TestPromptWhileHeldStaysReadOnly(t *testing.T) {
 	m.input.SetValue("my turn")
 	updated, _ := m.submit()
 	m = updated.(Model)
-	if m.message != "read-only: still open in another session" || m.follow == nil || m.busy || runtime.runs.Load() != 0 {
-		t.Fatalf("status = %q, following = %v, busy = %v", m.message, m.follow != nil, m.busy)
+	if m.message != "read-only: still open in another session" || m.follow == nil || m.busy() || runtime.runs.Load() != 0 {
+		t.Fatalf("status = %q, following = %v, busy = %v", m.message, m.follow != nil, m.busy())
 	}
 	if m.input.Value() != "my turn" {
 		t.Fatal("a refused prompt was cleared from the input")
@@ -107,8 +107,8 @@ func TestPromptTakesOverAFreeSession(t *testing.T) {
 	m.input.SetValue("my turn")
 	updated, _ := m.submit()
 	m = updated.(Model)
-	if m.follow != nil || !m.busy {
-		t.Fatalf("following = %v, busy = %v after taking over", m.follow != nil, m.busy)
+	if m.follow != nil || !m.busy() {
+		t.Fatalf("following = %v, busy = %v after taking over", m.follow != nil, m.busy())
 	}
 	got := transcriptText(m)
 	// The writer's unfinished turn is closed before this kon's prompt.

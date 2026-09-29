@@ -139,8 +139,8 @@ func TestEscEndsTheSearchKeepingTheMatch(t *testing.T) {
 	m := searchModel(t, "make check")
 	m.input.SetValue("half typed")
 	m = key(search(m, "make"), tea.KeyPressMsg{Code: tea.KeyEscape})
-	if m.search != nil || m.input.Value() != "make check" || m.busy {
-		t.Fatalf("after esc: search open %v, prompt %q, sent %v", m.search != nil, m.input.Value(), m.busy)
+	if m.search != nil || m.input.Value() != "make check" || m.busy() {
+		t.Fatalf("after esc: search open %v, prompt %q, sent %v", m.search != nil, m.input.Value(), m.busy())
 	}
 }
 
@@ -154,8 +154,8 @@ func TestCtrlGGivesBackTheDraft(t *testing.T) {
 
 func TestEnterSendsTheMatch(t *testing.T) {
 	m := key(search(searchModel(t, "go build ./...", "make check"), "make"), tea.KeyPressMsg{Code: tea.KeyEnter})
-	if m.search != nil || !m.busy || m.input.Value() != "" {
-		t.Fatalf("after enter: search open %v, sent %v, prompt %q", m.search != nil, m.busy, m.input.Value())
+	if m.search != nil || !m.busy() || m.input.Value() != "" {
+		t.Fatalf("after enter: search open %v, sent %v, prompt %q", m.search != nil, m.busy(), m.input.Value())
 	}
 	if last := m.transcript.blocks[len(m.transcript.blocks)-1]; last.kind != blockUser || last.text != "make check" {
 		t.Fatalf("sent %+v", last)

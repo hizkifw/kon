@@ -40,8 +40,8 @@ func TestStatusLineLeavesTurnProgressToTheTranscript(t *testing.T) {
 			t.Fatalf("status line narrates the turn after %v: %q", event.Kind, got)
 		}
 	}
-	if m.runCancel != nil {
-		m.runCancel()
+	if m.turn != nil {
+		m.turn.cancel()
 	}
 }
 

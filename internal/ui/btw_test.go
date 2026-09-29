@@ -24,8 +24,8 @@ func (r sideRuntime) SideChat(ctx context.Context, question string, emit func(ag
 
 // openSide opens an empty side answer's drawer with no request behind it.
 func openSide(m *Model) {
-	m.sideEpoch = 1
-	m.side = &sideChat{cancel: func() {}}
+	m.runEpoch++
+	m.side = &sideChat{run: &run{epoch: m.runEpoch, cancel: func() {}, start: time.Now(), verb: "Asking"}}
 	m.openDrawer(&drawer{title: "/btw", transcript: &m.side.transcript, onClose: closeSideChat})
 }
 
@@ -68,11 +68,11 @@ func TestBTWStreamsApartFromMainRun(t *testing.T) {
 	m.input.SetValue("/btw why this code?")
 	updated, _ = m.submit()
 	m = updated.(Model)
-	t.Cleanup(m.side.cancel)
+	t.Cleanup(m.side.run.cancel)
 	if m.message != "" {
 		t.Fatalf("valid side question left stale status: %q", m.message)
 	}
-	if !m.busy || len(m.inbox.Pending()) != 0 || len(m.queued) != 0 {
+	if !m.busy() || len(m.inbox.Pending()) != 0 || len(m.queued) != 0 {
 		t.Fatal("side question changed the main run or pending messages")
 	}
 	if got := plain(m.View().Content); !strings.Contains(got, "Asking…") {
@@ -80,7 +80,7 @@ func TestBTWStreamsApartFromMainRun(t *testing.T) {
 	}
 	for {
 		select {
-		case msg := <-m.side.events:
+		case msg := <-m.side.run.events:
 			updated, _ = m.Update(msg)
 			m = updated.(Model)
 			if msg.done {
@@ -117,7 +117,7 @@ finished:
 func TestBTWDismissCancelsOnlySideAndDropsLateEvents(t *testing.T) {
 	m := busyModel(t)
 	mainCancelled := false
-	m.runCancel = func() { mainCancelled = true }
+	m.turn.cancel = func() { mainCancelled = true }
 	stopped := make(chan struct{})
 	m.runtime = sideRuntime{Runtime: m.runtime, run: func(ctx context.Context, _ string, _ func(agent.Event)) error {
 		<-ctx.Done()
@@ -126,7 +126,7 @@ func TestBTWDismissCancelsOnlySideAndDropsLateEvents(t *testing.T) {
 	}}
 	updated, _ := m.startSideChat("question")
 	m = updated.(Model)
-	epoch := m.sideEpoch
+	epoch := m.side.run.epoch
 	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updated.(Model)
 	if m.side == nil || len(m.drawers) != 1 {
@@ -139,10 +139,10 @@ func TestBTWDismissCancelsOnlySideAndDropsLateEvents(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("dismiss did not cancel side request")
 	}
-	if mainCancelled || !m.busy || m.side != nil || len(m.drawers) != 0 {
+	if mainCancelled || !m.busy() || m.side != nil || len(m.drawers) != 0 {
 		t.Fatal("dismiss affected the main run")
 	}
-	updated, cmd := m.Update(sideEventMsg{epoch: epoch, event: agent.Event{Kind: agent.EventText, Text: "late"}})
+	updated, cmd := m.Update(runMsg{epoch: epoch, event: agent.Event{Kind: agent.EventText, Text: "late"}})
 	m = updated.(Model)
 	if cmd != nil || len(m.transcript.blocks) != 0 {
 		t.Fatal("late event changed main transcript")
@@ -159,7 +159,7 @@ func TestBTWErrorAndModalInput(t *testing.T) {
 	if m.input.Value() != "" || m.View().Cursor != nil {
 		t.Fatal("modal accepted hidden input")
 	}
-	updated, _ = m.Update(sideEventMsg{epoch: 1, done: true, err: errors.New("provider failed")})
+	updated, _ = m.Update(runMsg{epoch: 1, done: true, err: errors.New("provider failed")})
 	m = updated.(Model)
 	if got := plain(m.View().Content); !strings.Contains(got, "provider failed") {
 		t.Fatalf("missing error: %s", got)
@@ -203,10 +203,10 @@ func TestBTWExplainsUnexecutedToolCalls(t *testing.T) {
 			m := newTestModel(t)
 			openSide(&m)
 			for _, chunk := range tc.chunks {
-				updated, _ := m.Update(sideEventMsg{epoch: 1, event: agent.Event{Kind: agent.EventText, Text: chunk}})
+				updated, _ := m.Update(runMsg{epoch: 1, event: agent.Event{Kind: agent.EventText, Text: chunk}})
 				m = updated.(Model)
 			}
-			updated, _ := m.Update(sideEventMsg{epoch: 1, done: true, err: tc.err})
+			updated, _ := m.Update(runMsg{epoch: 1, done: true, err: tc.err})
 			m = updated.(Model)
 			count := strings.Count(plain(m.View().Content), "Nothing was executed.")
 			if tc.notice && count != 1 || !tc.notice && count != 0 {
@@ -238,7 +238,7 @@ func TestBTWTakesOverAFreeSession(t *testing.T) {
 	if m.follow != nil || m.side == nil || m.message != "" {
 		t.Fatalf("following = %v, side = %v, status = %q", m.follow != nil, m.side != nil, m.message)
 	}
-	t.Cleanup(m.side.cancel)
+	t.Cleanup(m.side.run.cancel)
 	select {
 	case <-asked:
 	case <-time.After(3 * time.Second):
@@ -264,12 +264,12 @@ func TestBTWDragCopiesTheSideAnswer(t *testing.T) {
 	}}
 	updated, _ := m.startSideChat("question")
 	m = updated.(Model)
-	t.Cleanup(m.side.cancel)
-	for _, msg := range []sideEventMsg{
-		{epoch: m.sideEpoch, event: agent.Event{Kind: agent.EventText, Text: "the **side** reply"}},
-		{epoch: m.sideEpoch, done: true},
+	t.Cleanup(m.side.run.cancel)
+	for _, msg := range []runMsg{
+		{epoch: m.side.run.epoch, event: agent.Event{Kind: agent.EventText, Text: "the **side** reply"}},
+		{epoch: m.side.run.epoch, done: true},
 	} {
-		updated, _ = m.updateSideChat(msg)
+		updated, _ = m.Update(msg)
 		m = updated.(Model)
 	}
 	x, y := cellOf(t, m, "the side")
@@ -290,7 +290,7 @@ func TestBTWMarkerFollowsWhatTheModelIsDoing(t *testing.T) {
 	}}
 	updated, _ := m.startSideChat("question")
 	m = updated.(Model)
-	t.Cleanup(m.side.cancel)
+	t.Cleanup(m.side.run.cancel)
 	for _, step := range []struct {
 		event agent.Event
 		want  string
@@ -299,10 +299,31 @@ func TestBTWMarkerFollowsWhatTheModelIsDoing(t *testing.T) {
 		{agent.Event{Kind: agent.EventThinking}, "Thinking…"},
 		{agent.Event{Kind: agent.EventText, Text: "answer"}, "Answering…"},
 	} {
-		updated, _ = m.updateSideChat(sideEventMsg{epoch: m.sideEpoch, event: step.event})
+		updated, _ = m.Update(runMsg{epoch: m.side.run.epoch, event: step.event})
 		m = updated.(Model)
 		if got := m.side.transcript.liveTimer; !strings.Contains(got, step.want) {
 			t.Fatalf("marker after %v = %q, want %q", step.event.Kind, got, step.want)
 		}
+	}
+}
+
+// TestBTWTicksStopWithTheAnswer checks that a side answer's marker ticks only
+// while it streams, and that its ticks never repaint the main turn's marker.
+func TestBTWTicksStopWithTheAnswer(t *testing.T) {
+	m := busyModel(t)
+	openSide(&m)
+	epoch := m.side.run.epoch
+	if epoch == m.turn.epoch {
+		t.Fatal("the side answer shares the main turn's epoch")
+	}
+	updated, cmd := m.Update(runTickMsg{epoch: epoch})
+	m = updated.(Model)
+	if cmd == nil || m.transcript.liveTimer != "" {
+		t.Fatalf("side tick: rescheduled = %v, main marker = %q", cmd != nil, m.transcript.liveTimer)
+	}
+	updated, _ = m.Update(runMsg{epoch: epoch, done: true})
+	m = updated.(Model)
+	if _, cmd := m.Update(runTickMsg{epoch: epoch}); cmd != nil {
+		t.Fatal("a tick rescheduled after the side answer ended")
 	}
 }

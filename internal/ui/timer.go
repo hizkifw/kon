@@ -4,20 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	tea "charm.land/bubbletea/v2"
 )
-
-// timerTickMsg advances the work timer's display. The timer shows whole
-// seconds, so one tick per second keeps it current. epoch identifies the turn
-// the tick belongs to, so a tick left in flight when a run ended cannot start a
-// second chain once the next turn begins.
-type timerTickMsg struct{ epoch int }
-
-// timerTick schedules the next timer repaint for the given turn.
-func timerTick(epoch int) tea.Cmd {
-	return tea.Tick(time.Second, func(time.Time) tea.Msg { return timerTickMsg{epoch: epoch} })
-}
 
 // The turn marker is a dot that reads as a status light: outline and filled
 // alternate once a second while a turn is running, so the transcript shows
@@ -51,73 +38,6 @@ func workedLabel(elapsed time.Duration) string {
 // it finished, so no duration was recorded. The outline dot sets it apart from a
 // completed turn's filled one.
 const stoppedLabel = markOutline + " Stopped abruptly"
-
-// turnTimer times one user turn. It starts when the prompt is submitted and
-// stops when the run ends, so it spans every internal model call and tool step
-// of that turn rather than one provider round trip.
-type turnTimer struct {
-	start time.Time
-	end   time.Time // zero while the turn is running
-	// epoch identifies this turn's tick chain; see timerTickMsg.
-	epoch int
-	// verb is what the running marker says the turn is doing: Working, or
-	// Compacting while a summary is written.
-	verb string
-	// compaction marks a /compact run. Its compaction block is its record,
-	// so it leaves no "Worked for" line behind.
-	compaction bool
-}
-
-func (t *turnTimer) running() bool { return t.end.IsZero() }
-
-// elapsed is the turn's duration at now, or its frozen total once it stopped.
-func (t *turnTimer) elapsed(now time.Time) time.Duration {
-	if t.running() {
-		return now.Sub(t.start)
-	}
-	return t.end.Sub(t.start)
-}
-
-// startTimer begins timing a new turn and shows its first frame immediately, so
-// the indicator appears with the prompt instead of a second later.
-func (m *Model) startTimer() {
-	now := time.Now()
-	m.timerEpoch++
-	m.timer = &turnTimer{start: now, epoch: m.timerEpoch, verb: "Working"}
-	m.syncTimer(now)
-}
-
-// setTimerVerb changes what the running marker says, at once rather than on
-// the next tick.
-func (m *Model) setTimerVerb(verb string) {
-	if m.timer != nil && m.timer.verb != verb {
-		m.timer.verb = verb
-		m.syncTimer(time.Now())
-	}
-}
-
-// syncTimer repaints the running indicator from the current clock.
-func (m *Model) syncTimer(now time.Time) {
-	if m.timer == nil {
-		m.transcript.liveTimer = ""
-		return
-	}
-	m.transcript.liveTimer = runningLabel(m.timer.verb, m.timer.elapsed(now))
-}
-
-// finishTimer freezes the running indicator into a stable transcript block so
-// it stays in place as history, while the next turn gets a fresh indicator.
-func (m *Model) finishTimer() {
-	if m.timer == nil {
-		return
-	}
-	m.timer.end = time.Now()
-	m.transcript.liveTimer = ""
-	if !m.timer.compaction {
-		m.transcript.add(block{kind: blockElapsed, text: workedLabel(m.timer.elapsed(m.timer.end))})
-	}
-	m.timer = nil
-}
 
 // formatDuration renders a duration at second precision, dropping zero-valued
 // components so it reads naturally: "30s", "2m 30s", "1h 20m 50s".

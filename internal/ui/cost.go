@@ -28,7 +28,7 @@ type spendMsg struct {
 // it with its first event; a subagent can only start from a tool call, which
 // has one.
 func (m *Model) pollSpend() tea.Cmd {
-	if m.spendPolling || (!m.busy && m.jobs == 0 && m.follow == nil) {
+	if m.spendPolling || (!m.busy() && m.jobs == 0 && m.follow == nil) {
 		return nil
 	}
 	m.spendPolling = true

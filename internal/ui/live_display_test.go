@@ -4,7 +4,6 @@ import (
 	"strings"
 	"testing"
 
-	tea "charm.land/bubbletea/v2"
 	"github.com/hizkifw/kon/internal/agent"
 	"github.com/hizkifw/kon/internal/tools"
 )
@@ -14,11 +13,10 @@ import (
 // finalizes the display through the owning tool.
 func TestToolOutputEventStreamsIntoTranscript(t *testing.T) {
 	model := newTestModel(t)
-	model.busy = true
-	model.runEvents = make(chan tea.Msg)
+	fakeTurn(&model)
 
 	start := agent.Event{Kind: agent.EventToolStart, Tool: "shell", Arguments: `{"command":"./build"}`}
-	updated, _ := model.Update(runEventMsg{event: start})
+	updated, _ := model.Update(turnEvent(model, start))
 	model = updated.(Model)
 
 	// First snapshot: two lines of build output.
@@ -26,7 +24,7 @@ func TestToolOutputEventStreamsIntoTranscript(t *testing.T) {
 		State: tools.StateRunning, Summary: "./build",
 		Lines: []string{"go build ./..."}, More: 0,
 	}
-	updated, _ = model.Update(runEventMsg{event: agent.Event{Kind: agent.EventToolOutput, Tool: "shell", Display: snap}})
+	updated, _ = model.Update(turnEvent(model, agent.Event{Kind: agent.EventToolOutput, Tool: "shell", Display: snap}))
 	model = updated.(Model)
 	updated, _ = model.Update(flushTranscriptMsg{})
 	model = updated.(Model)
@@ -37,7 +35,7 @@ func TestToolOutputEventStreamsIntoTranscript(t *testing.T) {
 
 	// A later snapshot with more output replaces the previous one.
 	snap.Lines = []string{"go build ./...", "compile errors below"}
-	updated, _ = model.Update(runEventMsg{event: agent.Event{Kind: agent.EventToolOutput, Tool: "shell", Display: snap}})
+	updated, _ = model.Update(turnEvent(model, agent.Event{Kind: agent.EventToolOutput, Tool: "shell", Display: snap}))
 	model = updated.(Model)
 	updated, _ = model.Update(flushTranscriptMsg{})
 	model = updated.(Model)
@@ -51,7 +49,7 @@ func TestToolOutputEventStreamsIntoTranscript(t *testing.T) {
 		Kind: agent.EventToolDone, Tool: "shell", Arguments: `{"command":"./build"}`,
 		Text: "exit code: 0 (took 1.0s)", IsError: false,
 	}
-	updated, _ = model.Update(runEventMsg{event: done})
+	updated, _ = model.Update(turnEvent(model, done))
 	model = updated.(Model)
 	updated, _ = model.Update(flushTranscriptMsg{})
 	model = updated.(Model)

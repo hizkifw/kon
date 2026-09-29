@@ -443,7 +443,7 @@ func (m Model) switchModel(name string) (tea.Model, tea.Cmd) {
 // cycleEffort moves the active model to its next reasoning effort. The level
 // shows in the header, so the status line only confirms the change.
 func (m Model) cycleEffort() (tea.Model, tea.Cmd) {
-	if m.busy {
+	if m.busy() {
 		m.say(toneWarn, "agent is busy; change the effort after this turn")
 		return m, nil
 	}
@@ -460,7 +460,7 @@ func (m Model) cycleEffort() (tea.Model, tea.Cmd) {
 // compact forces a manual context compaction. It refuses to run while another
 // operation is in flight and reports when there is nothing safe to compact.
 func (m Model) compact() (tea.Model, tea.Cmd) {
-	if m.busy {
+	if m.busy() {
 		m.say(toneWarn, "agent is busy; press Esc twice to interrupt")
 		return m, nil
 	}
@@ -475,13 +475,10 @@ func (m Model) compact() (tea.Model, tea.Cmd) {
 	m.input.Reset()
 	// A /compact is timed like a turn, with its marker saying so, and its
 	// compaction block is what it leaves behind.
-	m.startTimer()
-	m.timer.compaction = true
-	m.setTimerVerb("Compacting")
-	m.refreshTranscript(true)
+	cmd := m.startTurn("Compacting", m.runtime.Compact)
+	m.turn.compaction = true
 	m.viewport.GotoBottom()
-	updated, cmd := m.startRun("", m.runtime.Compact)
-	return updated, tea.Batch(cmd, timerTick(m.timerEpoch))
+	return m, cmd
 }
 
 // completeSessionIDs suggests resumable sessions for this workspace, newest

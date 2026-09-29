@@ -83,8 +83,6 @@ type Runtime interface {
 	Interrupt(attempt int) bool
 }
 
-type runDoneMsg struct{ err error }
-type runEventMsg struct{ event agent.Event }
 type flushTranscriptMsg struct{}
 
 type Model struct {
@@ -114,13 +112,13 @@ type Model struct {
 	contextTokens   tokens.Count
 	contextApprox   bool
 	terminalFocused bool
-	busy            bool
-	runCancel       context.CancelFunc
-	runEvents       chan tea.Msg
+	// turn is the user turn or /compact in flight, nil while idle.
+	turn *run
+	// runEpoch counts started runs, main and side alike; see run.epoch.
+	runEpoch int
 	// drawers is the stack of surfaces painted over the screen, top last.
 	drawers   []*drawer
 	side      *sideChat
-	sideEpoch int
 	sideSpent float64
 	// interruptPresses counts Esc presses that interrupted the run in
 	// flight, so the harness can escalate: the first cancels the run
@@ -158,12 +156,6 @@ type Model struct {
 	streamedContext tokens.Count
 	spendPolling    bool
 	spendEpoch      int
-	// timer times the user turn currently in flight, nil while idle. It starts
-	// on submit and freezes into a blockElapsed when the run ends.
-	timer *turnTimer
-	// timerEpoch counts started turns; a tick whose epoch is stale is dropped so
-	// a chain from a finished run cannot keep repainting.
-	timerEpoch int
 	// selectEpoch counts drags past the transcript's edge, so a scroll tick
 	// from one that ended stops instead of scrolling on.
 	selectEpoch int
@@ -294,10 +286,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case mentionFilesMsg:
 		return m.applyMentionFiles(msg)
-	case sideTickMsg:
-		return m.tickSideChat(msg)
-	case sideEventMsg:
-		return m.updateSideChat(msg)
+	case runMsg:
+		return m.updateRun(msg)
+	case runTickMsg:
+		return m.tickRun(msg)
 	case tea.WindowSizeMsg:
 		// Anchor the bottom edge across the resize, so a reader at the bottom
 		// keeps the last line in view. A width change rewraps the transcript,
@@ -334,16 +326,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.terminalFocused = true
 	case tea.BlurMsg:
 		m.terminalFocused = false
-	case runEventMsg:
-		isText := m.applyAgentEvent(msg.event)
-		commands = append(commands, waitRunEvent(m.runEvents), m.pollSpend())
-		if isText && !m.flushPending {
-			m.flushPending = true
-			commands = append(commands, tea.Tick(streamFrameInterval, func(time.Time) tea.Msg { return flushTranscriptMsg{} }))
-		} else if !isText {
-			m.refreshTranscript(true)
-		}
-		return m, tea.Batch(commands...)
 	case flushTranscriptMsg:
 		m.flushPending = false
 		m.refreshTranscript(true)
@@ -357,49 +339,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.applyFollowed(msg)
 	case spendMsg:
 		return m, m.applySpend(msg)
-	case timerTickMsg:
-		// Drop a tick whose turn has ended (or been superseded): without the
-		// epoch check a tick left in flight at run end would reschedule itself
-		// and keep the app repainting forever.
-		if m.timer == nil || msg.epoch != m.timer.epoch {
-			return m, nil
-		}
-		m.syncTimer(time.Now())
-		m.refreshTranscript(true)
-		return m, timerTick(msg.epoch)
-	case runDoneMsg:
-		m.busy, m.runCancel, m.runEvents, m.interruptPresses = false, nil, nil, 0
-		m.interruptEpoch = 0
-		// A response cut off before its usage report leaves an estimate that
-		// nothing will replace, and the session never records it.
-		m.streamed, m.streamedContext = 0, 0
-		m.jobs = m.runtime.RunningJobs()
-		m.syncRuntimeState()
-		// An interrupted stream never received its done event, so finalize the
-		// live stream here to freeze the partial answer and reasoning that were
-		// already displayed. A cleanly finished run has nothing pending.
-		m.transcript.finishStream()
-		switch {
-		case msg.err == nil:
-			m.message = ""
-		case errors.Is(msg.err, context.Canceled):
-			m.say(toneDanger, "interrupted")
-		case errors.Is(msg.err, agent.ErrNothingToCompact):
-			m.message = "nothing to compact"
-		default:
-			m.say(toneDanger, "error: "+msg.err.Error())
-			m.transcript.add(block{kind: blockError, text: msg.err.Error()})
-		}
-		// The elapsed marker is the turn's last line: finalizing the stream and
-		// appending any error first keeps it below everything it timed.
-		m.finishTimer()
-		m.refreshTranscript(true)
-		// A subagent the run started in the foreground has finished writing,
-		// and one in a background job keeps spending, which the read's
-		// answer goes on to poll.
-		read := m.loadSpend()
-		updated, cmd := m.dispatchPending(msg.err)
-		return updated, tea.Batch(read, cmd)
 	case noticeMsg:
 		updated, cmd := m.deliverNotice(msg.text)
 		return updated, tea.Batch(cmd, waitNotice(m.runtime.Notices()))
@@ -535,8 +474,8 @@ func (m Model) handleKey(key string) (tea.Model, tea.Cmd, bool) {
 			// does nothing so it cannot silently drop an in-progress prompt.
 			return m, nil, true
 		}
-		if m.runCancel != nil {
-			m.runCancel()
+		if m.turn != nil {
+			m.turn.cancel()
 		}
 		return m, tea.Quit, true
 	case "ctrl+u", "ctrl+k", "ctrl+w":
@@ -604,7 +543,7 @@ func (m Model) handleKey(key string) (tea.Model, tea.Cmd, bool) {
 			return m, nil, true
 		}
 		m.resetMenu()
-		if m.busy && m.runCancel != nil {
+		if m.busy() {
 			// Esc is the only interrupt, and a stray press must not throw a
 			// turn away: the first press only warns, and a second while the
 			// warning is up cancels the run, which interrupts a running tool
@@ -620,7 +559,7 @@ func (m Model) handleKey(key string) (tea.Model, tea.Cmd, bool) {
 				return m, cmd, true
 			}
 			m.interruptPresses++
-			m.runCancel()
+			m.turn.cancel()
 			if m.interruptPresses == 1 {
 				m.say(toneDanger, "interrupted · press Esc again to kill the command")
 				if len(m.steering) > 0 {
@@ -812,7 +751,7 @@ func (m Model) submit() (tea.Model, tea.Cmd) {
 	if text == "" {
 		// Enter on an empty prompt resumes a queue that an interrupted or
 		// failed run left held.
-		if !m.busy && len(m.queued) > 0 {
+		if !m.busy() && len(m.queued) > 0 {
 			return m.sendQueued()
 		}
 		return m, nil
@@ -829,7 +768,7 @@ func (m Model) submit() (tea.Model, tea.Cmd) {
 		}
 		return command.run(m)
 	}
-	if m.busy {
+	if m.busy() {
 		return m.steer(text)
 	}
 	if !m.canSend() {
@@ -861,56 +800,76 @@ func (m *Model) canSend() bool {
 func (m Model) send(text string) (tea.Model, tea.Cmd) {
 	m.transcript.add(block{kind: blockUser, text: sanitize(text)})
 	m.resize()
-	// Start the timer before the first refresh so the indicator appears with
-	// the prompt rather than a frame later.
-	m.startTimer()
-	m.refreshTranscript(true)
+	runtime, inbox := m.runtime, m.inbox
+	cmd := m.startTurn("Working", func(ctx context.Context, emit func(agent.Event)) error {
+		return runtime.Run(ctx, text, inbox, emit)
+	})
 	// Submitting is the user's own action: always show the new prompt, even
 	// if they were scrolled up reading the transcript.
 	m.viewport.GotoBottom()
-	inbox := m.inbox
-	updated, cmd := m.startRun("", func(ctx context.Context, emit func(agent.Event)) error {
-		return m.runtime.Run(ctx, text, inbox, emit)
-	})
-	return updated, tea.Batch(cmd, timerTick(m.timerEpoch))
+	return m, cmd
 }
 
-// startRun marks the model busy and drives a runtime operation on a goroutine,
-// forwarding agent events into the transcript. It is shared by prompt
-// submission and manual compaction so both report progress and cancel the same
-// way.
-func (m Model) startRun(status string, fn func(context.Context, func(agent.Event)) error) (tea.Model, tea.Cmd) {
-	m.busy, m.message, m.interruptPresses = true, status, 0
-	ctx, cancel := context.WithCancel(m.ctx)
-	m.runCancel = cancel
-	m.runEvents = make(chan tea.Msg)
-	events := m.runEvents
-	go runAndForward(ctx, events, fn)
-	return m, waitRunEvent(events)
+// startTurn marks the model busy with fn, a prompt's run or a /compact, and
+// shows its marker at once rather than a second later.
+func (m *Model) startTurn(verb string, fn func(context.Context, func(agent.Event)) error) tea.Cmd {
+	m.message, m.interruptPresses = "", 0
+	r, cmd := m.startRun(verb, fn)
+	m.turn = r
+	r.paint(&m.transcript, r.start)
+	m.refreshTranscript(true)
+	return cmd
 }
 
-func runAndForward(ctx context.Context, events chan tea.Msg, fn func(context.Context, func(agent.Event)) error) {
-	defer close(events)
-	err := fn(ctx, func(event agent.Event) {
-		select {
-		case events <- runEventMsg{event: event}:
-		case <-ctx.Done():
-		}
-	})
-	select {
-	case events <- runDoneMsg{err: err}:
-	case <-ctx.Done():
+// busy reports whether a turn is in flight.
+func (m *Model) busy() bool { return m.turn != nil }
+
+func (m Model) applyTurnEvent(event agent.Event) (tea.Model, tea.Cmd) {
+	commands := []tea.Cmd{m.turn.wait(), m.pollSpend()}
+	if m.applyAgentEvent(event) {
+		commands = append(commands, m.scheduleFlush())
+	} else {
+		m.refreshTranscript(true)
 	}
+	return m, tea.Batch(commands...)
 }
 
-func waitRunEvent(events <-chan tea.Msg) tea.Cmd {
-	return func() tea.Msg {
-		msg, ok := <-events
-		if !ok {
-			return runDoneMsg{err: context.Canceled}
-		}
-		return msg
+func (m Model) finishTurn(err error) (tea.Model, tea.Cmd) {
+	turn := m.turn
+	m.turn, m.interruptPresses, m.interruptEpoch = nil, 0, 0
+	// A response cut off before its usage report leaves an estimate that
+	// nothing will replace, and the session never records it.
+	m.streamed, m.streamedContext = 0, 0
+	m.jobs = m.runtime.RunningJobs()
+	m.syncRuntimeState()
+	// An interrupted stream never received its done event, so finalize the
+	// live stream here to freeze the partial answer and reasoning that were
+	// already displayed. A cleanly finished run has nothing pending.
+	m.transcript.finishStream()
+	switch {
+	case err == nil:
+		m.message = ""
+	case errors.Is(err, context.Canceled):
+		m.say(toneDanger, "interrupted")
+	case errors.Is(err, agent.ErrNothingToCompact):
+		m.message = "nothing to compact"
+	default:
+		m.say(toneDanger, "error: "+err.Error())
+		m.transcript.add(block{kind: blockError, text: err.Error()})
 	}
+	// The elapsed marker is the turn's last line: finalizing the stream and
+	// appending any error first keeps it below everything it timed.
+	m.transcript.liveTimer = ""
+	if !turn.compaction {
+		m.transcript.add(block{kind: blockElapsed, text: workedLabel(time.Since(turn.start))})
+	}
+	m.refreshTranscript(true)
+	// A subagent the run started in the foreground has finished writing,
+	// and one in a background job keeps spending, which the read's
+	// answer goes on to poll.
+	read := m.loadSpend()
+	updated, cmd := m.dispatchPending(err)
+	return updated, tea.Batch(read, cmd)
 }
 
 // retitleModelChanges names replayed model changes again. They were named

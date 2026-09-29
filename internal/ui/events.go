@@ -40,15 +40,15 @@ func (m *Model) applyAgentEvent(event agent.Event) bool {
 		m.transcript.add(m.toolResultBlock(event))
 	case agent.EventCompacting:
 		m.transcript.beginCompaction()
-		m.setTimerVerb("Compacting")
+		m.setTurnVerb("Compacting")
 	case agent.EventCompactionText:
 		m.streamed++
 		m.transcript.appendCompaction(sanitize(event.Text))
 		return true
 	case agent.EventCompacted:
 		m.transcript.finishCompaction(sanitize(event.Text), compactedLabel(event.Tokens, event.Estimated))
-		if m.timer != nil && !m.timer.compaction {
-			m.setTimerVerb("Working")
+		if m.turn != nil && !m.turn.compaction {
+			m.setTurnVerb("Working")
 		}
 	case agent.EventUsage:
 		m.contextTokens = event.Tokens
@@ -60,6 +60,13 @@ func (m *Model) applyAgentEvent(event agent.Event) bool {
 		m.syncSteering()
 	}
 	return false
+}
+
+// setTurnVerb changes what the turn's marker says, if a turn is running.
+func (m *Model) setTurnVerb(verb string) {
+	if m.turn != nil {
+		m.turn.setVerb(&m.transcript, verb)
+	}
 }
 
 // toolBlock builds the request block for a starting tool call. The display is

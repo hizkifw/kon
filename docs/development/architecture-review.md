@@ -40,10 +40,10 @@ execute, so a process killed during a long shell command is covered too.
 - [x] Cancel the run on every exit path, not only Ctrl+D
 
 Ctrl+D cancels the active run before quitting. Agent events and the final
-completion message select on the run's context (`runAndForward`,
-`internal/ui/model.go:646`), so abandoned sends cannot hold the runner open
+completion message select on the run's context (`forward`,
+`internal/ui/run.go:60`), so abandoned sends cannot hold the runner open
 after cancellation. A closed event channel after cancellation is treated as an
-interrupted run (`waitRunEvent`). `TestRunForwardingStopsWhenEventsAreNoLongerRead`
+interrupted run (`run.wait`). `TestRunForwardingStopsWhenEventsAreNoLongerRead`
 covers abandoned event and completion sends.
 
 Fixed: a SIGTERM or SIGINT quits Bubble Tea without passing through the key
@@ -401,8 +401,8 @@ Blocks the user:
 
 Live view and tools:
 
-- [ ] After Esc, `runAndForward` drops about half of later events at random:
-  the send and `ctx.Done()` are both ready (`internal/ui/model.go:648`). A
+- [ ] After Esc, `forward` drops about half of later events at random:
+  the send and `ctx.Done()` are both ready (`internal/ui/run.go:64`). A
   cancelled shell block can stay "running".
 - [ ] Tool-call deltas without `index` merge into one call
   (`internal/provider/chat.go:889`); start a new call when a different ID

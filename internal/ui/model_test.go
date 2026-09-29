@@ -288,7 +288,8 @@ func TestSwitchModelUpdatesRuntimeState(t *testing.T) {
 	m := New(context.Background(), "/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
 	m.width, m.height = 80, 24
 	m.resize()
-	updated, _ := m.Update(runEventMsg{event: agent.Event{Kind: agent.EventUsage, Tokens: 42}})
+	fakeTurn(&m)
+	updated, _ := m.Update(turnEvent(m, agent.Event{Kind: agent.EventUsage, Tokens: 42}))
 	m = updated.(Model)
 	if view := plain(m.View().Content); !strings.Contains(view, "ctx 42/100") {
 		t.Fatalf("usage not shown before the switch:\n%s", view)
@@ -541,9 +542,9 @@ func TestStreamDeltasWaitForRenderFrame(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			model := newTestModel(t)
-			model.runEvents = make(chan tea.Msg)
+			fakeTurn(&model)
 			before := model.viewport.View()
-			updated, _ := model.Update(runEventMsg{event: agent.Event{Kind: test.kind, Text: test.text}})
+			updated, _ := model.Update(turnEvent(model, agent.Event{Kind: test.kind, Text: test.text}))
 			afterDelta := updated.(Model)
 			if !afterDelta.flushPending || afterDelta.viewport.View() != before {
 				t.Fatal("delta repainted before the render frame")
@@ -559,12 +560,13 @@ func TestStreamDeltasWaitForRenderFrame(t *testing.T) {
 
 func TestReadResultsStayOutOfTranscript(t *testing.T) {
 	model := newTestModel(t)
+	fakeTurn(&model)
 	event := agent.Event{
 		Kind: agent.EventToolDone, Tool: "read",
 		Arguments: `{"path":"internal/ui/events.go"}`,
 		Text:      "     1  package ui\n… 44 more lines",
 	}
-	updated, _ := model.Update(runEventMsg{event: event})
+	updated, _ := model.Update(turnEvent(model, event))
 	got := plain(updated.(Model).viewport.View())
 	if strings.Contains(got, "package ui") {
 		t.Fatal("read result echoed file contents into the transcript")
@@ -946,9 +948,9 @@ func pressEsc(t *testing.T, m Model, n int) Model {
 
 func TestEscWarnsThenInterruptsThenKills(t *testing.T) {
 	model := newTestModel(t)
-	model.busy = true
+	fakeTurn(&model)
 	cancels := 0
-	model.runCancel = func() { cancels++ }
+	model.turn.cancel = func() { cancels++ }
 	model = pressEsc(t, model, 1)
 	if cancels != 0 || model.messageTone() != toneWarn || model.message != "press Esc again to interrupt" {
 		t.Fatalf("first esc: cancels=%d status %q tone %d", cancels, model.message, model.messageTone())
@@ -965,9 +967,9 @@ func TestEscWarnsThenInterruptsThenKills(t *testing.T) {
 
 func TestInterruptWarningExpires(t *testing.T) {
 	model := newTestModel(t)
-	model.busy = true
+	fakeTurn(&model)
 	cancels := 0
-	model.runCancel = func() { cancels++ }
+	model.turn.cancel = func() { cancels++ }
 	model = pressEsc(t, model, 1)
 	model = done(model, model.flashEpoch)
 	if model.message != "" {
@@ -988,8 +990,7 @@ func TestInterruptWarningExpires(t *testing.T) {
 
 func TestInterruptWarningNamesThePendingSteer(t *testing.T) {
 	model := newTestModel(t)
-	model.busy = true
-	model.runCancel = func() {}
+	fakeTurn(&model)
 	model.steering = []string{"also check the docs"}
 	if model = pressEsc(t, model, 1); !strings.Contains(model.message, "send your steer") {
 		t.Fatalf("warning does not mention the steer: %q", model.message)
@@ -1001,8 +1002,7 @@ func TestInterruptWarningNamesThePendingSteer(t *testing.T) {
 
 func TestEscWithoutACommandReportsCancellation(t *testing.T) {
 	model := newTestModel(t)
-	model.busy = true
-	model.runCancel = func() {}
+	fakeTurn(&model)
 	model.runtime.(*fakeRuntime).killFails = true
 	model = pressEsc(t, model, 3)
 	if model.runtime.(*fakeRuntime).kills != 1 {
@@ -1058,9 +1058,9 @@ func TestBlurHidesPromptCursor(t *testing.T) {
 
 func TestEscClosesMenuBeforeInterrupting(t *testing.T) {
 	model := newTestModel(t)
-	model.busy = true
+	fakeTurn(&model)
 	canceled := false
-	model.runCancel = func() { canceled = true }
+	model.turn.cancel = func() { canceled = true }
 	model.menu.items = []menuItem{{Value: "/model", Description: "pick"}}
 	updated, _, handled := model.handleKey("esc")
 	got := updated.(Model)
@@ -1104,8 +1104,8 @@ func TestCtrlCClearsInputOrHints(t *testing.T) {
 func TestCtrlCNeverQuitsOrInterrupts(t *testing.T) {
 	model := newTestModel(t)
 	canceled := false
-	model.busy = true
-	model.runCancel = func() { canceled = true }
+	fakeTurn(&model)
+	model.turn.cancel = func() { canceled = true }
 	_, cmd, handled := model.handleKey("ctrl+c")
 	if !handled {
 		t.Fatal("ctrl+c was not handled")
@@ -1123,8 +1123,8 @@ func TestCtrlCNeverQuitsOrInterrupts(t *testing.T) {
 func TestCtrlDQuitsOnEmptyInput(t *testing.T) {
 	model := newTestModel(t)
 	canceled := false
-	model.busy = true
-	model.runCancel = func() { canceled = true }
+	fakeTurn(&model)
+	model.turn.cancel = func() { canceled = true }
 	_, cmd, handled := model.handleKey("ctrl+d")
 	if !handled || cmd == nil {
 		t.Fatal("ctrl+d on empty input was not handled")
@@ -1315,14 +1315,13 @@ func TestCtrlUOnLaterLineUsesThatLinesCursor(t *testing.T) {
 
 func TestInterruptedRunFinalizesStreamedTurn(t *testing.T) {
 	model := newTestModel(t)
-	model.busy = true
-	model.runCancel = func() {}
+	fakeTurn(&model)
 	model.transcript.appendThinking("hmm")
 	model.transcript.appendStream("half an answer")
-	updated, _ := model.Update(runDoneMsg{err: context.Canceled})
+	updated, _ := model.Update(turnDone(model, context.Canceled))
 	got := updated.(Model)
-	if got.busy || got.message != "interrupted" {
-		t.Fatalf("busy=%v status=%q", got.busy, got.message)
+	if got.busy() || got.message != "interrupted" {
+		t.Fatalf("busy=%v status=%q", got.busy(), got.message)
 	}
 	// The partial answer must stay on screen once the run is interrupted.
 	rendered := plain(got.viewport.View())
@@ -1340,7 +1339,7 @@ func TestShiftOrCtrlEnterInsertsNewline(t *testing.T) {
 		if got.input.Value() != "first\n" {
 			t.Fatalf("enter with mod %v = %q, want a newline", mod, got.input.Value())
 		}
-		if got.busy {
+		if got.busy() {
 			t.Fatalf("enter with mod %v submitted the prompt", mod)
 		}
 	}
@@ -1363,7 +1362,7 @@ func TestEnterAfterBackslashInsertsNewline(t *testing.T) {
 	if got.input.Value() != "keep this\n" {
 		t.Fatalf("trailing backslash enter = %q, want %q", got.input.Value(), "keep this\n")
 	}
-	if got.busy {
+	if got.busy() {
 		t.Fatalf("trailing backslash enter submitted the prompt")
 	}
 }
@@ -1376,12 +1375,12 @@ func TestEnterWithoutBackslashSubmits(t *testing.T) {
 	if got.input.Value() != "" {
 		t.Fatalf("enter left the prompt unsubmitted: %q", got.input.Value())
 	}
-	if !got.busy || got.runEvents == nil || !strings.Contains(plain(got.viewport.View()), "plain prompt") {
-		t.Fatalf("enter did not start a turn: busy=%v\n%s", got.busy, plain(got.viewport.View()))
+	if !got.busy() || got.turn == nil || !strings.Contains(plain(got.viewport.View()), "plain prompt") {
+		t.Fatalf("enter did not start a turn: busy=%v\n%s", got.busy(), plain(got.viewport.View()))
 	}
 	// The run closes its events channel once Run has returned, so draining it
 	// settles the call count.
-	for range got.runEvents {
+	for range got.turn.events {
 	}
 	if runs := got.runtime.(*fakeRuntime).runs.Load(); runs != 1 {
 		t.Fatalf("runtime ran %d times, want 1", runs)
@@ -1412,11 +1411,11 @@ func TestRunForwardingStopsWhenEventsAreNoLongerRead(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			events := make(chan tea.Msg)
+			events := make(chan runMsg)
 			finished := make(chan struct{})
 			started := make(chan struct{})
 			go func() {
-				runAndForward(ctx, events, func(ctx context.Context, emit func(agent.Event)) error {
+				forward(ctx, 1, events, func(ctx context.Context, emit func(agent.Event)) error {
 					return tc.run(ctx, emit, started)
 				})
 				close(finished)
@@ -1442,7 +1441,7 @@ func TestCancellingProgramContextReleasesAbandonedRun(t *testing.T) {
 	m := New(ctx, "/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
 	finished := make(chan struct{})
 	emitted := make(chan struct{})
-	m.startRun("thinking…", func(_ context.Context, emit func(agent.Event)) error {
+	m.startRun("Working", func(_ context.Context, emit func(agent.Event)) error {
 		defer close(finished)
 		close(emitted)
 		emit(agent.Event{Kind: agent.EventText, Text: "hello"})
@@ -1784,8 +1783,8 @@ func TestCompactCommandStartsBusyRun(t *testing.T) {
 	m.input.SetValue("/compact")
 	updated, cmd := m.submit()
 	got := updated.(Model)
-	if !got.busy || got.runEvents == nil {
-		t.Fatalf("compact did not start a run: busy=%v status=%q", got.busy, got.message)
+	if !got.busy() || got.turn == nil {
+		t.Fatalf("compact did not start a run: busy=%v status=%q", got.busy(), got.message)
 	}
 	if cmd == nil {
 		t.Fatal("compact did not return a wait command")
@@ -1798,7 +1797,7 @@ func TestCompactCommandStartsBusyRun(t *testing.T) {
 	}
 	// The wait returns once the run's goroutine has finished, so the runtime
 	// has seen every call it is going to see.
-	if _, ok := waitRunEvent(got.runEvents)().(runDoneMsg); !ok {
+	if msg, ok := got.turn.wait()().(runMsg); !ok || !msg.done {
 		t.Fatal("compact run did not report its end")
 	}
 	if calls := got.runtime.(*fakeRuntime).compacts.Load(); calls != 1 {
@@ -1808,7 +1807,7 @@ func TestCompactCommandStartsBusyRun(t *testing.T) {
 
 func TestCompactCommandRefusesWhileBusy(t *testing.T) {
 	m := newTestModel(t)
-	m.busy = true
+	fakeTurn(&m)
 	updated, cmd := m.compact()
 	if cmd != nil {
 		t.Fatal("compaction started while a run was in flight")
@@ -1820,8 +1819,8 @@ func TestCompactCommandRefusesWhileBusy(t *testing.T) {
 
 func TestNothingToCompactIsNotAnError(t *testing.T) {
 	m := newTestModel(t)
-	m.busy = true
-	updated, _ := m.Update(runDoneMsg{err: agent.ErrNothingToCompact})
+	fakeTurn(&m)
+	updated, _ := m.Update(turnDone(m, agent.ErrNothingToCompact))
 	got := updated.(Model)
 	if got.message != "nothing to compact" {
 		t.Fatalf("status = %q", got.message)

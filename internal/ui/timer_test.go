@@ -21,12 +21,12 @@ func TestTimerEndToEndAcrossTwoTurns(t *testing.T) {
 	m.input.SetValue("do x y z")
 	updated, _ := m.submit()
 	m = updated.(Model)
-	if m.timer == nil {
-		t.Fatal("submit did not start a timer")
+	if m.turn == nil {
+		t.Fatal("submit did not start a turn")
 	}
 	m.transcript.add(block{kind: blockAssistant, text: "ok here's xyz done"})
-	m.timer.start = time.Now().Add(-5*time.Minute - 20*time.Second)
-	updated, _ = m.Update(runDoneMsg{})
+	m.turn.start = time.Now().Add(-5*time.Minute - 20*time.Second)
+	updated, _ = m.Update(turnDone(m, nil))
 	m = updated.(Model)
 	first := plain(strings.Join(m.transcript.linesFor(80), "\n"))
 	if !strings.Contains(first, "ok here's xyz done") || !strings.Contains(first, "Worked for 5m 20s") {
@@ -40,7 +40,7 @@ func TestTimerEndToEndAcrossTwoTurns(t *testing.T) {
 	updated, _ = m.submit()
 	m = updated.(Model)
 	m.transcript.add(block{kind: blockAssistant, text: "ok let me do a b c"})
-	m.syncTimer(m.timer.start.Add(20 * time.Second))
+	m.turn.paint(&m.transcript, m.turn.start.Add(20*time.Second))
 	second := plain(strings.Join(m.transcript.linesFor(80), "\n"))
 	for _, want := range []string{"do x y z", "● Worked for 5m 20s", "next do a b c", "ok let me do a b c", "Working… 20s"} {
 		if !strings.Contains(second, want) {
@@ -224,9 +224,9 @@ func TestInterruptedTurnFreezesBelowItsAnswer(t *testing.T) {
 	m.input.SetValue("hello")
 	updated, _ := m.submit()
 	m = updated.(Model)
-	updated, _ = m.Update(runEventMsg{event: agent.Event{Kind: agent.EventText, Text: "partial answer in progress"}})
+	updated, _ = m.Update(turnEvent(m, agent.Event{Kind: agent.EventText, Text: "partial answer in progress"}))
 	m = updated.(Model)
-	updated, _ = m.Update(runDoneMsg{err: context.Canceled})
+	updated, _ = m.Update(turnDone(m, context.Canceled))
 	m = updated.(Model)
 	got := plain(strings.Join(m.transcript.linesFor(80), "\n"))
 	answer, worked := strings.Index(got, "partial answer"), strings.Index(got, "Worked for")
@@ -236,8 +236,8 @@ func TestInterruptedTurnFreezesBelowItsAnswer(t *testing.T) {
 	if worked < answer {
 		t.Fatalf("frozen total rendered above the interrupted answer:\n%s", got)
 	}
-	if m.timer != nil || m.transcript.liveTimer != "" {
-		t.Fatalf("interrupted turn left a running timer: %+v live=%q", m.timer, m.transcript.liveTimer)
+	if m.turn != nil || m.transcript.liveTimer != "" {
+		t.Fatalf("interrupted turn left a running turn: %+v live=%q", m.turn, m.transcript.liveTimer)
 	}
 }
 
@@ -249,7 +249,7 @@ func TestFailedTurnFreezesAfterItsError(t *testing.T) {
 	m.input.SetValue("hello")
 	updated, _ := m.submit()
 	m = updated.(Model)
-	updated, _ = m.Update(runDoneMsg{err: errors.New("boom")})
+	updated, _ = m.Update(turnDone(m, errors.New("boom")))
 	m = updated.(Model)
 	got := plain(strings.Join(m.transcript.linesFor(80), "\n"))
 	errAt, worked := strings.Index(got, "boom"), strings.Index(got, "Worked for")
@@ -339,22 +339,23 @@ func TestTimerLinesMatchFullRender(t *testing.T) {
 // from a stale chain surviving into the next turn.
 func TestTimerStopsTickingWhenRunEnds(t *testing.T) {
 	m := newTestModel(t)
-	if _, cmd := m.Update(timerTickMsg{}); cmd != nil {
-		t.Fatal("a tick with no running timer rescheduled itself")
+	if _, cmd := m.Update(runTickMsg{}); cmd != nil {
+		t.Fatal("a tick with no running turn rescheduled itself")
 	}
-	m.startTimer()
-	epoch := m.timer.epoch
-	if _, cmd := m.Update(timerTickMsg{epoch: epoch}); cmd == nil {
+	fakeTurn(&m)
+	epoch := m.turn.epoch
+	if _, cmd := m.Update(runTickMsg{epoch: epoch}); cmd == nil {
 		t.Fatal("a tick for the running turn did not reschedule")
 	}
-	m.finishTimer()
-	if _, cmd := m.Update(timerTickMsg{epoch: epoch}); cmd != nil {
+	updated, _ := m.Update(turnDone(m, nil))
+	m = updated.(Model)
+	if _, cmd := m.Update(runTickMsg{epoch: epoch}); cmd != nil {
 		t.Fatal("a stale tick rescheduled after the run ended")
 	}
 	// Only the epoch tells the finished turn's in-flight tick apart from the
 	// next turn's own chain, so it must be dropped once another turn is running.
-	m.startTimer()
-	if _, cmd := m.Update(timerTickMsg{epoch: epoch}); cmd != nil {
+	fakeTurn(&m)
+	if _, cmd := m.Update(runTickMsg{epoch: epoch}); cmd != nil {
 		t.Fatal("a stale tick from the previous turn rescheduled during the next one")
 	}
 }

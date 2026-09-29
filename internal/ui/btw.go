@@ -15,29 +15,10 @@ import (
 // transcript keeps receiving its events underneath.
 type sideChat struct {
 	transcript transcript
-	cancel     context.CancelFunc
-	events     <-chan sideEventMsg
-	done       bool
-	// start times the answer for its marker, and verb names what the model
-	// is doing: Asking until it responds, then Thinking or Answering by the
-	// kind of text last streamed.
-	start time.Time
-	verb  string
-}
-
-// sideTickMsg advances the side answer's marker; epoch drops a tick from a
-// side chat that has since closed.
-type sideTickMsg struct{ epoch int }
-
-func sideTick(epoch int) tea.Cmd {
-	return tea.Tick(time.Second, func(time.Time) tea.Msg { return sideTickMsg{epoch: epoch} })
-}
-
-type sideEventMsg struct {
-	epoch int
-	event agent.Event
-	done  bool
-	err   error
+	// run is the answer while it streams, nil once it has ended. Its marker
+	// says Asking until the model responds, then Thinking or Answering by
+	// the kind of text last streamed.
+	run *run
 }
 
 const sideToolsNotice = "Nothing was executed. /btw has no tools. Ask in the main conversation to use tools."
@@ -55,103 +36,49 @@ func (m Model) startSideChat(question string) (tea.Model, tea.Cmd) {
 	}
 	m.message = ""
 	m.closePreview()
-	m.sideEpoch++
-	epoch := m.sideEpoch
-	ctx, cancel := context.WithCancel(m.ctx)
-	events := make(chan sideEventMsg)
-	m.side = &sideChat{
-		transcript: transcript{cwd: m.cwd}, cancel: cancel, events: events,
-		start: time.Now(), verb: "Asking",
-	}
+	runtime := m.runtime
+	r, cmd := m.startRun("Asking", func(ctx context.Context, emit func(agent.Event)) error {
+		return runtime.SideChat(ctx, question, emit)
+	})
+	m.side = &sideChat{transcript: transcript{cwd: m.cwd}, run: r}
 	m.side.transcript.add(block{kind: blockUser, text: sanitize(question)})
-	m.side.syncTimer(time.Now())
+	r.paint(&m.side.transcript, time.Now())
 	m.input.Reset()
 	m.resetMenu()
 	m.openDrawer(&drawer{title: "/btw", transcript: &m.side.transcript, onClose: closeSideChat})
-	runtime := m.runtime
-	go func() {
-		defer close(events)
-		defer cancel()
-		err := runtime.SideChat(ctx, question, func(event agent.Event) {
-			select {
-			case events <- sideEventMsg{epoch: epoch, event: event}:
-			case <-ctx.Done():
-			}
-		})
-		select {
-		case events <- sideEventMsg{epoch: epoch, done: true, err: err}:
-		case <-ctx.Done():
-		}
-	}()
-	return m, tea.Batch(waitSideEvent(events), sideTick(epoch))
+	return m, cmd
 }
 
-// syncTimer repaints the side answer's running marker from the clock.
-func (s *sideChat) syncTimer(now time.Time) {
-	s.transcript.liveTimer = runningLabel(s.verb, now.Sub(s.start))
-}
-
-// setVerb changes the marker's verb at once rather than on the next tick.
-func (s *sideChat) setVerb(verb string) {
-	if s.verb != verb {
-		s.verb = verb
-		s.syncTimer(time.Now())
-	}
-}
-
-func (m Model) tickSideChat(msg sideTickMsg) (tea.Model, tea.Cmd) {
-	if m.side == nil || m.side.done || msg.epoch != m.sideEpoch {
-		return m, nil
-	}
-	m.side.syncTimer(time.Now())
-	m.refreshTranscript(true)
-	return m, sideTick(msg.epoch)
-}
-
-func waitSideEvent(events <-chan sideEventMsg) tea.Cmd {
-	return func() tea.Msg {
-		msg, ok := <-events
-		if !ok {
-			return nil
-		}
-		return msg
-	}
-}
-
-func (m Model) updateSideChat(msg sideEventMsg) (tea.Model, tea.Cmd) {
-	if m.side == nil || msg.epoch != m.sideEpoch {
-		return m, nil
-	}
-	if msg.done {
-		m.side.done = true
-		m.side.transcript.finishStream()
-		m.side.transcript.liveTimer = ""
-		if errors.Is(msg.err, app.ErrSideChatTools) || sideToolCallText(m.side.transcript.lastReply()) {
-			m.side.transcript.add(block{kind: blockError, text: sideToolsNotice})
-		}
-		if msg.err != nil && !errors.Is(msg.err, context.Canceled) && !errors.Is(msg.err, app.ErrSideChatTools) {
-			m.side.transcript.add(block{kind: blockError, text: sanitize(msg.err.Error())})
-		} else {
-			m.side.transcript.add(block{kind: blockElapsed, text: markFilled + " Answered in " + formatDuration(time.Since(m.side.start))})
-		}
-		m.refreshTranscript(true)
-		return m, nil
-	}
-	switch msg.event.Kind {
+func (m Model) applySideEvent(event agent.Event) (tea.Model, tea.Cmd) {
+	t := &m.side.transcript
+	switch event.Kind {
 	case agent.EventText:
-		m.side.transcript.appendStream(sanitize(msg.event.Text))
-		m.side.setVerb("Answering")
+		t.appendStream(sanitize(event.Text))
+		m.side.run.setVerb(t, "Answering")
 	case agent.EventThinking:
-		m.side.setVerb("Thinking")
+		m.side.run.setVerb(t, "Thinking")
 	case agent.EventUsage:
-		m.sideSpent += msg.event.Cost
+		m.sideSpent += event.Cost
 	}
-	var flush tea.Cmd
-	if !m.flushPending {
-		m.flushPending = true
-		flush = tea.Tick(streamFrameInterval, func(time.Time) tea.Msg { return flushTranscriptMsg{} })
+	return m, tea.Batch(m.side.run.wait(), m.scheduleFlush())
+}
+
+func (m Model) finishSideChat(err error) (tea.Model, tea.Cmd) {
+	t := &m.side.transcript
+	elapsed := time.Since(m.side.run.start)
+	m.side.run = nil
+	t.finishStream()
+	t.liveTimer = ""
+	if errors.Is(err, app.ErrSideChatTools) || sideToolCallText(t.lastReply()) {
+		t.add(block{kind: blockError, text: sideToolsNotice})
 	}
-	return m, tea.Batch(waitSideEvent(m.side.events), flush)
+	if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, app.ErrSideChatTools) {
+		t.add(block{kind: blockError, text: sanitize(err.Error())})
+	} else {
+		t.add(block{kind: blockElapsed, text: markFilled + " Answered in " + formatDuration(elapsed)})
+	}
+	m.refreshTranscript(true)
+	return m, nil
 }
 
 // Some models print tool markup as ordinary text despite tool_choice none.
@@ -175,6 +102,8 @@ func closeSideChat(m *Model) {
 	if m.side == nil {
 		return
 	}
-	m.side.cancel()
+	if m.side.run != nil {
+		m.side.run.cancel()
+	}
 	m.side = nil
 }

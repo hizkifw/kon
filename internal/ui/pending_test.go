@@ -13,8 +13,7 @@ import (
 func busyModel(t *testing.T) Model {
 	t.Helper()
 	m := newTestModel(t)
-	m.busy = true
-	m.runCancel = func() {}
+	fakeTurn(&m)
 	return m
 }
 
@@ -78,10 +77,10 @@ func TestPlaceholderNamesKeysWhileBusy(t *testing.T) {
 func TestCleanFinishSendsNextQueued(t *testing.T) {
 	m := busyModel(t)
 	m.queued = []string{"first", "second"}
-	updated, _ := m.Update(runDoneMsg{})
+	updated, _ := m.Update(turnDone(m, nil))
 	m = updated.(Model)
-	if !m.busy || len(m.queued) != 1 || m.queued[0] != "second" {
-		t.Fatalf("busy = %v, queued = %q", m.busy, m.queued)
+	if !m.busy() || len(m.queued) != 1 || m.queued[0] != "second" {
+		t.Fatalf("busy = %v, queued = %q", m.busy(), m.queued)
 	}
 	if !strings.Contains(plain(m.viewport.View()), "first") {
 		t.Fatal("the queued prompt was not added to the transcript")
@@ -93,10 +92,10 @@ func TestInterruptSendsPendingSteerAndHoldsQueue(t *testing.T) {
 	m.inbox.Push("stop, use v2")
 	m.syncSteering()
 	m.queued = []string{"later"}
-	updated, _ := m.Update(runDoneMsg{err: context.Canceled})
+	updated, _ := m.Update(turnDone(m, context.Canceled))
 	m = updated.(Model)
-	if !m.busy || len(m.steering) != 0 || len(m.queued) != 1 {
-		t.Fatalf("busy = %v, steering = %q, queued = %q", m.busy, m.steering, m.queued)
+	if !m.busy() || len(m.steering) != 0 || len(m.queued) != 1 {
+		t.Fatalf("busy = %v, steering = %q, queued = %q", m.busy(), m.steering, m.queued)
 	}
 	if !strings.Contains(plain(m.viewport.View()), "stop, use v2") {
 		t.Fatal("the steer did not start the next run")
@@ -104,18 +103,18 @@ func TestInterruptSendsPendingSteerAndHoldsQueue(t *testing.T) {
 
 	// With no steer pending, an interrupt holds the queue until Enter on an
 	// empty prompt.
-	m.busy, m.runCancel = true, func() {}
-	updated, _ = m.Update(runDoneMsg{err: context.Canceled})
+	fakeTurn(&m)
+	updated, _ = m.Update(turnDone(m, context.Canceled))
 	m = updated.(Model)
-	if m.busy || len(m.queued) != 1 || !strings.Contains(m.message, "queue held") {
-		t.Fatalf("busy = %v, queued = %q, status = %q", m.busy, m.queued, m.message)
+	if m.busy() || len(m.queued) != 1 || !strings.Contains(m.message, "queue held") {
+		t.Fatalf("busy = %v, queued = %q, status = %q", m.busy(), m.queued, m.message)
 	}
 	if view := plain(m.View().Content); !strings.Contains(view, "⏎ send next queued") {
 		t.Fatalf("held queue has no hint:\n%s", view)
 	}
 	m = press(t, m, "enter")
-	if !m.busy || len(m.queued) != 0 {
-		t.Fatalf("enter on an empty prompt did not resume the queue: busy = %v, queued = %q", m.busy, m.queued)
+	if !m.busy() || len(m.queued) != 0 {
+		t.Fatalf("enter on an empty prompt did not resume the queue: busy = %v, queued = %q", m.busy(), m.queued)
 	}
 }
 
@@ -124,10 +123,10 @@ func TestFailedRunQueuesUnreadSteer(t *testing.T) {
 	m.inbox.Push("use v2")
 	m.syncSteering()
 	m.queued = []string{"later"}
-	updated, _ := m.Update(runDoneMsg{err: errors.New("boom")})
+	updated, _ := m.Update(turnDone(m, errors.New("boom")))
 	m = updated.(Model)
-	if m.busy || len(m.steering) != 0 || len(m.queued) != 2 || m.queued[0] != "use v2" {
-		t.Fatalf("busy = %v, steering = %q, queued = %q", m.busy, m.steering, m.queued)
+	if m.busy() || len(m.steering) != 0 || len(m.queued) != 2 || m.queued[0] != "use v2" {
+		t.Fatalf("busy = %v, steering = %q, queued = %q", m.busy(), m.steering, m.queued)
 	}
 }
 
@@ -206,8 +205,8 @@ func TestNoticeWhileIdleStartsARun(t *testing.T) {
 	m.runtime.(*fakeRuntime).jobs = 1
 	updated, _ := m.deliverNotice("[kon notice] job 1 exited with code 1")
 	m = updated.(Model)
-	if !m.busy || !strings.Contains(plain(m.viewport.View()), "job 1 exited") {
-		t.Fatalf("idle notice did not start a run: busy = %v", m.busy)
+	if !m.busy() || !strings.Contains(plain(m.viewport.View()), "job 1 exited") {
+		t.Fatalf("idle notice did not start a run: busy = %v", m.busy())
 	}
 	if view := plain(m.View().Content); !strings.Contains(view, "⚙ 1") {
 		t.Fatalf("running jobs missing from the status line:\n%s", view)

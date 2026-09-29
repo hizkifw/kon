@@ -124,8 +124,8 @@ func (m Model) drawerKey(key string) (tea.Model, tea.Cmd) {
 		m.closeDrawer()
 	case "ctrl+d":
 		m.closeDrawers()
-		if m.runCancel != nil {
-			m.runCancel()
+		if m.turn != nil {
+			m.turn.cancel()
 		}
 		return m, tea.Quit
 	case "pgup", "up":

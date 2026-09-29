@@ -21,7 +21,7 @@ func compactionEvents(m *Model) {
 func TestAutoCompactionStreamsInsideTheTurn(t *testing.T) {
 	m := newTestModel(t)
 	m.transcript.add(block{kind: blockUser, text: "speed it up"})
-	m.startTimer()
+	fakeTurn(&m)
 	compactionEvents(&m)
 	if !strings.Contains(m.transcript.liveTimer, "Compacting…") {
 		t.Fatalf("marker while compacting = %q", m.transcript.liveTimer)
@@ -69,7 +69,7 @@ func TestFailedCompactKeepsWhatStreamedAndSaysSo(t *testing.T) {
 	updated, _ := m.submit()
 	m = updated.(Model)
 	compactionEvents(&m)
-	m, _ = update(m, runDoneMsg{err: errors.New("provider died\nstatus 502")})
+	m, _ = update(m, turnDone(m, errors.New("provider died\nstatus 502")))
 	got := plain(strings.Join(m.transcript.linesFor(80), "\n"))
 	stopped, failure := strings.Index(got, "○ Compaction stopped"), strings.Index(got, "provider died")
 	if !strings.Contains(got, "Profiled the loader") || stopped < 0 || failure < stopped {

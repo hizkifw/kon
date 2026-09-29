@@ -36,7 +36,7 @@ func (m Model) steer(text string) (tea.Model, tea.Cmd) {
 // Idle with an empty queue there is nothing to wait behind, so Enter sends.
 func (m Model) canQueue() bool {
 	text := strings.TrimSpace(m.input.Value())
-	return text != "" && !strings.HasPrefix(text, "/") && (m.busy || len(m.queued) > 0)
+	return text != "" && !strings.HasPrefix(text, "/") && (m.busy() || len(m.queued) > 0)
 }
 
 // enqueue holds the prompt until the runs ahead of it have finished.
@@ -117,7 +117,7 @@ func (m Model) deliverNotice(text string) (tea.Model, tea.Cmd) {
 	m.jobs = m.runtime.RunningJobs()
 	// A subagent writes its last response before its job exits.
 	read := m.loadSpend()
-	if m.busy || !m.canSend() {
+	if m.busy() || !m.canSend() {
 		m.inbox.PushNotice(text)
 		return m, read
 	}
@@ -169,7 +169,7 @@ func oneLine(text string) string { return strings.Join(strings.Fields(sanitize(t
 // prompt is empty and so has room to say it.
 func (m Model) placeholder() string {
 	switch {
-	case m.busy:
+	case m.busy():
 		return "Ask kon… · ⇥ queue · ⏎ steer"
 	case len(m.queued) > 0:
 		return "Ask kon… · ⏎ send next queued"

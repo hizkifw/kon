@@ -74,7 +74,7 @@ func TestMentionCompletionPreservesPromptAndCursor(t *testing.T) {
 
 func TestMentionPickerFiltersAndAcceptsWhileBusy(t *testing.T) {
 	m := newTestModel(t)
-	m.busy = true
+	fakeTurn(&m)
 	m.input.SetValue("compare @mod")
 	m.mentions = fileMentions{loaded: true, files: indexMentionFiles([]string{"README.md", "internal/ui/model_test.go", "internal/ui/model.go"})}
 	m.refreshInput()
@@ -150,7 +150,7 @@ func TestMentionAsyncResultsFollowCurrentInput(t *testing.T) {
 	}
 	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updated.(Model)
-	if m.input.Value() != "@main.go " || m.busy {
+	if m.input.Value() != "@main.go " || m.busy() {
 		t.Fatal("Enter did not accept without submitting")
 	}
 }
@@ -192,7 +192,7 @@ func TestMentionPopupFitsSmallTerminal(t *testing.T) {
 
 func TestUnmatchedMentionCanBeSent(t *testing.T) {
 	m := newTestModel(t)
-	m.busy = true
+	fakeTurn(&m)
 	m.input.SetValue("read @missing.go")
 	m.mentions = fileMentions{loaded: true}
 	m.refreshInput()
@@ -208,7 +208,7 @@ func TestUnmatchedMentionCanBeSent(t *testing.T) {
 
 func TestEnterSubmitsWhileMentionSearchIsLoading(t *testing.T) {
 	m := newTestModel(t)
-	m.busy = true
+	fakeTurn(&m)
 	m.input.SetValue("read @main.go")
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -235,7 +235,7 @@ func TestProseMentionDoesNotAcceptScatteredPathLetters(t *testing.T) {
 	} {
 		t.Run(tt.prompt, func(t *testing.T) {
 			m := newTestModel(t)
-			m.busy = true
+			fakeTurn(&m)
 			m.input.SetValue(tt.prompt)
 			m.mentions = fileMentions{loaded: true, files: indexMentionFiles([]string{tt.file})}
 			m.refreshInput()
@@ -252,10 +252,10 @@ func TestUnmatchedMentionDoesNotClaimQueueOrInterrupt(t *testing.T) {
 	for _, key := range []string{"tab", "esc"} {
 		t.Run(key, func(t *testing.T) {
 			m := newTestModel(t)
-			m.busy = true
+			fakeTurn(&m)
 			ctx, cancel := context.WithCancel(context.Background())
 			t.Cleanup(cancel)
-			m.runCancel = cancel
+			m.turn.cancel = cancel
 			m.input.SetValue("explain @dataclass")
 			m.mentions = fileMentions{loaded: true}
 			m.refreshInput()
@@ -325,7 +325,7 @@ func TestMentionSendsAndRecallsPlainReference(t *testing.T) {
 	m = updated.(Model)
 	updated, _, _ = m.handleKey("enter")
 	m = updated.(Model)
-	t.Cleanup(m.runCancel)
+	t.Cleanup(m.turn.cancel)
 	select {
 	case got := <-r.text:
 		if got != "explain @main.go" {
@@ -334,7 +334,7 @@ func TestMentionSendsAndRecallsPlainReference(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("completed mention never reached the runtime")
 	}
-	<-m.runEvents
+	<-m.turn.events
 	if got, ok := m.history.recall("", -1); !ok || got != "explain @main.go" {
 		t.Fatalf("recalled mention = %q, %v", got, ok)
 	}
