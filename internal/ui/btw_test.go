@@ -109,8 +109,8 @@ finished:
 	if got := plain(m.View().Content); !strings.Contains(got, "main answer") || strings.Contains(got, "side answer") {
 		t.Fatalf("restored view = %s", got)
 	}
-	if m.transcript.lastReply() != "main answer" || len(m.history.entries) != 0 {
-		t.Fatal("side chat polluted transcript or prompt history")
+	if m.transcript.lastReply() != "main answer" || len(m.history.entries) != 1 || m.history.entries[0].Text != "/btw why this code?" {
+		t.Fatal("side chat polluted transcript or recorded more than its command")
 	}
 }
 

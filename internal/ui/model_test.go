@@ -1874,3 +1874,19 @@ func newTestModel(t testing.TB) Model {
 	result.resize()
 	return result
 }
+
+func TestSlashCommandsAreRecalledButTyposAreNot(t *testing.T) {
+	m := newTestModel(t)
+	for _, text := range []string{"/model fast", "/nosuch"} {
+		m.input.SetValue(text)
+		updated, _ := m.submit()
+		m = updated.(Model)
+	}
+	m.input.Reset()
+	if got, ok := m.history.recall("", -1); !ok || got != "/model fast" {
+		t.Fatalf("recall = (%q, %v), want /model fast", got, ok)
+	}
+	if got, ok := m.history.recall("", -1); ok {
+		t.Fatalf("recalled %q past the only command", got)
+	}
+}

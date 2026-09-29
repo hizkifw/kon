@@ -774,6 +774,12 @@ func (m Model) submit() (tea.Model, tea.Cmd) {
 			m.say(toneWarn, err.Error())
 			return m, nil
 		}
+		// Only commands that parse are recalled, so a typo does not crowd
+		// the history; the user fixes it in place instead.
+		if err := m.history.append(m.cwd, text); err != nil {
+			m.say(toneDanger, "error: "+err.Error())
+			return m, nil
+		}
 		return command.run(m)
 	}
 	if m.busy() {

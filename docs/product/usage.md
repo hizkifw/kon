@@ -297,7 +297,7 @@ directory's permissions rather than running kon as root.
 | Shift+Tab | Move to the previous suggestion when the popup is open |
 | Tab | Queue the prompt while kon works, when there is no suggestion to fill in |
 | Shift+Tab | Cycle the model's reasoning effort when no suggestion popup is open |
-| Up/Down | Recall prompts, or move the suggestion selection |
+| Up/Down | Recall prompts and slash commands, or move the suggestion selection |
 | Esc | Dismiss the popup; while kon works, press twice to interrupt the turn and send any pending steer (the first press only warns, and the warning lapses after a few seconds), then once more to kill the command |
 | Page Up/Page Down | Scroll the transcript |
 | Mouse wheel | Scroll the transcript |
