@@ -253,3 +253,29 @@ func TestBTWWhileHeldStaysReadOnly(t *testing.T) {
 		t.Fatalf("status = %q, following = %v, side = %v", m.message, m.follow != nil, m.side != nil)
 	}
 }
+
+func TestBTWDragCopiesTheSideAnswer(t *testing.T) {
+	m := transcriptModel(t, block{kind: blockAssistant, text: "main reply"})
+	m.runtime = sideRuntime{Runtime: m.runtime, run: func(ctx context.Context, _ string, _ func(agent.Event)) error {
+		<-ctx.Done()
+		return nil
+	}}
+	updated, _ := m.startSideChat("question")
+	m = updated.(Model)
+	t.Cleanup(m.side.cancel)
+	for _, msg := range []sideEventMsg{
+		{epoch: m.sideEpoch, event: agent.Event{Kind: agent.EventText, Text: "the **side** reply"}},
+		{epoch: m.sideEpoch, done: true},
+	} {
+		updated, _ = m.updateSideChat(msg)
+		m = updated.(Model)
+	}
+	x, y := cellOf(t, m, "the side")
+	m, cmd := drag(m, x, y, x+len("the side reply")-1, y)
+	if got := selectedText(t, cmd); got != "the **side** reply" {
+		t.Fatalf("copied %q", got)
+	}
+	if m.side == nil || m.transcript.selection != nil {
+		t.Fatal("selecting in the side view closed it or touched the main transcript")
+	}
+}

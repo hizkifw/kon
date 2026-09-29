@@ -46,7 +46,8 @@ func (m *Model) refreshTranscript(toBottom bool) {
 	}
 }
 
-// activeTranscript is the transcript the viewport currently shows: a
+// activeTranscript is the transcript the viewport currently shows, and so the
+// one a mouse selection reads: the /btw side view while it is open, a
 // highlighted popup row's preview when one is active, otherwise the live
 // conversation.
 func (m *Model) activeTranscript() *transcript {

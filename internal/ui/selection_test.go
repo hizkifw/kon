@@ -35,7 +35,7 @@ func transcriptModel(t *testing.T, blocks ...block) Model {
 // on screen and preceded only by single-cell characters on its line.
 func cellOf(t *testing.T, m Model, text string) (x, y int) {
 	t.Helper()
-	for i, line := range m.transcript.lines {
+	for i, line := range m.activeTranscript().lines {
 		if col := strings.Index(ansi.Strip(line), text); col >= 0 {
 			return col, transcriptTop + i - m.viewport.YOffset()
 		}

@@ -120,7 +120,7 @@ func (m Model) pointAt(x, y int) (point, int) {
 // nothing until the pointer moves; a double click selects the word pressed
 // on and a triple click the paragraph, straight away.
 func (m Model) pressMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
-	m.transcript.selection = nil
+	m.activeTranscript().selection = nil
 	row := msg.Y - transcriptTop
 	if msg.Button != tea.MouseLeft || m.preview != nil || row < 0 || row >= m.viewport.Height() || len(m.viewport.lines) == 0 {
 		m.click = click{}
@@ -134,8 +134,8 @@ func (m Model) pressMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	}
 	m.click = click{at: p, when: now, count: count, down: true}
 	if u := unit(count - 1); u != byCell {
-		if r, ok := m.transcript.unitAt(p, u, m.width); ok {
-			m.transcript.selection = &selection{unit: u, anchor: r, head: r}
+		if r, ok := m.activeTranscript().unitAt(p, u, m.width); ok {
+			m.activeTranscript().selection = &selection{unit: u, anchor: r, head: r}
 		}
 	}
 	return m, nil
@@ -149,7 +149,7 @@ func (m Model) dragMouse(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	p, edge := m.pointAt(msg.X, msg.Y)
-	sel := m.transcript.selection
+	sel := m.activeTranscript().selection
 	if sel == nil {
 		// A pointer past the edge has left the pressed cell, though the
 		// cell it is held to is that one.
@@ -158,7 +158,7 @@ func (m Model) dragMouse(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 		}
 		pressed := cells{m.click.at, m.click.at}
 		sel = &selection{unit: byCell, anchor: pressed, head: pressed}
-		m.transcript.selection = sel
+		m.activeTranscript().selection = sel
 	}
 	m.moveHead(p)
 	scroll := edge != 0 && sel.edge == 0
@@ -173,8 +173,8 @@ func (m Model) dragMouse(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 // moveHead moves the selection's head to the unit at p, or to p alone when no
 // unit is there, as on a blank line.
 func (m *Model) moveHead(p point) {
-	sel := m.transcript.selection
-	r, ok := m.transcript.unitAt(p, sel.unit, m.width)
+	sel := m.activeTranscript().selection
+	r, ok := m.activeTranscript().unitAt(p, sel.unit, m.width)
 	if !ok {
 		r = cells{p, p}
 	}
@@ -185,7 +185,7 @@ func (m *Model) moveHead(p point) {
 // lines the wheel brings under the pointer.
 func (m Model) wheelMouse(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 	m.viewport.Update(msg)
-	if m.transcript.selection != nil {
+	if m.activeTranscript().selection != nil {
 		p, _ := m.pointAt(msg.X, msg.Y)
 		m.moveHead(p)
 	}
@@ -195,7 +195,7 @@ func (m Model) wheelMouse(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 // scrollSelection scrolls toward the edge a drag is held past and moves the
 // selection's head onto the line brought in.
 func (m Model) scrollSelection(msg selectScrollMsg) (tea.Model, tea.Cmd) {
-	sel := m.transcript.selection
+	sel := m.activeTranscript().selection
 	if sel == nil || sel.edge == 0 || msg.epoch != m.selectEpoch {
 		return m, nil
 	}
@@ -213,14 +213,14 @@ func (m Model) scrollSelection(msg selectScrollMsg) (tea.Model, tea.Cmd) {
 // click without a drag selects nothing, so clicking to focus the window never
 // replaces what is on the clipboard.
 func (m Model) releaseMouse(tea.MouseReleaseMsg) (tea.Model, tea.Cmd) {
-	sel := m.transcript.selection
-	m.transcript.selection = nil
+	sel := m.activeTranscript().selection
+	m.activeTranscript().selection = nil
 	m.click.down = false
 	if sel == nil {
 		return m, nil
 	}
 	start, end := sel.span()
-	parts := m.transcript.selectedParts(start, end, m.width)
+	parts := m.activeTranscript().selectedParts(start, end, m.width)
 	if len(parts) == 0 {
 		return m, m.flash("nothing to copy in the selection")
 	}
