@@ -10,6 +10,7 @@ func Ordered() []migrate.Step {
 		baselineV1{},
 		v011SessionsV2{},
 		compactionDefaultsV3{},
+		instructionsFileV4{},
 	}
 }
 
@@ -17,4 +18,5 @@ var (
 	_ migrate.Step = baselineV1{}
 	_ migrate.Step = v011SessionsV2{}
 	_ migrate.Step = compactionDefaultsV3{}
+	_ migrate.Step = instructionsFileV4{}
 )

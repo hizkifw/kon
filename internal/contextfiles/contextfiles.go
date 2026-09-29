@@ -28,6 +28,17 @@ type File struct {
 // the other names in the same directory.
 var candidates = []string{"AGENTS.override.md", "AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"}
 
+// Global returns the user's own instruction file from kon's config directory,
+// which applies to every session regardless of where kon runs. The same file
+// names are accepted there as in a project directory. An empty configDir has
+// no global file rather than meaning the current directory.
+func Global(configDir string) (File, bool) {
+	if configDir == "" {
+		return File{}, false
+	}
+	return loadFromDir(filepath.Clean(configDir))
+}
+
 // Load returns the instruction files that apply to cwd, ordered outermost
 // (filesystem root side) to innermost (cwd), which is the order a model should
 // read inherited instructions in.

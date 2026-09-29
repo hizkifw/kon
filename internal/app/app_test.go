@@ -628,6 +628,41 @@ func TestNewSkipsContextFilesWhenDisabled(t *testing.T) {
 	}
 }
 
+func TestNewLoadsGlobalAgentsFileFirst(t *testing.T) {
+	configDir, workspace := t.TempDir(), t.TempDir()
+	if err := os.WriteFile(filepath.Join(configDir, "AGENTS.md"), []byte("global rules"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "AGENTS.md"), []byte("workspace rules"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	paths := config.Paths{ConfigDir: configDir, Sessions: t.TempDir(), ConfigFile: filepath.Join(configDir, "config.json")}
+	prompt := func(cfg config.Config, cwd string) string {
+		t.Helper()
+		runtime, err := New(cfg, paths, cwd, "test")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer runtime.Close()
+		return runtime.SessionHistory()[0].Message.Text()
+	}
+
+	got := prompt(config.Default(), workspace)
+	global, project := strings.Index(got, "global rules"), strings.Index(got, "workspace rules")
+	if global < 0 || project < 0 || global > project {
+		t.Fatalf("global file should precede project files:\n%s", got)
+	}
+	if got := prompt(config.Default(), configDir); strings.Count(got, "global rules") != 1 {
+		t.Fatalf("global file repeated when working in the config directory:\n%s", got)
+	}
+	disabled := false
+	cfg := config.Default()
+	cfg.ContextFiles = &disabled
+	if got := prompt(cfg, workspace); !strings.Contains(got, "global rules") || strings.Contains(got, "workspace rules") {
+		t.Fatalf("disabling discovery should keep only the global file:\n%s", got)
+	}
+}
+
 func TestCloseCancelsAndWaitsForActiveRun(t *testing.T) {
 	store := testStore(t)
 	profile := modelSpec{Model: config.Model{Name: "default", Type: "openai", ModelID: "model"}}

@@ -10,8 +10,7 @@ The generated file configures no model:
 ```json
 {
   "default_model": "",
-  "models": [],
-  "instructions": ""
+  "models": []
 }
 ```
 
@@ -200,7 +199,6 @@ Top level:
 | `models` | array | `[]` | Explicit model profiles; see below. |
 | `compaction.reserve_tokens` | integer | derived | Tokens kept free below the window: compaction starts once the context would eat into them. Omit it to derive it from the window, as above. |
 | `compaction.keep_recent_tokens` | integer | derived | Recent context kept verbatim when older history is summarized. Omit it to derive it from the window. |
-| `instructions` | string | `""` | Text appended to the system prompt of new sessions. |
 | `context_files` | boolean | `true` | Load `AGENTS.md` and `CLAUDE.md` files; see [Project instructions](#project-instructions). |
 
 Each entry in `providers`:
@@ -244,13 +242,20 @@ call. `/model` only derives names for supported, configured connections.
 
 ## Project instructions
 
-kon walks from the working directory to the filesystem root and loads the
+Instructions that apply everywhere go in `AGENTS.md` in the config directory,
+next to `config.json` (`~/.config/kon/AGENTS.md` on Linux and macOS). kon
+loads it into every new session, ahead of any project's files. Earlier
+releases took this text from an `instructions` field in `config.json`; kon
+moves it into this file on upgrade.
+
+kon also walks from the working directory to the filesystem root and loads the
 first `AGENTS.md` it finds in each directory. Inherited instructions come
 first and more specific ones last. `CLAUDE.md` is accepted as a compatibility
 alias, and `AGENTS.override.md` replaces the plain file in its directory.
 Empty files and directories whose name begins with `.` are ignored.
 
-Set `"context_files": false` in the config to turn off discovery. The prompt
+Set `"context_files": false` in the config to turn off discovery in the
+working directory; the global `AGENTS.md` still loads. The prompt
 is recorded when a session is created. Changes to instruction files therefore
 apply to new sessions (`/new` or a fresh launch); resumed sessions keep their
 original prompt.

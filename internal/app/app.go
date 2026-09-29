@@ -720,8 +720,9 @@ func (r *Runtime) Close() error {
 	return err
 }
 
-// systemPrompt resolves the context files that apply to the working directory,
-// when enabled, and builds the durable system prompt for a new session.
+// systemPrompt resolves the user's global AGENTS.md and, when enabled, the
+// context files that apply to the working directory, and builds the durable
+// system prompt for a new session.
 func (r *Runtime) systemPrompt() (string, error) {
 	executable, err := os.Executable()
 	if err != nil {
@@ -732,14 +733,22 @@ func (r *Runtime) systemPrompt() (string, error) {
 		return "", fmt.Errorf("resolve kon executable path: %w", err)
 	}
 	var files []contextfiles.File
+	global, hasGlobal := contextfiles.Global(r.paths.ConfigDir)
+	if hasGlobal {
+		files = append(files, global)
+	}
 	if r.config.ContextFilesEnabled() {
 		discovered, err := contextfiles.Load(r.cwd)
 		if err != nil {
 			return "", err
 		}
-		files = discovered
+		// Working inside the config directory would otherwise list the global
+		// file twice.
+		files = append(files, slices.DeleteFunc(discovered, func(file contextfiles.File) bool {
+			return hasGlobal && file.Path == global.Path
+		})...)
 	}
-	return agent.SystemPrompt(r.cwd, executable, files, r.config.Instructions), nil
+	return agent.SystemPrompt(r.cwd, executable, files), nil
 }
 
 // prepareSession creates a new session for profile. A model that is not ready

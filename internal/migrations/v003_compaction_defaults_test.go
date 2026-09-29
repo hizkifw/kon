@@ -64,3 +64,13 @@ func TestCompactionDefaultsLeaveAnUnreadableConfig(t *testing.T) {
 		t.Fatalf("a missing config failed the migration: %v", err)
 	}
 }
+
+func TestCompactionDefaultsKeepInstructionsForTheNextStep(t *testing.T) {
+	got, err := runCompactionDefaults(t, `{"models": [], "compaction": {"reserve_tokens": 16384}, "instructions": "be terse"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(got, "compaction") || !strings.Contains(got, `"instructions": "be terse"`) {
+		t.Fatalf("migrated config:\n%s", got)
+	}
+}

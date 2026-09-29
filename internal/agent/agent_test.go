@@ -579,8 +579,8 @@ func TestSystemPromptRendersContextFilesInOrder(t *testing.T) {
 	prompt := SystemPrompt("/work/project", "/usr/local/bin/kon", []contextfiles.File{
 		{Path: "/work/AGENTS.md", Content: "outer rules\n"},
 		{Path: "/work/project/AGENTS.md", Content: "inner rules"},
-	}, "")
-	if !strings.Contains(prompt, "<project_instructions path=\"/work/AGENTS.md\">\nouter rules\n</project_instructions>") {
+	})
+	if !strings.Contains(prompt, "<instructions path=\"/work/AGENTS.md\">\nouter rules\n</instructions>") {
 		t.Fatalf("outer file not rendered with its path:\n%s", prompt)
 	}
 	outer := strings.Index(prompt, "outer rules")
@@ -594,32 +594,23 @@ func TestSystemPromptRendersContextFilesInOrder(t *testing.T) {
 }
 
 func TestSystemPromptOmitsContextSectionWhenEmpty(t *testing.T) {
-	prompt := SystemPrompt("/work", "/usr/local/bin/kon", nil, "")
-	if strings.Contains(prompt, "project_instructions") || strings.Contains(prompt, "Project-specific instructions") {
+	prompt := SystemPrompt("/work", "/usr/local/bin/kon", nil)
+	if strings.Contains(prompt, "<instructions") || strings.Contains(prompt, "User and project instructions") {
 		t.Fatalf("empty context files produced a section:\n%s", prompt)
 	}
 }
 
 func TestSystemPromptPointsToBundledDocs(t *testing.T) {
 	executable := "/path with spaces/kon"
-	prompt := SystemPrompt("/work", executable, nil, "")
+	prompt := SystemPrompt("/work", executable, nil)
 	if !strings.Contains(prompt, "Current kon executable: "+executable) {
 		t.Fatalf("executable path missing from prompt:\n%s", prompt)
 	}
 }
 
 func TestSystemPromptPointsToShellTools(t *testing.T) {
-	prompt := SystemPrompt("/work", "/usr/local/bin/kon", nil, "")
+	prompt := SystemPrompt("/work", "/usr/local/bin/kon", nil)
 	if !strings.Contains(prompt, "`<kon> tool webfetch <url>`") || !strings.Contains(prompt, "`<kon> tool --help`") {
 		t.Fatalf("shell tools missing from prompt:\n%s", prompt)
-	}
-}
-
-func TestSystemPromptPlacesInstructionsLast(t *testing.T) {
-	prompt := SystemPrompt("/work", "/usr/local/bin/kon", []contextfiles.File{{Path: "/work/AGENTS.md", Content: "project rules"}}, "user rules")
-	project := strings.Index(prompt, "project rules")
-	instructions := strings.Index(prompt, "Additional user instructions:\nuser rules")
-	if project < 0 || instructions < 0 || project > instructions {
-		t.Fatalf("configured instructions should come last:\n%s", prompt)
 	}
 }

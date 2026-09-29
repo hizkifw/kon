@@ -1,12 +1,7 @@
 package migrations
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"errors"
-	"fmt"
-	"os"
 
 	"github.com/hizkifw/kon/internal/config"
 )
@@ -27,18 +22,9 @@ func (compactionDefaultsV3) Name() string { return "drop the compaction budgets 
 // derived from the model's window instead. A budget the user changed stays. A
 // config kon cannot read is left for loading to report.
 func (compactionDefaultsV3) Run(_ context.Context, paths config.Paths) error {
-	b, err := os.ReadFile(paths.ConfigFile)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("read config for migration: %w", err)
-	}
-	cfg := config.Default()
-	dec := json.NewDecoder(bytes.NewReader(b))
-	dec.DisallowUnknownFields()
-	if dec.Decode(&cfg) != nil {
-		return nil
+	cfg, ok, err := readInstructionsConfig(paths.ConfigFile)
+	if !ok {
+		return err
 	}
 	written := cfg.Compaction
 	if cfg.Compaction.ReserveTokens == writtenReserveTokens {
@@ -50,5 +36,6 @@ func (compactionDefaultsV3) Run(_ context.Context, paths config.Paths) error {
 	if cfg.Compaction == written {
 		return nil
 	}
-	return cfg.Save(paths.ConfigFile)
+	// The instructions field is kept for the next step to move.
+	return config.WriteJSON(paths.ConfigFile, cfg)
 }

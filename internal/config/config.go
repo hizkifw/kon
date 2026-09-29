@@ -27,10 +27,10 @@ type Config struct {
 	Providers       []Provider `json:"providers,omitempty"`
 	Models          []Model    `json:"models"`
 	Compaction      Compaction `json:"compaction,omitzero"`
-	Instructions    string     `json:"instructions"`
 	// ContextFiles enables discovery of AGENTS.md and CLAUDE.md files by walking
 	// up from the working directory. It is on by default; set it to false to
-	// keep the system prompt limited to the built-in rules and instructions.
+	// keep the system prompt limited to the built-in rules and the global
+	// AGENTS.md in the config directory.
 	ContextFiles *bool `json:"context_files,omitempty"`
 }
 
@@ -332,7 +332,14 @@ func validName(name string) bool {
 }
 
 func (c Config) Save(path string) error {
-	b, err := json.MarshalIndent(c, "", "  ")
+	return WriteJSON(path, c)
+}
+
+// WriteJSON atomically replaces path with v as indented JSON, owner-only
+// because a config holds literal API keys. Migrations use it to write config
+// shapes that the current Config no longer describes.
+func WriteJSON(path string, v any) error {
+	b, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode config %s: %w", path, err)
 	}

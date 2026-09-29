@@ -299,10 +299,11 @@ compaction entry points to the first retained entry. Context projection combines
 
 The system prompt is built once when the session is created. It carries the
 built-in rules, the absolute path to the current kon executable, guidance to
-consult `kon docs` for self-questions, and the `kon tool` commands, then any `AGENTS.md`-style project
-instructions discovered by walking up from the working directory (outermost
-first, tagged with their paths), the working directory, and finally the user's
-configured instructions. Because the prompt is persisted verbatim and never
+consult `kon docs` for self-questions, and the `kon tool` commands, then the
+user's global `AGENTS.md` from the config directory and any `AGENTS.md`-style
+project instructions discovered by walking up from the working directory
+(outermost first, each tagged with its path), and finally the working
+directory. Because the prompt is persisted verbatim and never
 rebuilt, edits
 to an instruction file take effect on a new session rather than a resumed one;
 this is the same byte-stability the compaction design depends on.
