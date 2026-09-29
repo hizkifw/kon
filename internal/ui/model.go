@@ -112,9 +112,11 @@ type Model struct {
 	busy            bool
 	runCancel       context.CancelFunc
 	runEvents       chan tea.Msg
-	side            *sideChat
-	sideEpoch       int
-	sideSpent       float64
+	// drawers is the stack of surfaces painted over the screen, top last.
+	drawers   []*drawer
+	side      *sideChat
+	sideEpoch int
+	sideSpent float64
 	// interruptPresses counts consecutive Esc presses while a run is in
 	// flight, so the harness can escalate: the first press cancels the run
 	// (interrupting a running command), the second kills it.
@@ -302,7 +304,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case flashDoneMsg:
 		return m.flashDone(msg)
 	case tea.PasteMsg:
-		if m.side != nil {
+		if len(m.drawers) > 0 {
 			return m, nil
 		}
 		if m.search != nil {
@@ -384,8 +386,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.retitleModelChanges()
 		return m, nil
 	case tea.KeyPressMsg:
-		if m.side != nil {
-			return m.sideKey(msg.String())
+		if len(m.drawers) > 0 {
+			return m.drawerKey(msg.String())
 		}
 		if m.login != nil {
 			return m.updateLogin(msg)

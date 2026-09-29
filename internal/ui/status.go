@@ -18,11 +18,6 @@ import (
 // the transcript. It is "" otherwise.
 func (m Model) mode() string {
 	switch {
-	case m.side != nil:
-		if m.busy {
-			return "/btw · main task running"
-		}
-		return "/btw"
 	case m.login != nil:
 		return m.login.question()
 	case m.follow != nil:

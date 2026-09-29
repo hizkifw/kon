@@ -97,23 +97,33 @@ type selectionTextMsg struct{ text string }
 
 var selectedStyle = lipgloss.NewStyle().Reverse(true)
 
+// surface is the scrolling view the mouse works on and where it sits on
+// screen: the top drawer's when one is open, otherwise the main transcript's.
+func (m *Model) surface() (*scrollView, rect) {
+	if d := m.topDrawer(); d != nil {
+		return &d.view, drawerBody(drawerRect(m.width, m.height, len(m.drawers)-1))
+	}
+	return &m.viewport, rect{0, transcriptTop, m.width, m.viewport.Height()}
+}
+
 // pointAt returns the transcript cell under screen cell (x, y), held to the
 // lines the transcript has, and how many rows y lies past the top (negative)
 // or the bottom (positive) of the transcript.
 func (m Model) pointAt(x, y int) (point, int) {
-	row, edge := y-transcriptTop, 0
+	view, area := m.surface()
+	row, edge := y-area.y, 0
 	if row < 0 {
 		row, edge = 0, row
-	} else if last := m.viewport.Height() - 1; row > last {
+	} else if last := view.Height() - 1; row > last {
 		row, edge = last, row-last
 	}
-	line := m.viewport.YOffset() + row
-	if last := len(m.viewport.lines) - 1; line > last {
+	line := view.YOffset() + row
+	if last := len(view.lines) - 1; line > last {
 		// Below the last line, as on the blank row under it: the selection
 		// runs to that line's end.
-		return point{last, m.width}, edge
+		return point{last, area.w}, edge
 	}
-	return point{line, max(0, x)}, edge
+	return point{line, max(0, x-area.x)}, edge
 }
 
 // pressMouse records a left press on the transcript. A single press selects
@@ -121,8 +131,15 @@ func (m Model) pointAt(x, y int) (point, int) {
 // on and a triple click the paragraph, straight away.
 func (m Model) pressMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	m.activeTranscript().selection = nil
-	row := msg.Y - transcriptTop
-	if msg.Button != tea.MouseLeft || m.preview != nil || row < 0 || row >= m.viewport.Height() || len(m.viewport.lines) == 0 {
+	if len(m.drawers) > 0 {
+		// The dimmed area around the top drawer only takes a click to close it.
+		if r := drawerRect(m.width, m.height, len(m.drawers)-1); !r.contains(msg.X, msg.Y) {
+			m.closeDrawer()
+			return m, nil
+		}
+	}
+	view, area := m.surface()
+	if msg.Button != tea.MouseLeft || len(m.drawers) == 0 && m.preview != nil || !area.contains(msg.X, msg.Y) || len(view.lines) == 0 {
 		m.click = click{}
 		return m, nil
 	}
@@ -134,7 +151,7 @@ func (m Model) pressMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	}
 	m.click = click{at: p, when: now, count: count, down: true}
 	if u := unit(count - 1); u != byCell {
-		if r, ok := m.activeTranscript().unitAt(p, u, m.width); ok {
+		if r, ok := m.activeTranscript().unitAt(p, u, area.w); ok {
 			m.activeTranscript().selection = &selection{unit: u, anchor: r, head: r}
 		}
 	}
@@ -174,7 +191,8 @@ func (m Model) dragMouse(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 // unit is there, as on a blank line.
 func (m *Model) moveHead(p point) {
 	sel := m.activeTranscript().selection
-	r, ok := m.activeTranscript().unitAt(p, sel.unit, m.width)
+	_, area := m.surface()
+	r, ok := m.activeTranscript().unitAt(p, sel.unit, area.w)
 	if !ok {
 		r = cells{p, p}
 	}
@@ -184,7 +202,8 @@ func (m *Model) moveHead(p point) {
 // wheelMouse scrolls the transcript, and a drag in progress takes in the
 // lines the wheel brings under the pointer.
 func (m Model) wheelMouse(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
-	m.viewport.Update(msg)
+	view, _ := m.surface()
+	view.Update(msg)
 	if m.activeTranscript().selection != nil {
 		p, _ := m.pointAt(msg.X, msg.Y)
 		m.moveHead(p)
@@ -199,12 +218,13 @@ func (m Model) scrollSelection(msg selectScrollMsg) (tea.Model, tea.Cmd) {
 	if sel == nil || sel.edge == 0 || msg.epoch != m.selectEpoch {
 		return m, nil
 	}
-	m.viewport.SetYOffset(m.viewport.YOffset() + max(-maxSelectScroll, min(sel.edge, maxSelectScroll)))
-	row := transcriptTop
+	view, area := m.surface()
+	view.SetYOffset(view.YOffset() + max(-maxSelectScroll, min(sel.edge, maxSelectScroll)))
+	row := area.y
 	if sel.edge > 0 {
-		row += m.viewport.Height() - 1
+		row += view.Height() - 1
 	}
-	p, _ := m.pointAt(sel.head.to.col, row)
+	p, _ := m.pointAt(area.x+sel.head.to.col, row)
 	m.moveHead(p)
 	return m, selectScrollTick(msg.epoch)
 }
@@ -220,7 +240,8 @@ func (m Model) releaseMouse(tea.MouseReleaseMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	start, end := sel.span()
-	parts := m.activeTranscript().selectedParts(start, end, m.width)
+	_, area := m.surface()
+	parts := m.activeTranscript().selectedParts(start, end, area.w)
 	if len(parts) == 0 {
 		return m, m.flash("nothing to copy in the selection")
 	}

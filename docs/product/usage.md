@@ -102,8 +102,9 @@ iTerm2).
 ## Steering and queueing
 
 For a quick question that should not steer the task, use `/btw <question>`.
-It streams an answer in a separate view using the active model and a snapshot
-of the current conversation. The main task keeps running in the background.
+It streams an answer in a drawer from the right, using the active model and a
+snapshot of the current conversation. The main task keeps running, dimmed,
+behind it.
 Like a turn's timer, a marker under the answer reads "Asking…" until the model
 responds, "Thinking…" while it reasons, then "Answering…", and "Answered in …"
 once it is done. The reasoning itself is not shown.
@@ -113,10 +114,10 @@ For questions that need a command or fresh information, ask in the main
 conversation. If the model returns a tool call or recognizable tool-call
 markup anyway, kon adds a "Nothing was executed" note to the side answer.
 
-Press Esc or Ctrl+C to dismiss the view and cancel an unfinished side answer.
-Enter also dismisses a completed answer. This leaves the main task running.
-Scroll with the mouse wheel or PgUp/PgDn; select text to copy it before
-dismissing. Each `/btw` starts a fresh
+Press Esc or Ctrl+C, or click the dimmed area, to close the drawer and cancel
+an unfinished side answer. This leaves the main task running.
+Scroll with the mouse wheel, PgUp/PgDn, or Home/End; select text to copy it
+before closing. Each `/btw` starts a fresh
 question. Side questions and answers are never added to the main conversation,
 saved session, or prompt history. They still go to your configured provider
 and use tokens; reported costs are shown for the current session until you

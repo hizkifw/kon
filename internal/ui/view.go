@@ -31,6 +31,7 @@ func (m *Model) resize() {
 	m.input.SetHeight(inputHeight)
 	m.viewport.SetWidth(max(1, m.width))
 	m.viewport.SetHeight(max(1, m.height-inputHeight-2-panels))
+	m.layoutDrawers()
 }
 
 // refreshTranscript updates the viewport contents. When toBottom is set, the
@@ -40,20 +41,25 @@ func (m *Model) resize() {
 // user who was at the bottom no longer is.
 func (m *Model) refreshTranscript(toBottom bool) {
 	follow := toBottom && m.viewport.AtBottom()
-	m.viewport.SetContentLines(m.activeTranscript().linesFor(m.width))
+	m.viewport.SetContentLines(m.mainTranscript().linesFor(m.width))
 	if follow {
 		m.viewport.GotoBottom()
 	}
+	m.refreshDrawers()
 }
 
-// activeTranscript is the transcript the viewport currently shows, and so the
-// one a mouse selection reads: the /btw side view while it is open, a
-// highlighted popup row's preview when one is active, otherwise the live
-// conversation.
+// activeTranscript is the transcript the mouse works on: the top drawer's when
+// one is open, otherwise the one the main viewport shows.
 func (m *Model) activeTranscript() *transcript {
-	if m.side != nil {
-		return &m.side.transcript
+	if d := m.topDrawer(); d != nil {
+		return d.transcript
 	}
+	return m.mainTranscript()
+}
+
+// mainTranscript is the transcript the main viewport shows: a highlighted
+// popup row's preview when one is active, otherwise the live conversation.
+func (m *Model) mainTranscript() *transcript {
 	if m.preview != nil {
 		return m.preview
 	}
@@ -96,7 +102,7 @@ func (m Model) View() tea.View {
 		status += " · " + text
 	}
 	transcript := m.viewport.View()
-	if t := m.activeTranscript(); t.selection != nil {
+	if t := m.mainTranscript(); t.selection != nil {
 		transcript = m.viewport.ViewWith(func(i int, line string) string { return t.highlight(i, line, m.width) })
 	}
 	sections := []string{headerStyle.Render(fitLine(header, m.width)), transcript}
@@ -120,8 +126,11 @@ func (m Model) View() tea.View {
 	}
 	sections = append(sections, inputView(input, m.width))
 	content := strings.Join(sections, "\n")
+	if len(m.drawers) > 0 {
+		content = strings.Join(m.paintDrawers(strings.Split(content, "\n")), "\n")
+	}
 	view := tea.NewView(content)
-	if m.terminalFocused && m.side == nil {
+	if m.terminalFocused && len(m.drawers) == 0 {
 		view.Cursor = m.input.Cursor()
 		if m.login != nil {
 			view.Cursor = m.login.input.Cursor()

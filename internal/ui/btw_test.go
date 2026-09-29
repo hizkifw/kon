@@ -22,6 +22,13 @@ func (r sideRuntime) SideChat(ctx context.Context, question string, emit func(ag
 	return r.run(ctx, question, emit)
 }
 
+// openSide opens an empty side answer's drawer with no request behind it.
+func openSide(m *Model) {
+	m.sideEpoch = 1
+	m.side = &sideChat{cancel: func() {}}
+	m.openDrawer(&drawer{title: "/btw", transcript: &m.side.transcript, onClose: closeSideChat})
+}
+
 func TestBTWParsesFreeFormQuestion(t *testing.T) {
 	r := defaultRegistry()
 	question := "why  this code?\n  What about `a / b`?"
@@ -68,7 +75,7 @@ func TestBTWStreamsApartFromMainRun(t *testing.T) {
 	if !m.busy || len(m.inbox.Pending()) != 0 || len(m.queued) != 0 {
 		t.Fatal("side question changed the main run or pending messages")
 	}
-	if got := plain(m.View().Content); !strings.Contains(got, "Asking…") || !strings.Contains(got, "Esc to go back") {
+	if got := plain(m.View().Content); !strings.Contains(got, "Asking…") {
 		t.Fatalf("side view before the answer = %s", got)
 	}
 	for {
@@ -88,13 +95,13 @@ finished:
 	m.applyAgentEvent(agent.Event{Kind: agent.EventAssistantDone})
 	m.refreshTranscript(true)
 	if got := plain(m.View().Content); !strings.Contains(got, "side answer") || strings.Contains(got, "main answer") ||
-		!strings.Contains(got, "Answered in") || !strings.Contains(got, "⏎ or Esc to go back") {
+		!strings.Contains(got, "Answered in") {
 		t.Fatalf("side view = %s", got)
 	}
 	if m.contextTokens != 42 || m.sideSpent != 0.01 || m.spent != 0 {
 		t.Fatalf("usage leaked: context=%v, side=%v, main=%v", m.contextTokens, m.sideSpent, m.spent)
 	}
-	updated, _ = m.sideKey("enter")
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	m = updated.(Model)
 	if strings.Contains(m.statusText(), "usage:") {
 		t.Fatalf("dismiss restored stale usage hint: %q", m.statusText())
@@ -122,11 +129,8 @@ func TestBTWDismissCancelsOnlySideAndDropsLateEvents(t *testing.T) {
 	epoch := m.sideEpoch
 	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updated.(Model)
-	if m.side == nil {
-		t.Fatal("Enter dismissed an unfinished side answer")
-	}
-	if hint := plain(m.View().Content); strings.Contains(hint, "Esc or Enter") {
-		t.Fatal("streaming side view advertised Enter dismissal")
+	if m.side == nil || len(m.drawers) != 1 {
+		t.Fatal("Enter dismissed the side answer")
 	}
 	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	m = updated.(Model)
@@ -135,7 +139,7 @@ func TestBTWDismissCancelsOnlySideAndDropsLateEvents(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("dismiss did not cancel side request")
 	}
-	if mainCancelled || !m.busy || m.side != nil {
+	if mainCancelled || !m.busy || m.side != nil || len(m.drawers) != 0 {
 		t.Fatal("dismiss affected the main run")
 	}
 	updated, cmd := m.Update(sideEventMsg{epoch: epoch, event: agent.Event{Kind: agent.EventText, Text: "late"}})
@@ -147,8 +151,7 @@ func TestBTWDismissCancelsOnlySideAndDropsLateEvents(t *testing.T) {
 
 func TestBTWErrorAndModalInput(t *testing.T) {
 	m := newTestModel(t)
-	m.sideEpoch = 1
-	m.side = &sideChat{cancel: func() {}}
+	openSide(&m)
 	updated, _ := m.Update(tea.PasteMsg{Content: "do not steer"})
 	m = updated.(Model)
 	updated, _ = m.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
@@ -198,8 +201,7 @@ func TestBTWExplainsUnexecutedToolCalls(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m := newTestModel(t)
-			m.sideEpoch = 1
-			m.side = &sideChat{cancel: func() {}}
+			openSide(&m)
 			for _, chunk := range tc.chunks {
 				updated, _ := m.Update(sideEventMsg{epoch: 1, event: agent.Event{Kind: agent.EventText, Text: chunk}})
 				m = updated.(Model)
@@ -216,7 +218,7 @@ func TestBTWExplainsUnexecutedToolCalls(t *testing.T) {
 			if len(m.transcript.blocks) != 0 || m.runtime.(*fakeRuntime).runs.Load() != 0 {
 				t.Fatal("side tool attempt reached the main conversation")
 			}
-			m.closeSideChat()
+			m.closeDrawer()
 			if strings.Contains(plain(m.View().Content), "Nothing was executed.") {
 				t.Fatal("side notice remained after dismissal")
 			}

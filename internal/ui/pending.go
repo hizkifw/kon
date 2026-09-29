@@ -168,10 +168,6 @@ func oneLine(text string) string { return strings.Join(strings.Fields(sanitize(t
 // prompt is empty and so has room to say it.
 func (m Model) placeholder() string {
 	switch {
-	case m.side != nil && m.side.done:
-		return "⏎ or Esc to go back"
-	case m.side != nil:
-		return "Esc to go back"
 	case m.busy:
 		return "Ask kon… · ⇥ queue · ⏎ steer"
 	case len(m.queued) > 0:

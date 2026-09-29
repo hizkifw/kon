@@ -31,13 +31,14 @@ func transcriptModel(t *testing.T, blocks ...block) Model {
 	return m
 }
 
-// cellOf returns the screen cell showing the first byte of text, which must be
-// on screen and preceded only by single-cell characters on its line.
+// cellOf returns the screen cell showing the first byte of text in the surface
+// the mouse works on, which must be on screen and preceded only by single-cell characters on its line.
 func cellOf(t *testing.T, m Model, text string) (x, y int) {
 	t.Helper()
+	view, area := m.surface()
 	for i, line := range m.activeTranscript().lines {
 		if col := strings.Index(ansi.Strip(line), text); col >= 0 {
-			return col, transcriptTop + i - m.viewport.YOffset()
+			return area.x + col, area.y + i - view.YOffset()
 		}
 	}
 	t.Fatalf("%q is not in the transcript", text)

@@ -11,13 +11,12 @@ import (
 	"github.com/hizkifw/kon/internal/app"
 )
 
-// sideChat owns a temporary view; the main transcript keeps receiving its
-// events while this one is visible.
+// sideChat is a side answer streaming into its own drawer; the main
+// transcript keeps receiving its events underneath.
 type sideChat struct {
 	transcript transcript
 	cancel     context.CancelFunc
 	events     <-chan sideEventMsg
-	position   previewReturn
 	done       bool
 	// start times the answer for its marker, and verb names what the model
 	// is doing: Asking until it responds, then Thinking or Answering by the
@@ -62,16 +61,13 @@ func (m Model) startSideChat(question string) (tea.Model, tea.Cmd) {
 	events := make(chan sideEventMsg)
 	m.side = &sideChat{
 		transcript: transcript{cwd: m.cwd}, cancel: cancel, events: events,
-		position: previewReturn{offset: m.viewport.YOffset(), atBottom: m.viewport.AtBottom()},
-		start:    time.Now(),
-		verb:     "Asking",
+		start: time.Now(), verb: "Asking",
 	}
 	m.side.transcript.add(block{kind: blockUser, text: sanitize(question)})
 	m.side.syncTimer(time.Now())
 	m.input.Reset()
 	m.resetMenu()
-	m.refreshTranscript(false)
-	m.viewport.GotoBottom()
+	m.openDrawer(&drawer{title: "/btw", transcript: &m.side.transcript, onClose: closeSideChat})
 	runtime := m.runtime
 	go func() {
 		defer close(events)
@@ -173,39 +169,12 @@ func sideToolCallText(text string) bool {
 	return false
 }
 
-func (m *Model) closeSideChat() {
+// closeSideChat is the side answer's drawer closing: an unfinished answer is
+// cancelled, and its late events are dropped once m.side is gone.
+func closeSideChat(m *Model) {
 	if m.side == nil {
 		return
 	}
 	m.side.cancel()
-	position := m.side.position
 	m.side = nil
-	m.refreshTranscript(false)
-	if position.atBottom {
-		m.viewport.GotoBottom()
-	} else {
-		m.viewport.SetYOffset(position.offset)
-	}
-}
-
-func (m Model) sideKey(key string) (tea.Model, tea.Cmd) {
-	switch key {
-	case "esc", "ctrl+c":
-		m.closeSideChat()
-	case "enter":
-		if m.side.done {
-			m.closeSideChat()
-		}
-	case "ctrl+d":
-		m.closeSideChat()
-		if m.runCancel != nil {
-			m.runCancel()
-		}
-		return m, tea.Quit
-	case "pgup", "up":
-		m.viewport.PageUp()
-	case "pgdown", "down":
-		m.viewport.PageDown()
-	}
-	return m, nil
 }

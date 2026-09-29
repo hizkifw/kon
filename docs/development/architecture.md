@@ -41,8 +41,10 @@ kon owns orchestration, persistence, and compaction.
 snapshot of the live context. It leaves the stored system prompt and session
 unchanged. Requests retain tool schemas for replaying tool history, with
 tool choice set to none; unexpected tool calls are rejected without execution.
-The UI renders text and errors into a temporary transcript while
-the main runner keeps streaming into its own. The runtime owns cancellation
+The UI renders text and errors into a temporary transcript, shown in a drawer,
+while the main runner keeps streaming into its own. Drawers are a stack of
+surfaces painted over the dimmed screen; only the top one takes keys and the
+mouse, so there is only ever one transcript to scroll or select in. The runtime owns cancellation
 of both requests and waits for both on close. The snapshot includes image
 data, so side-request cleanup does not block session or model switches.
 The store serializes context snapshots and appends with the same mutex.
