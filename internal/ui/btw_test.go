@@ -279,3 +279,28 @@ func TestBTWDragCopiesTheSideAnswer(t *testing.T) {
 		t.Fatal("selecting in the side view closed it or touched the main transcript")
 	}
 }
+
+func TestBTWMarkerFollowsWhatTheModelIsDoing(t *testing.T) {
+	m := busyModel(t)
+	m.runtime = sideRuntime{Runtime: m.runtime, run: func(ctx context.Context, _ string, _ func(agent.Event)) error {
+		<-ctx.Done()
+		return nil
+	}}
+	updated, _ := m.startSideChat("question")
+	m = updated.(Model)
+	t.Cleanup(m.side.cancel)
+	for _, step := range []struct {
+		event agent.Event
+		want  string
+	}{
+		{agent.Event{Kind: agent.EventUsage}, "Asking…"},
+		{agent.Event{Kind: agent.EventThinking}, "Thinking…"},
+		{agent.Event{Kind: agent.EventText, Text: "answer"}, "Answering…"},
+	} {
+		updated, _ = m.updateSideChat(sideEventMsg{epoch: m.sideEpoch, event: step.event})
+		m = updated.(Model)
+		if got := m.side.transcript.liveTimer; !strings.Contains(got, step.want) {
+			t.Fatalf("marker after %v = %q, want %q", step.event.Kind, got, step.want)
+		}
+	}
+}

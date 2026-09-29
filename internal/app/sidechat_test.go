@@ -190,6 +190,21 @@ func TestSideChatCancellationAndLifecycle(t *testing.T) {
 	}
 }
 
+func TestSideChatReportsThinkingWithoutItsText(t *testing.T) {
+	r := sideChatRuntime(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"secret plan\"}}]}\n\n")
+		sideChatReply(w)
+	})
+	var events []agent.Event
+	if err := r.SideChat(t.Context(), "question", func(event agent.Event) { events = append(events, event) }); err != nil {
+		t.Fatal(err)
+	}
+	if len(events) < 2 || events[0].Kind != agent.EventThinking || events[0].Text != "" || events[1].Kind != agent.EventText {
+		t.Fatalf("events = %+v", events)
+	}
+}
+
 func TestSideChatRefusesUnavailableRuntime(t *testing.T) {
 	for phase, want := range map[Phase]error{PhaseClosed: ErrClosed, PhaseFollowing: ErrReadOnly, PhaseNeedsConfiguration: ErrNotReady, PhaseReady: ErrNotReady} {
 		t.Run(string(phase), func(t *testing.T) {

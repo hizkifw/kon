@@ -104,8 +104,9 @@ iTerm2).
 For a quick question that should not steer the task, use `/btw <question>`.
 It streams an answer in a separate view using the active model and a snapshot
 of the current conversation. The main task keeps running in the background.
-Like a turn's timer, a marker under the answer reads "Asking…" until the first
-words arrive, then "Answering…", and "Answered in …" once it is done.
+Like a turn's timer, a marker under the answer reads "Asking…" until the model
+responds, "Thinking…" while it reasons, then "Answering…", and "Answered in …"
+once it is done. The reasoning itself is not shown.
 The side answer has no tools: it can explain the context it receives, but
 cannot inspect more files or change the project.
 For questions that need a command or fresh information, ask in the main

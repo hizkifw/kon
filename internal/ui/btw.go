@@ -19,10 +19,11 @@ type sideChat struct {
 	events     <-chan sideEventMsg
 	position   previewReturn
 	done       bool
-	// start times the answer for its marker, and answering records that the
-	// first token arrived, which turns "Asking" into "Answering".
-	start     time.Time
-	answering bool
+	// start times the answer for its marker, and verb names what the model
+	// is doing: Asking until it responds, then Thinking or Answering by the
+	// kind of text last streamed.
+	start time.Time
+	verb  string
 }
 
 // sideTickMsg advances the side answer's marker; epoch drops a tick from a
@@ -63,6 +64,7 @@ func (m Model) startSideChat(question string) (tea.Model, tea.Cmd) {
 		transcript: transcript{cwd: m.cwd}, cancel: cancel, events: events,
 		position: previewReturn{offset: m.viewport.YOffset(), atBottom: m.viewport.AtBottom()},
 		start:    time.Now(),
+		verb:     "Asking",
 	}
 	m.side.transcript.add(block{kind: blockUser, text: sanitize(question)})
 	m.side.syncTimer(time.Now())
@@ -90,11 +92,15 @@ func (m Model) startSideChat(question string) (tea.Model, tea.Cmd) {
 
 // syncTimer repaints the side answer's running marker from the clock.
 func (s *sideChat) syncTimer(now time.Time) {
-	verb := "Asking"
-	if s.answering {
-		verb = "Answering"
+	s.transcript.liveTimer = runningLabel(s.verb, now.Sub(s.start))
+}
+
+// setVerb changes the marker's verb at once rather than on the next tick.
+func (s *sideChat) setVerb(verb string) {
+	if s.verb != verb {
+		s.verb = verb
+		s.syncTimer(time.Now())
 	}
-	s.transcript.liveTimer = runningLabel(verb, now.Sub(s.start))
 }
 
 func (m Model) tickSideChat(msg sideTickMsg) (tea.Model, tea.Cmd) {
@@ -138,10 +144,9 @@ func (m Model) updateSideChat(msg sideEventMsg) (tea.Model, tea.Cmd) {
 	switch msg.event.Kind {
 	case agent.EventText:
 		m.side.transcript.appendStream(sanitize(msg.event.Text))
-		if !m.side.answering {
-			m.side.answering = true
-			m.side.syncTimer(time.Now())
-		}
+		m.side.setVerb("Answering")
+	case agent.EventThinking:
+		m.side.setVerb("Thinking")
 	case agent.EventUsage:
 		m.sideSpent += msg.event.Cost
 	}

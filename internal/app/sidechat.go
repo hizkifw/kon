@@ -24,6 +24,8 @@ Do not continue the main task. This exchange will not be added to the main conve
 // SideChat answers a one-off question against a snapshot of the live context.
 // It may overlap Run, but never writes the session or executes tools. Its text
 // and cost events belong to the side chat, not the main runner's context usage.
+// Reasoning is reported only as textless thinking events: the side view shows
+// that the model is thinking, not what it thought.
 func (r *Runtime) SideChat(ctx context.Context, question string, emit func(agent.Event)) error {
 	r.mu.Lock()
 	client, messages, definitions, err := r.prepareSideChat(question)
@@ -44,7 +46,11 @@ func (r *Runtime) SideChat(ctx context.Context, question string, emit func(agent
 	}()
 
 	answer, err := client.StreamText(opCtx, messages, definitions, func(event provider.Event) {
-		if emit != nil && !event.Thinking && event.Text != "" {
+		switch {
+		case emit == nil || event.Text == "":
+		case event.Thinking:
+			emit(agent.Event{Kind: agent.EventThinking})
+		default:
 			emit(agent.Event{Kind: agent.EventText, Text: event.Text})
 		}
 	})
