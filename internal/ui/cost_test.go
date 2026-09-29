@@ -63,6 +63,36 @@ func TestStatusLineTotalsSessionAndSubagentSpend(t *testing.T) {
 	}
 }
 
+// TestStatusLineEstimatesWhileStreaming checks that each streamed chunk counts
+// as a token toward the context and the cost until the provider's report
+// replaces the estimate.
+func TestStatusLineEstimatesWhileStreaming(t *testing.T) {
+	runtime := &fakeRuntime{state: app.State{Phase: app.PhaseReady, Active: app.Model{Name: "m", ContextWindow: 1000, OutputPrice: 10000}}}
+	m := New(context.Background(), "/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
+	m.width, m.height = 80, 24
+	m.resize()
+	m.applyAgentEvent(agent.Event{Kind: agent.EventUsage, Tokens: 100, Cost: 1})
+	for _, event := range []agent.Event{
+		{Kind: agent.EventThinking, Text: "hm"},
+		{Kind: agent.EventText, Text: "hello"},
+		{Kind: agent.EventText, Text: " there"},
+	} {
+		m.applyAgentEvent(event)
+	}
+	if got := statusLine(m); !strings.Contains(got, "ctx ~103/1.0k") || !strings.HasSuffix(got, "· $1.03") {
+		t.Fatalf("status line = %q, want three chunks estimated", got)
+	}
+	// A compaction summary is priced but does not add to the context.
+	m.applyAgentEvent(agent.Event{Kind: agent.EventCompactionText, Text: "summary"})
+	if got := statusLine(m); !strings.Contains(got, "ctx ~103/1.0k") || !strings.HasSuffix(got, "· $1.04") {
+		t.Fatalf("status line = %q, want the summary priced only", got)
+	}
+	m.applyAgentEvent(agent.Event{Kind: agent.EventUsage, Tokens: 110, Cost: 0.5})
+	if got := statusLine(m); !strings.Contains(got, "ctx 110/1.0k") || !strings.HasSuffix(got, "· $1.50") {
+		t.Fatalf("status line = %q, want the reported usage in place of the estimate", got)
+	}
+}
+
 // TestResumedSessionShowsWhatItSpent checks that the total survives a
 // restart: it is seeded from the costs the session file recorded.
 func TestResumedSessionShowsWhatItSpent(t *testing.T) {

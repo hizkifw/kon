@@ -80,10 +80,10 @@ func (m Model) View() tea.View {
 	ctx := "ctx ?"
 	if m.contextTokens >= 0 {
 		prefix := ""
-		if m.contextApprox {
+		if m.contextApprox || m.streamedContext > 0 {
 			prefix = "~"
 		}
-		ctx = "ctx " + prefix + m.contextTokens.String()
+		ctx = "ctx " + prefix + (m.contextTokens + m.streamedContext).String()
 	}
 	if m.active.ContextWindow > 0 {
 		ctx += "/" + m.active.ContextWindow.String()
@@ -92,7 +92,8 @@ func (m Model) View() tea.View {
 	if m.jobs > 0 {
 		status += fmt.Sprintf(" · ⚙ %d", m.jobs)
 	}
-	if spent := m.spent + m.subagentSpent + m.sideSpent; spent > 0 {
+	streaming := float64(m.streamed) * m.active.OutputPrice / 1e6
+	if spent := m.spent + m.subagentSpent + m.sideSpent + streaming; spent > 0 {
 		status += " · " + formatCost(spent)
 	}
 	// The transcript shows what a turn is doing, so the status line carries

@@ -140,8 +140,16 @@ type Model struct {
 	// counts sessions opened so a read for an earlier one is dropped.
 	spent         float64
 	subagentSpent float64
-	spendPolling  bool
-	spendEpoch    int
+	// streamed counts the stream chunks received since the last usage report,
+	// each taken as one token, so the status bar moves while a response
+	// streams. A chunk usually holds more than one token, so the estimate
+	// undercounts until the report replaces it. streamedContext counts only
+	// the chunks that extend the context: a compaction summary replaces the
+	// context rather than adding to it.
+	streamed        tokens.Count
+	streamedContext tokens.Count
+	spendPolling    bool
+	spendEpoch      int
 	// timer times the user turn currently in flight, nil while idle. It starts
 	// on submit and freezes into a blockElapsed when the run ends.
 	timer *turnTimer
@@ -349,6 +357,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, timerTick(msg.epoch)
 	case runDoneMsg:
 		m.busy, m.runCancel, m.runEvents, m.interruptPresses = false, nil, nil, 0
+		// A response cut off before its usage report leaves an estimate that
+		// nothing will replace, and the session never records it.
+		m.streamed, m.streamedContext = 0, 0
 		m.jobs = m.runtime.RunningJobs()
 		m.syncRuntimeState()
 		// An interrupted stream never received its done event, so finalize the

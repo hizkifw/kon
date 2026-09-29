@@ -280,6 +280,9 @@ the transcript instead. A result stays until the next one replaces it, except
 for a copy's, which passes after a few seconds. The header shows the active model and, for a model with reasoning
 effort levels, the selected level (`default` when kon sends none). `ctx ~12.4k/128.0k` means usage is
 estimated; `?` means the provider has not supplied enough information yet.
+While a response streams, each chunk counts as one token toward the context
+and the cost, which undercounts; the provider's report replaces the estimate
+when the response ends.
 
 The cost, such as `$0.42`, totals every priced response in the session,
 compaction summaries included, plus what its subagents have spent. It stays

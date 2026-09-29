@@ -44,6 +44,10 @@ type Model struct {
 	WireFormat    string
 	ExternalID    string
 	ContextWindow tokens.Count
+	// OutputPrice is what the model charges per million output tokens, in US
+	// dollars, or zero when it is unpriced. It prices a response while it
+	// streams, before the provider reports its usage.
+	OutputPrice float64
 	// ReasoningEfforts lists the levels Shift+Tab cycles through; empty means
 	// the model has no reasoning control.
 	ReasoningEfforts []string
@@ -849,6 +853,7 @@ func describe(profile modelSpec) Model {
 	return Model{
 		Name: profile.Name, WireFormat: string(profile.WireFormat()), ExternalID: profile.ModelID,
 		ContextWindow:    profile.ContextWindowTokens,
+		OutputPrice:      profile.Cost.Output,
 		ReasoningEfforts: slices.Clone(profile.ReasoningEfforts), ReasoningEffort: profile.effort,
 	}
 }

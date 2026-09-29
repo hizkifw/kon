@@ -19,9 +19,11 @@ const maxResultChars = 4000
 func (m *Model) applyAgentEvent(event agent.Event) bool {
 	switch event.Kind {
 	case agent.EventText:
+		m.streamed, m.streamedContext = m.streamed+1, m.streamedContext+1
 		m.transcript.appendStream(sanitize(event.Text))
 		return true
 	case agent.EventThinking:
+		m.streamed, m.streamedContext = m.streamed+1, m.streamedContext+1
 		m.transcript.appendThinking(sanitize(event.Text))
 		return true
 	case agent.EventAssistantDone:
@@ -40,6 +42,7 @@ func (m *Model) applyAgentEvent(event agent.Event) bool {
 		m.transcript.beginCompaction()
 		m.setTimerVerb("Compacting")
 	case agent.EventCompactionText:
+		m.streamed++
 		m.transcript.appendCompaction(sanitize(event.Text))
 		return true
 	case agent.EventCompacted:
@@ -51,6 +54,7 @@ func (m *Model) applyAgentEvent(event agent.Event) bool {
 		m.contextTokens = event.Tokens
 		m.contextApprox = event.Estimated
 		m.spent += event.Cost
+		m.streamed, m.streamedContext = 0, 0
 	case agent.EventSteered:
 		m.transcript.add(block{kind: blockUser, text: sanitize(event.Text)})
 		m.syncSteering()
