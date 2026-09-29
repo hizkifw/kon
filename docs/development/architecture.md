@@ -294,7 +294,15 @@ The Responses backend runs stateless (`store: false`) so the session file
 stays the source of truth. Each output item is kept verbatim in its part's
 `provider_options` and replayed byte for byte to the model that wrote it,
 which carries encrypted reasoning across turns and keeps the request prefix
-stable for the prompt cache. Another model's reasoning items are left out.
+stable for the prompt cache. Another model's reasoning items are left out, and
+so is a reasoning item without the message or function call it led to, which
+an interrupted turn leaves behind and the API rejects. Requests carry a
+`prompt_cache_key` hashed from the system prompt and the first message after
+it, so every request of a session, its compaction summary and side questions
+included, is routed to the same cache. A refusal stands in for the answer. Like
+the Messages backend, it learns from rejected requests: an organization not
+verified for reasoning summaries stops asking for them, and a compatible
+server that does not know `prompt_cache_key` stops receiving it.
 
 The Messages backend replays thinking blocks unchanged with the signature
 stored in each reasoning part's `provider_options`, and marks two prompt cache

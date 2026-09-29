@@ -4,12 +4,16 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/hizkifw/kon/internal/buildinfo"
 	"github.com/hizkifw/kon/internal/provider/wire"
@@ -34,6 +38,17 @@ type responsesModel struct {
 	effort    string
 	reasoning bool
 	readImage func(string) ([]byte, error)
+
+	// What the server has told this model about itself, each learned from
+	// one rejected request and kept, so later requests are right the first
+	// time.
+	mu sync.Mutex
+	// noSummary leaves out reasoning.summary, which OpenAI refuses for an
+	// organization that is not verified for it.
+	noSummary bool
+	// noCacheKey leaves out prompt_cache_key, for a compatible server that
+	// does not know it.
+	noCacheKey bool
 }
 
 func newResponsesModel(model Spec, spec wire.Spec, readImage func(string) ([]byte, error)) (*responsesModel, error) {
@@ -63,15 +78,18 @@ type responsesRequest struct {
 	Reasoning       *responsesReasoning `json:"reasoning,omitempty"`
 	Include         []string            `json:"include,omitempty"`
 	MaxOutputTokens tokens.Count        `json:"max_output_tokens,omitempty"`
-	Store           bool                `json:"store"`
-	Stream          bool                `json:"stream"`
+	// PromptCacheKey joins the request to the server's cache for this
+	// conversation; see promptCacheKey.
+	PromptCacheKey string `json:"prompt_cache_key,omitempty"`
+	Store          bool   `json:"store"`
+	Stream         bool   `json:"stream"`
 }
 
 type responsesReasoning struct {
 	Effort string `json:"effort,omitempty"`
 	// Summary asks for readable reasoning; without it the thinking view stays
 	// empty.
-	Summary string `json:"summary"`
+	Summary string `json:"summary,omitempty"`
 }
 
 type responsesTool struct {
@@ -140,8 +158,11 @@ func (m *responsesModel) toResponsesInput(messages []session.Message) []any {
 			input = append(input, responsesFunctionOutput{Type: "function_call_output", CallID: id.String(), Output: m.responsesContent(message)})
 		case session.RoleAssistant:
 			ownItems := message.Model.String() == "" || message.Model.String() == m.model
-			for _, part := range message.Parts {
+			for i, part := range message.Parts {
 				if item := decodeItemOptions(part.ProviderOptions).Item; ownItems && len(item) > 0 {
+					if part.Type == session.PartReasoning && !replaysItem(message.Parts, i+1) {
+						continue
+					}
 					input = append(input, item)
 					continue
 				}
@@ -155,6 +176,31 @@ func (m *responsesModel) toResponsesInput(messages []session.Message) []any {
 		}
 	}
 	return input
+}
+
+// replaysItem reports whether the part at i follows a reasoning item as the
+// item it led to. The API rejects a reasoning item without one, which an
+// interrupted turn leaves behind: its unfinished message has no item to
+// replay, and its tool calls are dropped. The reasoning is left out then,
+// rather than failing every later request.
+func replaysItem(parts []session.Part, i int) bool {
+	return i < len(parts) && parts[i].Type != session.PartReasoning && len(decodeItemOptions(parts[i].ProviderOptions).Item) > 0
+}
+
+// promptCacheKey names the conversation for the server's prompt cache, which
+// routes requests with the same key and prefix together. It hashes the
+// system prompt and the first message after it, which open every request of
+// a session, its compaction summaries and side questions included, until a
+// compaction replaces that message.
+func promptCacheKey(messages []session.Message) string {
+	hash := sha256.New()
+	for _, message := range messages[:min(len(messages), 2)] {
+		hash.Write([]byte(message.Role))
+		hash.Write([]byte{0})
+		hash.Write([]byte(message.Text()))
+		hash.Write([]byte{0})
+	}
+	return "kon-" + hex.EncodeToString(hash.Sum(nil))[:32]
 }
 
 // responsesContent renders a user message or tool output: a plain string when
@@ -191,33 +237,80 @@ func (m *responsesModel) responsesContent(message session.Message) any {
 	return strings.Join(texts, "\n")
 }
 
-func (m *responsesModel) request(messages []session.Message, tools []session.ToolDefinition) responsesRequest {
-	payload := responsesRequest{Model: m.model, Input: m.toResponsesInput(messages), Stream: true}
+// request builds a payload; maxTokens caps the output when positive.
+func (m *responsesModel) request(messages []session.Message, tools []session.ToolDefinition, maxTokens tokens.Count) responsesRequest {
+	m.mu.Lock()
+	noSummary, noCacheKey := m.noSummary, m.noCacheKey
+	m.mu.Unlock()
+	payload := responsesRequest{Model: m.model, Input: m.toResponsesInput(messages), MaxOutputTokens: maxTokens, Stream: true}
+	if !noCacheKey && len(messages) > 0 {
+		payload.PromptCacheKey = promptCacheKey(messages)
+	}
 	for _, tool := range tools {
 		payload.Tools = append(payload.Tools, responsesTool{Type: "function", Name: tool.Name, Description: tool.Description, Parameters: tool.Parameters})
 	}
 	if m.reasoning {
 		payload.Reasoning = &responsesReasoning{Effort: m.effort, Summary: "auto"}
+		if noSummary {
+			payload.Reasoning.Summary = ""
+		}
 		payload.Include = []string{"reasoning.encrypted_content"}
 	}
 	return payload
 }
 
 func (m *responsesModel) Stream(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, emit func(Event)) (Response, error) {
-	return m.stream(ctx, m.request(messages, tools), emit)
+	return m.run(ctx, messages, tools, 0, emit)
 }
 
 // Complete runs one capped generation, forwarding its deltas through emit when
 // set. tools, when set, keeps the streaming turn's cached prefix.
 func (m *responsesModel) Complete(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, maxTokens tokens.Count, emit func(Event)) (Response, error) {
-	payload := m.request(messages, tools)
-	payload.MaxOutputTokens = maxTokens
 	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, completeTimeout)
 		defer cancel()
 	}
-	return m.stream(ctx, payload, emit)
+	return m.run(ctx, messages, tools, maxTokens, emit)
+}
+
+// run sends the request, adapting once to each fact a rejection teaches, and
+// keeps what it learned for later requests.
+func (m *responsesModel) run(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, maxTokens tokens.Count, emit func(Event)) (Response, error) {
+	for attempt := 0; ; attempt++ {
+		response, err := m.stream(ctx, m.request(messages, tools, maxTokens), emit)
+		if err == nil || attempt >= 2 || !m.learn(err) {
+			return response, err
+		}
+	}
+}
+
+// learn records what a rejected request says about the server and reports
+// whether a retry could now succeed.
+func (m *responsesModel) learn(err error) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !m.noSummary && m.reasoning && isSummaryRejected(err) {
+		m.noSummary = true
+		return true
+	}
+	if !m.noCacheKey && rejectedField(err, "prompt_cache_key") {
+		m.noCacheKey = true
+		return true
+	}
+	return false
+}
+
+// isSummaryRejected reports a 400 refusing reasoning summaries, as OpenAI
+// sends an organization that has not been verified for them: "Your
+// organization must be verified to generate reasoning summaries."
+func isSummaryRejected(err error) bool {
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.Status != http.StatusBadRequest {
+		return false
+	}
+	body := strings.ToLower(apiErr.Message + " " + apiErr.Body)
+	return strings.Contains(body, "reasoning summar") || strings.Contains(body, "reasoning.summary")
 }
 
 // stream sends payload, retrying transient failures.
@@ -267,11 +360,13 @@ func (m *responsesModel) streamOnce(ctx context.Context, payload responsesReques
 // Streamed events.
 
 type responsesEvent struct {
-	Type        string             `json:"type"`
-	OutputIndex int                `json:"output_index"`
-	Item        json.RawMessage    `json:"item"`
-	Delta       string             `json:"delta"`
-	Response    *responsesResponse `json:"response"`
+	Type        string          `json:"type"`
+	OutputIndex int             `json:"output_index"`
+	Item        json.RawMessage `json:"item"`
+	Delta       string          `json:"delta"`
+	// SummaryIndex numbers a reasoning summary part within its item.
+	SummaryIndex int                `json:"summary_index"`
+	Response     *responsesResponse `json:"response"`
 	// Code and Message are set on a top-level error event.
 	Code    string `json:"code"`
 	Message string `json:"message"`
@@ -321,8 +416,9 @@ type responsesItem struct {
 		Text string `json:"text"`
 	} `json:"summary"`
 	Content []struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
+		Type    string `json:"type"`
+		Text    string `json:"text"`
+		Refusal string `json:"refusal"`
 	} `json:"content"`
 }
 
@@ -333,6 +429,9 @@ type responsesStreamState struct {
 	items map[int]int
 	texts map[int]*strings.Builder
 	done  bool
+	// refused marks a message the model declined to write; its refusal
+	// stands in for the answer.
+	refused bool
 }
 
 func (state *responsesStreamState) result() Response {
@@ -406,6 +505,21 @@ func (state *responsesStreamState) apply(payload string, emit func(Event)) error
 		if emit != nil && event.Delta != "" {
 			emit(Event{Text: event.Delta})
 		}
+	case "response.refusal.delta":
+		state.refused = true
+		state.appendText(event.OutputIndex, event.Delta)
+		if emit != nil && event.Delta != "" {
+			emit(Event{Text: event.Delta})
+		}
+	case "response.reasoning_summary_part.added":
+		// Summary parts are separate paragraphs, as the finished item's
+		// text joins them.
+		if event.SummaryIndex > 0 {
+			state.appendText(event.OutputIndex, "\n\n")
+			if emit != nil {
+				emit(Event{Text: "\n\n", Thinking: true})
+			}
+		}
 	case "response.reasoning_summary_text.delta":
 		state.appendText(event.OutputIndex, event.Delta)
 		if emit != nil && event.Delta != "" {
@@ -425,6 +539,9 @@ func (state *responsesStreamState) apply(payload string, emit func(Event)) error
 		state.Finish = "stop"
 		if len(state.ToolCalls()) > 0 {
 			state.Finish = "tool_calls"
+		}
+		if state.refused {
+			state.Finish = "refusal"
 		}
 		if event.Type == "response.incomplete" && event.Response != nil && event.Response.IncompleteDetails != nil {
 			state.Finish = session.FinishReason(event.Response.IncompleteDetails.Reason)
@@ -477,8 +594,12 @@ func (state *responsesStreamState) finishItem(index int, raw json.RawMessage) {
 	case "message":
 		var texts []string
 		for _, c := range item.Content {
-			if c.Type == "output_text" {
+			switch c.Type {
+			case "output_text":
 				texts = append(texts, c.Text)
+			case "refusal":
+				state.refused = true
+				texts = append(texts, c.Refusal)
 			}
 		}
 		part.Text = strings.Join(texts, "")
