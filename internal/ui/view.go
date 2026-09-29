@@ -50,6 +50,9 @@ func (m *Model) refreshTranscript(toBottom bool) {
 // highlighted popup row's preview when one is active, otherwise the live
 // conversation.
 func (m *Model) activeTranscript() *transcript {
+	if m.side != nil {
+		return &m.side.transcript
+	}
 	if m.preview != nil {
 		return m.preview
 	}
@@ -82,7 +85,7 @@ func (m Model) View() tea.View {
 	if m.jobs > 0 {
 		status += fmt.Sprintf(" · ⚙ %d", m.jobs)
 	}
-	if spent := m.spent + m.subagentSpent; spent > 0 {
+	if spent := m.spent + m.subagentSpent + m.sideSpent; spent > 0 {
 		status += " · " + formatCost(spent)
 	}
 	// The transcript shows what a turn is doing, so the status line carries
@@ -111,13 +114,19 @@ func (m Model) View() tea.View {
 	// without every transition having to remember to update it.
 	m.input.Placeholder = m.placeholder()
 	input := m.input.View()
+	if m.side != nil {
+		input = " /btw · Esc or Enter returns to the main conversation"
+		if !m.side.done {
+			input = " /btw · Esc returns to the main conversation"
+		}
+	}
 	if m.login != nil {
 		input = m.login.input.View()
 	}
 	sections = append(sections, inputView(input, m.width))
 	content := strings.Join(sections, "\n")
 	view := tea.NewView(content)
-	if m.terminalFocused {
+	if m.terminalFocused && m.side == nil {
 		view.Cursor = m.input.Cursor()
 		if m.login != nil {
 			view.Cursor = m.login.input.Cursor()

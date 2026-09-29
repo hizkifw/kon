@@ -37,6 +37,18 @@ keeps every assistant tool request and every tool result durable before the
 next network request. The provider layer owns wire formats and stream parsing;
 kon owns orchestration, persistence, and compaction.
 
+`/btw` asks the runtime for a separate, tool-free provider stream over a
+snapshot of the live context. It leaves the stored system prompt and session
+unchanged. Requests retain tool schemas for replaying tool history, with
+tool choice set to none; unexpected tool calls are rejected without execution.
+The UI renders text and errors into a temporary transcript while
+the main runner keeps streaming into its own. The runtime owns cancellation
+of both requests and waits for both on close. The snapshot includes image
+data, so side-request cleanup does not block session or model switches.
+The store serializes context snapshots and appends with the same mutex.
+Side usage events contribute cost only, leaving main-context usage unchanged.
+No new durable entry type is needed.
+
 ## Copying a selection
 
 A selection lasts while the mouse button is held. It is anchored in

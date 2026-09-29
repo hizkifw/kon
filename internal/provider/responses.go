@@ -202,6 +202,14 @@ func (m *responsesModel) request(messages []session.Message, tools []session.Too
 	return payload
 }
 
+func (m *responsesModel) StreamText(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, emit func(Event)) (Response, error) {
+	payload := m.request(messages, tools)
+	if len(payload.Tools) > 0 {
+		payload.ToolChoice = "none"
+	}
+	return m.stream(ctx, payload, emit)
+}
+
 func (m *responsesModel) Stream(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, emit func(Event)) (Response, error) {
 	return m.stream(ctx, m.request(messages, tools), emit)
 }

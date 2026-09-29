@@ -63,6 +63,7 @@ Type `/` at the start of the prompt to see the available commands.
 | `/login <provider>` | Connect and check a supported provider |
 | `/resume [id]` | List sessions for this directory, or switch to one |
 | `/compact` | Summarize older context now |
+| `/btw <question>` | Ask a temporary side question using the current context |
 | `/jobs [id]` | Pick a background job or subagent to preview, or show one's recent output |
 | `/kill <id>` | Stop a running background job; the agent is told you stopped it |
 | `/queue [item\|clear]` | Pick a pending steer or queued message to pull back for editing, or drop them all |
@@ -99,6 +100,24 @@ so the terminal's own selection needs Shift held while dragging (Option in
 iTerm2).
 
 ## Steering and queueing
+
+For a quick question that should not steer the task, use `/btw <question>`.
+It streams an answer in a separate view using the active model and a snapshot
+of the current conversation. The main task keeps running in the background.
+The side answer has no tools: it can explain the context it receives, but
+cannot inspect more files or change the project.
+For questions that need a command or fresh information, ask in the main
+conversation. If the model returns a tool call or recognizable tool-call
+markup anyway, kon adds a "Nothing was executed" note to the side answer.
+
+Press Esc or Ctrl+C to dismiss the view and cancel an unfinished side answer.
+Enter also dismisses a completed answer. This leaves the main task running.
+Scroll with the mouse wheel or PgUp/PgDn; select text to copy it before
+dismissing. Each `/btw` starts a fresh
+question. Side questions and answers are never added to the main conversation,
+saved session, or prompt history. They still go to your configured provider
+and use tokens; reported costs are shown for the current session until you
+leave it. The existing system prompt stays unchanged.
 
 While kon is working you can keep typing:
 

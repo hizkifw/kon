@@ -324,6 +324,10 @@ func (m *messagesModel) request(messages []session.Message, tools []session.Tool
 	return payload
 }
 
+func (m *messagesModel) StreamText(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, emit func(Event)) (Response, error) {
+	return m.run(ctx, messages, tools, defaultMessagesMaxTokens, emit, true)
+}
+
 // Stream runs one streamed generation.
 func (m *messagesModel) Stream(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, emit func(Event)) (Response, error) {
 	return m.run(ctx, messages, tools, defaultMessagesMaxTokens, emit, false)

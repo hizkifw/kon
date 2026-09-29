@@ -72,6 +72,8 @@ func (f *fakeRuntime) Compact(context.Context, func(agent.Event)) error {
 	return nil
 }
 
+func (f *fakeRuntime) SideChat(context.Context, string, func(agent.Event)) error { return nil }
+
 // Notices is closed unless a test opens it, so draining Init's commands ends.
 func (f *fakeRuntime) Notices() <-chan string {
 	if f.notices == nil {
