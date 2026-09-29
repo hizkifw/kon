@@ -178,8 +178,8 @@ func TestTurnMarkerFlipsThenFreezes(t *testing.T) {
 		{10 * time.Second, "● Working… 10s"},
 		{11 * time.Second, "○ Working… 11s"},
 	} {
-		if got := workingLabel(c.elapsed); got != c.want {
-			t.Errorf("workingLabel(%v) = %q, want %q", c.elapsed, got, c.want)
+		if got := runningLabel("Working", c.elapsed); got != c.want {
+			t.Errorf("runningLabel(Working, %v) = %q, want %q", c.elapsed, got, c.want)
 		}
 	}
 }
@@ -193,7 +193,7 @@ func TestTurnMarkerIsInsetOneCell(t *testing.T) {
 	tr.add(block{kind: blockUser, text: "hi"})
 	// The running indicator trails the message after one blank line, and odd
 	// seconds show the outline dot.
-	tr.liveTimer = workingLabel(5 * time.Second)
+	tr.liveTimer = runningLabel("Working", 5*time.Second)
 	if got, want := plain(strings.Join(tr.linesFor(80), "\n")), " hi\n\n ○ Working… 5s"; got != want {
 		t.Fatalf("running marker layout = %q, want %q", got, want)
 	}
@@ -319,11 +319,11 @@ func TestTimerLinesMatchFullRender(t *testing.T) {
 		}
 		tr.add(block{kind: blockUser, text: "hello"})
 		check("user")
-		tr.liveTimer = workingLabel(1 * time.Second)
+		tr.liveTimer = runningLabel("Working", 1*time.Second)
 		check("timer start")
 		tr.appendStream("streaming text")
 		check("stream with timer")
-		tr.liveTimer = workingLabel(2 * time.Second)
+		tr.liveTimer = runningLabel("Working", 2*time.Second)
 		check("timer tick")
 		tr.finishStream()
 		check("stream finish with timer")

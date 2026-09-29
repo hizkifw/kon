@@ -36,8 +36,17 @@ func (m *Model) applyAgentEvent(event agent.Event) bool {
 	case agent.EventToolDone:
 		m.jobs = m.runtime.RunningJobs()
 		m.transcript.add(m.toolResultBlock(event))
+	case agent.EventCompacting:
+		m.transcript.beginCompaction()
+		m.setTimerVerb("Compacting")
+	case agent.EventCompactionText:
+		m.transcript.appendCompaction(sanitize(event.Text))
+		return true
 	case agent.EventCompacted:
-		m.transcript.add(block{kind: blockContext, text: compactedLabel(event.Tokens, event.Estimated)})
+		m.transcript.finishCompaction(sanitize(event.Text), compactedLabel(event.Tokens, event.Estimated))
+		if m.timer != nil && !m.timer.compaction {
+			m.setTimerVerb("Working")
+		}
 	case agent.EventUsage:
 		m.contextTokens = event.Tokens
 		m.contextApprox = event.Estimated
@@ -161,10 +170,10 @@ func (m *Model) replay(t *transcript, r *replayState, entries []session.Entry) {
 			r.selected = &selection
 			continue
 		case session.EntryTypeCompaction:
-			// A compaction entry has no message; it is echoed as the same
-			// marker the live run emitted so a resumed transcript shows where
-			// the context was folded.
-			t.add(block{kind: blockContext, text: compactedLabel(entry.TokensBefore, entry.TokensBeforeEstimated)})
+			// A compaction entry has no message; it is shown as the same
+			// block the live run left, summary and all, so a resumed
+			// transcript shows where the context was folded and into what.
+			t.add(block{kind: blockCompaction, text: sanitize(entry.Summary), marker: compactedLabel(entry.TokensBefore, entry.TokensBeforeEstimated)})
 			continue
 		}
 		if entry.Message == nil {
@@ -208,5 +217,8 @@ func compactedLabel(count tokens.Count, estimated bool) string {
 	if estimated {
 		prefix = "~"
 	}
-	return "compacted " + prefix + count.String() + " tokens"
+	return markFilled + " Compacted " + prefix + count.String() + " tokens"
 }
+
+// compactionStoppedLabel marks a summary whose run ended before it was kept.
+const compactionStoppedLabel = markOutline + " Compaction stopped"

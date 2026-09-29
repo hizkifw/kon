@@ -28,13 +28,10 @@ const (
 	markFilled  = "●"
 )
 
-// workingLabel is the running form of the turn marker. The dot flips on the
-// elapsed second's parity, so it is a pure function of the clock and cannot
-// drift out of step with the displayed total.
-func workingLabel(elapsed time.Duration) string { return runningLabel("Working", elapsed) }
-
-// runningLabel is the running marker for any timed activity, so a side answer
-// and a turn tick the same way.
+// runningLabel is the running form of the turn marker, for a turn or any other
+// timed activity such as a side answer. The dot flips on the elapsed second's
+// parity, so it is a pure function of the clock and cannot drift out of step
+// with the displayed total.
 func runningLabel(verb string, elapsed time.Duration) string {
 	mark := markFilled
 	if int(elapsed/time.Second)%2 == 1 {
@@ -63,6 +60,12 @@ type turnTimer struct {
 	end   time.Time // zero while the turn is running
 	// epoch identifies this turn's tick chain; see timerTickMsg.
 	epoch int
+	// verb is what the running marker says the turn is doing: Working, or
+	// Compacting while a summary is written.
+	verb string
+	// compaction marks a /compact run. Its compaction block is its record,
+	// so it leaves no "Worked for" line behind.
+	compaction bool
 }
 
 func (t *turnTimer) running() bool { return t.end.IsZero() }
@@ -80,8 +83,17 @@ func (t *turnTimer) elapsed(now time.Time) time.Duration {
 func (m *Model) startTimer() {
 	now := time.Now()
 	m.timerEpoch++
-	m.timer = &turnTimer{start: now, epoch: m.timerEpoch}
+	m.timer = &turnTimer{start: now, epoch: m.timerEpoch, verb: "Working"}
 	m.syncTimer(now)
+}
+
+// setTimerVerb changes what the running marker says, at once rather than on
+// the next tick.
+func (m *Model) setTimerVerb(verb string) {
+	if m.timer != nil && m.timer.verb != verb {
+		m.timer.verb = verb
+		m.syncTimer(time.Now())
+	}
 }
 
 // syncTimer repaints the running indicator from the current clock.
@@ -90,7 +102,7 @@ func (m *Model) syncTimer(now time.Time) {
 		m.transcript.liveTimer = ""
 		return
 	}
-	m.transcript.liveTimer = workingLabel(m.timer.elapsed(now))
+	m.transcript.liveTimer = runningLabel(m.timer.verb, m.timer.elapsed(now))
 }
 
 // finishTimer freezes the running indicator into a stable transcript block so
@@ -101,7 +113,9 @@ func (m *Model) finishTimer() {
 	}
 	m.timer.end = time.Now()
 	m.transcript.liveTimer = ""
-	m.transcript.add(block{kind: blockElapsed, text: workedLabel(m.timer.elapsed(m.timer.end))})
+	if !m.timer.compaction {
+		m.transcript.add(block{kind: blockElapsed, text: workedLabel(m.timer.elapsed(m.timer.end))})
+	}
 	m.timer = nil
 }
 

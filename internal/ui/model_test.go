@@ -599,15 +599,15 @@ func TestReplayedToolOutcomeUsesPersistedErrorAndDetails(t *testing.T) {
 	}
 }
 
-func TestReplayedCompactionShowsMarker(t *testing.T) {
+func TestReplayedCompactionShowsItsSummary(t *testing.T) {
 	model := newTestModel(t)
 	entries := []session.Entry{
-		{Type: session.EntryTypeCompaction, TokensBefore: 12_300, TokensBeforeEstimated: true},
+		{Type: session.EntryTypeCompaction, Summary: "## Goal\nfix it", TokensBefore: 12_300, TokensBeforeEstimated: true},
 		{Message: &session.Message{Role: session.RoleUser, Parts: []session.Part{{Type: session.PartText, Text: "after"}}}},
 	}
 	model.applyHistory(entries)
 	blocks := model.transcript.blocks
-	if len(blocks) != 2 || blocks[0].kind != blockContext || blocks[0].text != "compacted ~12.3k tokens" {
+	if len(blocks) != 2 || blocks[0].kind != blockCompaction || blocks[0].text != "## Goal\nfix it" || blocks[0].marker != "● Compacted ~12.3k tokens" {
 		t.Fatalf("replayed compaction blocks = %#v", blocks)
 	}
 }
@@ -1748,9 +1748,12 @@ func TestCompactCommandStartsBusyRun(t *testing.T) {
 	if got.input.Value() != "" {
 		t.Fatalf("compact left input behind: %q", got.input.Value())
 	}
-	// The wait command returns once the run's goroutine has finished, so the
-	// runtime has seen every call it is going to see.
-	if _, ok := cmd().(runDoneMsg); !ok {
+	if !strings.Contains(got.transcript.liveTimer, "Compacting…") {
+		t.Fatalf("compact marker = %q", got.transcript.liveTimer)
+	}
+	// The wait returns once the run's goroutine has finished, so the runtime
+	// has seen every call it is going to see.
+	if _, ok := waitRunEvent(got.runEvents)().(runDoneMsg); !ok {
 		t.Fatal("compact run did not report its end")
 	}
 	if calls := got.runtime.(*fakeRuntime).compacts.Load(); calls != 1 {

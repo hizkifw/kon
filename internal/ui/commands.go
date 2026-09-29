@@ -473,7 +473,15 @@ func (m Model) compact() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.input.Reset()
-	return m.startRun("compacting…", m.runtime.Compact)
+	// A /compact is timed like a turn, with its marker saying so, and its
+	// compaction block is what it leaves behind.
+	m.startTimer()
+	m.timer.compaction = true
+	m.setTimerVerb("Compacting")
+	m.refreshTranscript(true)
+	m.viewport.GotoBottom()
+	updated, cmd := m.startRun("", m.runtime.Compact)
+	return updated, tea.Batch(cmd, timerTick(m.timerEpoch))
 }
 
 // completeSessionIDs suggests resumable sessions for this workspace, newest

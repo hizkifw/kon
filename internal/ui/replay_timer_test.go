@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hizkifw/kon/internal/agent"
 	"github.com/hizkifw/kon/internal/session"
 )
 
@@ -40,14 +41,17 @@ func TestReplayMatchesLiveAfterManualCompact(t *testing.T) {
 	m.transcript.add(block{kind: blockUser, text: "do the thing"})
 	m.transcript.add(block{kind: blockAssistant, text: "done"})
 	m.transcript.add(block{kind: blockElapsed, text: workedLabel(2*time.Minute + 30*time.Second)})
-	m.transcript.add(block{kind: blockContext, text: compactedLabel(1200, false)})
+	m.applyAgentEvent(agent.Event{Kind: agent.EventCompacting, Tokens: 1200})
+	m.applyAgentEvent(agent.Event{Kind: agent.EventCompactionText, Text: "summ"})
+	m.applyAgentEvent(agent.Event{Kind: agent.EventCompactionText, Text: "ary"})
+	m.applyAgentEvent(agent.Event{Kind: agent.EventCompacted, Text: "summary", Tokens: 1200})
 	live := plain(strings.Join(m.transcript.linesFor(80), "\n"))
 
 	replay := newTestModel(t)
 	replay.applyHistory(entries)
 	got := plain(strings.Join(replay.transcript.linesFor(80), "\n"))
 
-	if !strings.Contains(got, "Worked for 2m 30s") {
+	if !strings.Contains(got, "Worked for 2m 30s") || !strings.Contains(got, "summary") || !strings.Contains(got, "Compacted 1.2k tokens") {
 		t.Fatalf("replayed total missing:\n%s", got)
 	}
 	if got != live {

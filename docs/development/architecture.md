@@ -349,6 +349,11 @@ Only a budget the user sets is written to the config, so the derivation can be
 tuned in a later release without rewriting anyone's file; storage version 3
 dropped the budgets earlier releases had written as defaults.
 
+The summary streams as it is written. The runner reports its start, its text,
+and its end as events; the UI shows it under a "Compacting…" marker in the turn
+it interrupts, or in a turn of its own for `/compact`, and keeps it whole in the
+transcript. A resumed session shows the same block from the persisted summary.
+
 Summary generation reuses the live prefix cache. The preferred request sends the
 live system prompt and tool roster plus every message up to the compaction
 boundary verbatim, appending only one trailing user message that asks for the

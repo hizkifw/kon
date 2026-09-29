@@ -27,6 +27,9 @@ const (
 	// blockElapsed is a finished turn's "Worked for …" total. It is appended
 	// when a run ends and stays in history as the turn's duration.
 	blockElapsed
+	// blockCompaction is a compaction's summary, whole, with its marker line
+	// under it.
+	blockCompaction
 )
 
 // block is one entry in the transcript. Tool calls arrive as a blockTool
@@ -43,6 +46,9 @@ type block struct {
 	// model is the recorded selection behind a replayed model change, kept so
 	// its title can be named again once the catalog loads.
 	model *session.ModelSelection
+	// marker is the line under a compaction block: what it compacted, or
+	// that it stopped.
+	marker string
 }
 
 // Transcript palette. The base is neutral grey: message slabs differ by
@@ -139,6 +145,9 @@ type transcript struct {
 	active         liveRenderer
 	activeThinking bool
 	strip          ansiStripper
+	// compacting marks t.stream as a compaction summary rather than a reply:
+	// it streams in the tool slab's colors and ends as a blockCompaction.
+	compacting bool
 
 	// lines is the transcript rendered as a flat slice of display lines, so the
 	// viewport never has to split the joined string again. cacheBase records the
@@ -224,9 +233,49 @@ func (t *transcript) ensureMessage() liveRenderer {
 	if t.active != nil && !t.activeThinking {
 		return t.active
 	}
-	t.active = newMarkdownLive(colorAgentBg, colorAgentFg, t.width)
+	bg, fg := t.streamColors()
+	t.active = newMarkdownLive(bg, fg, t.width)
 	t.activeThinking = false
 	return t.active
+}
+
+// streamColors are the slab colors of the text being streamed: a reply's, or
+// a compaction summary's, which reads like a tool's output.
+func (t *transcript) streamColors() (bg, fg color.Color) {
+	if t.compacting {
+		return colorToolBg, colorToolFg
+	}
+	return colorAgentBg, colorAgentFg
+}
+
+// beginCompaction opens a compaction summary's stream. A summary restarted
+// in its fallback form discards what the first attempt streamed.
+func (t *transcript) beginCompaction() {
+	if !t.compacting {
+		t.finishStream()
+	}
+	t.stream = t.stream[:0]
+	t.active = nil
+	t.compacting = true
+}
+
+// appendCompaction buffers a delta of the summary being written.
+func (t *transcript) appendCompaction(text string) {
+	if !t.compacting {
+		t.beginCompaction()
+	}
+	clean := t.strip.strip(text)
+	t.stream = append(t.stream, clean...)
+	t.ensureMessage().append(clean)
+}
+
+// finishCompaction closes the summary's stream as a block holding summary,
+// the text that was kept, and marker.
+func (t *transcript) finishCompaction(summary, marker string) {
+	t.add(block{kind: blockCompaction, text: summary, marker: marker})
+	t.stream = t.stream[:0]
+	t.active = nil
+	t.compacting = false
 }
 
 // appendThinking buffers a reasoning delta. Thinking may interleave with text
@@ -264,6 +313,11 @@ func (t *transcript) appendStream(text string) {
 }
 
 func (t *transcript) finishStream() {
+	if t.compacting {
+		// A summary still open when its run ends was never kept.
+		t.finishCompaction(string(t.stream), compactionStoppedLabel)
+		return
+	}
 	if t.thinking != "" {
 		t.add(block{kind: blockThinking, text: t.thinking})
 		t.thinking = ""
@@ -322,7 +376,8 @@ func (t *transcript) pendingStream(width int) string {
 		if t.active != nil && !t.activeThinking {
 			return t.active.pending()
 		}
-		return strings.Join(renderMarkdownBlock(markdown.Render(string(t.stream), markdown.Theme{}, markdownContentWidth(width)), colorAgentBg, colorAgentFg, width), "\n")
+		bg, fg := t.streamColors()
+		return strings.Join(renderMarkdownBlock(markdown.Render(string(t.stream), markdown.Theme{}, markdownContentWidth(width)), bg, fg, width), "\n")
 	default:
 		return ""
 	}
@@ -360,7 +415,8 @@ func (t *transcript) rebuildActive(width int) {
 		t.active.append(t.thinking)
 		t.activeThinking = true
 	case len(t.stream) > 0:
-		t.active = newMarkdownLive(colorAgentBg, colorAgentFg, width)
+		bg, fg := t.streamColors()
+		t.active = newMarkdownLive(bg, fg, width)
 		t.active.append(string(t.stream))
 		t.activeThinking = false
 	default:
@@ -603,6 +659,14 @@ func (t *transcript) renderBlock(b block, width int) []string {
 		return []string{separatorLine(b.text, width)}
 	case blockElapsed:
 		return markerLines(b.text, width)
+	case blockCompaction:
+		// The summary renders as it streamed, and the marker takes the place
+		// the running timer had under it.
+		var lines []string
+		if b.text != "" {
+			lines = append(renderMarkdownBlock(markdown.Render(b.text, markdown.Theme{}, markdownContentWidth(width)), colorToolBg, colorToolFg, width), "")
+		}
+		return append(lines, markerLines(b.marker, width)...)
 	case blockModel, blockModels:
 		return dimLines(normalizeText(b.text), width)
 	default:
