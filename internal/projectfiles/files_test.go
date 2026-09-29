@@ -68,6 +68,13 @@ func TestListWithoutGit(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(files, want) {
 		t.Fatalf("plain files = %v, %v; want %v", files, err, want)
 	}
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(root, link); err != nil {
+		t.Skip("symlinks unavailable:", err)
+	}
+	if files, err := List(context.Background(), link); err != nil || !reflect.DeepEqual(files, want) {
+		t.Fatalf("symlinked root files = %v, %v; want %v", files, err, want)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if _, err := walkFiles(ctx, root); err == nil {

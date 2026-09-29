@@ -107,9 +107,15 @@ func splitPath(data []byte, atEOF bool) (int, []byte, error) {
 }
 
 func walkFiles(ctx context.Context, cwd string) ([]string, error) {
+	// WalkDir does not descend into a symlinked root, and the working
+	// directory keeps whatever links the user cd'd through.
+	cwd, err := filepath.EvalSymlinks(cwd)
+	if err != nil {
+		return nil, fmt.Errorf("find files: %w", err)
+	}
 	var files []string
 	seen := 0
-	err := filepath.WalkDir(cwd, func(name string, entry fs.DirEntry, err error) error {
+	err = filepath.WalkDir(cwd, func(name string, entry fs.DirEntry, err error) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
