@@ -272,6 +272,8 @@ func (m Model) Init() tea.Cmd {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var commands []tea.Cmd
 	switch msg := msg.(type) {
+	case sideTickMsg:
+		return m.tickSideChat(msg)
 	case sideEventMsg:
 		return m.updateSideChat(msg)
 	case tea.WindowSizeMsg:

@@ -20,9 +20,9 @@ func (m Model) mode() string {
 	switch {
 	case m.side != nil:
 		if m.busy {
-			return "side question · main task running"
+			return "/btw · main task running"
 		}
-		return "side question"
+		return "/btw"
 	case m.login != nil:
 		return m.login.question()
 	case m.follow != nil:

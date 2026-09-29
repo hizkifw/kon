@@ -68,6 +68,9 @@ func TestBTWStreamsApartFromMainRun(t *testing.T) {
 	if !m.busy || len(m.inbox.Pending()) != 0 || len(m.queued) != 0 {
 		t.Fatal("side question changed the main run or pending messages")
 	}
+	if got := plain(m.View().Content); !strings.Contains(got, "Asking…") || !strings.Contains(got, "Esc to go back") {
+		t.Fatalf("side view before the answer = %s", got)
+	}
 	for {
 		select {
 		case msg := <-m.side.events:
@@ -84,7 +87,8 @@ finished:
 	m.applyAgentEvent(agent.Event{Kind: agent.EventText, Text: "main answer"})
 	m.applyAgentEvent(agent.Event{Kind: agent.EventAssistantDone})
 	m.refreshTranscript(true)
-	if got := plain(m.View().Content); !strings.Contains(got, "side answer") || strings.Contains(got, "main answer") {
+	if got := plain(m.View().Content); !strings.Contains(got, "side answer") || strings.Contains(got, "main answer") ||
+		!strings.Contains(got, "Answered in") || !strings.Contains(got, "⏎ or Esc to go back") {
 		t.Fatalf("side view = %s", got)
 	}
 	if m.contextTokens != 42 || m.sideSpent != 0.01 || m.spent != 0 {

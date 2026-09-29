@@ -31,12 +31,16 @@ const (
 // workingLabel is the running form of the turn marker. The dot flips on the
 // elapsed second's parity, so it is a pure function of the clock and cannot
 // drift out of step with the displayed total.
-func workingLabel(elapsed time.Duration) string {
+func workingLabel(elapsed time.Duration) string { return runningLabel("Working", elapsed) }
+
+// runningLabel is the running marker for any timed activity, so a side answer
+// and a turn tick the same way.
+func runningLabel(verb string, elapsed time.Duration) string {
 	mark := markFilled
 	if int(elapsed/time.Second)%2 == 1 {
 		mark = markOutline
 	}
-	return mark + " Working… " + formatDuration(elapsed)
+	return mark + " " + verb + "… " + formatDuration(elapsed)
 }
 
 // workedLabel is the finished form of the turn marker: the dot stays filled and

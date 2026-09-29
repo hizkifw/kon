@@ -114,12 +114,6 @@ func (m Model) View() tea.View {
 	// without every transition having to remember to update it.
 	m.input.Placeholder = m.placeholder()
 	input := m.input.View()
-	if m.side != nil {
-		input = " /btw · Esc or Enter returns to the main conversation"
-		if !m.side.done {
-			input = " /btw · Esc returns to the main conversation"
-		}
-	}
 	if m.login != nil {
 		input = m.login.input.View()
 	}

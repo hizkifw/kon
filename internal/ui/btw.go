@@ -19,6 +19,18 @@ type sideChat struct {
 	events     <-chan sideEventMsg
 	position   previewReturn
 	done       bool
+	// start times the answer for its marker, and answering records that the
+	// first token arrived, which turns "Asking" into "Answering".
+	start     time.Time
+	answering bool
+}
+
+// sideTickMsg advances the side answer's marker; epoch drops a tick from a
+// side chat that has since closed.
+type sideTickMsg struct{ epoch int }
+
+func sideTick(epoch int) tea.Cmd {
+	return tea.Tick(time.Second, func(time.Time) tea.Msg { return sideTickMsg{epoch: epoch} })
 }
 
 type sideEventMsg struct {
@@ -50,10 +62,10 @@ func (m Model) startSideChat(question string) (tea.Model, tea.Cmd) {
 	m.side = &sideChat{
 		transcript: transcript{cwd: m.cwd}, cancel: cancel, events: events,
 		position: previewReturn{offset: m.viewport.YOffset(), atBottom: m.viewport.AtBottom()},
+		start:    time.Now(),
 	}
-	m.side.transcript.add(block{kind: blockContext, text: "/btw · temporary answer · no tools"})
 	m.side.transcript.add(block{kind: blockUser, text: sanitize(question)})
-	m.side.transcript.liveTimer = "Answering…"
+	m.side.syncTimer(time.Now())
 	m.input.Reset()
 	m.resetMenu()
 	m.refreshTranscript(false)
@@ -73,7 +85,25 @@ func (m Model) startSideChat(question string) (tea.Model, tea.Cmd) {
 		case <-ctx.Done():
 		}
 	}()
-	return m, waitSideEvent(events)
+	return m, tea.Batch(waitSideEvent(events), sideTick(epoch))
+}
+
+// syncTimer repaints the side answer's running marker from the clock.
+func (s *sideChat) syncTimer(now time.Time) {
+	verb := "Asking"
+	if s.answering {
+		verb = "Answering"
+	}
+	s.transcript.liveTimer = runningLabel(verb, now.Sub(s.start))
+}
+
+func (m Model) tickSideChat(msg sideTickMsg) (tea.Model, tea.Cmd) {
+	if m.side == nil || m.side.done || msg.epoch != m.sideEpoch {
+		return m, nil
+	}
+	m.side.syncTimer(time.Now())
+	m.refreshTranscript(true)
+	return m, sideTick(msg.epoch)
 }
 
 func waitSideEvent(events <-chan sideEventMsg) tea.Cmd {
@@ -99,6 +129,8 @@ func (m Model) updateSideChat(msg sideEventMsg) (tea.Model, tea.Cmd) {
 		}
 		if msg.err != nil && !errors.Is(msg.err, context.Canceled) && !errors.Is(msg.err, app.ErrSideChatTools) {
 			m.side.transcript.add(block{kind: blockError, text: sanitize(msg.err.Error())})
+		} else {
+			m.side.transcript.add(block{kind: blockElapsed, text: markFilled + " Answered in " + formatDuration(time.Since(m.side.start))})
 		}
 		m.refreshTranscript(true)
 		return m, nil
@@ -106,6 +138,10 @@ func (m Model) updateSideChat(msg sideEventMsg) (tea.Model, tea.Cmd) {
 	switch msg.event.Kind {
 	case agent.EventText:
 		m.side.transcript.appendStream(sanitize(msg.event.Text))
+		if !m.side.answering {
+			m.side.answering = true
+			m.side.syncTimer(time.Now())
+		}
 	case agent.EventUsage:
 		m.sideSpent += msg.event.Cost
 	}
