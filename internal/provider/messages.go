@@ -45,8 +45,8 @@ type messagesModel struct {
 	// outputCap is the model's output limit, when it is below
 	// defaultMessagesMaxTokens.
 	outputCap tokens.Count
-	// dropMismatched opts into dropping thinking blocks the server no longer
-	// accepts; see isBoundThinkingError.
+	// dropMismatched asks the server to drop thinking blocks it no longer
+	// accepts instead of rejecting the request; see isBoundThinkingError.
 	dropMismatched bool
 }
 
@@ -58,8 +58,9 @@ const defaultMessagesMaxTokens tokens.Count = 32_000
 // accepts.
 const minThinkingBudget tokens.Count = 1024
 
-// thinkingBindingBeta lets a request drop thinking blocks whose recorded
-// conversation no longer matches, instead of failing.
+// thinkingBindingBeta lets a request set thinking.block_binding, which is
+// what asks the server to drop thinking blocks whose recorded conversation no
+// longer matches. The header alone changes nothing.
 const thinkingBindingBeta = "thinking-binding-controls-2026-08-01"
 
 func newMessagesModel(model Spec, spec wire.Spec, readImage func(string) ([]byte, error)) (*messagesModel, error) {
@@ -147,6 +148,12 @@ type messagesThinking struct {
 	// which would leave kon's thinking view empty.
 	Display      string       `json:"display,omitempty"`
 	BudgetTokens tokens.Count `json:"budget_tokens,omitempty"`
+	// BlockBinding is set only with thinkingBindingBeta.
+	BlockBinding *messagesBlockBinding `json:"block_binding,omitempty"`
+}
+
+type messagesBlockBinding struct {
+	PrefixMismatchBehavior string `json:"prefix_mismatch_behavior"`
 }
 
 type messagesOutputConfig struct {
@@ -299,7 +306,7 @@ func toMessagesTools(tools []session.ToolDefinition) []messagesTool {
 // what the model has taught this backend, so it depends on the budget too.
 func (m *messagesModel) request(messages []session.Message, tools []session.ToolDefinition, maxTokens tokens.Count) messagesRequest {
 	m.mu.Lock()
-	budgetThinking, outputCap := m.budgetThinking, m.outputCap
+	budgetThinking, outputCap, dropMismatched := m.budgetThinking, m.outputCap, m.dropMismatched
 	m.mu.Unlock()
 	if outputCap > 0 {
 		maxTokens = min(maxTokens, outputCap)
@@ -317,6 +324,16 @@ func (m *messagesModel) request(messages []session.Message, tools []session.Tool
 	case maxTokens/2 >= minThinkingBudget:
 		// The budget must stay below max_tokens, leaving room to answer.
 		payload.Thinking = &messagesThinking{Type: "enabled", BudgetTokens: maxTokens / 2}
+	}
+	if dropMismatched && !budgetThinking {
+		// Only models with adaptive thinking bind blocks to a conversation.
+		// They think by default, so a model configured without reasoning
+		// still returns bound blocks, and asking for adaptive thinking
+		// explicitly changes nothing but where the binding can be set.
+		if payload.Thinking == nil {
+			payload.Thinking = &messagesThinking{Type: "adaptive"}
+		}
+		payload.Thinking.BlockBinding = &messagesBlockBinding{PrefixMismatchBehavior: "drop_block"}
 	}
 	if m.effort != "" {
 		payload.OutputConfig = &messagesOutputConfig{Effort: m.effort}
@@ -409,7 +426,9 @@ func outputLimit(body string) tokens.Count {
 // isBoundThinkingError reports the rejection of a thinking block whose
 // recorded conversation no longer matches the request. kon's compaction keeps
 // recent turns verbatim after a summary, which changes what precedes their
-// thinking; with the binding beta the server drops those blocks instead.
+// thinking; with prefix_mismatch_behavior "drop_block" the server drops those
+// blocks, and every later one, instead. The drop covers one request only, so
+// the setting is kept for the rest of the model's life.
 func isBoundThinkingError(body string) bool {
 	return strings.Contains(body, "bound to a different conversation")
 }
@@ -430,10 +449,7 @@ func (m *messagesModel) stream(ctx context.Context, payload messagesRequest, emi
 	for key, value := range m.spec.AuthHeaders(m.apiKey) {
 		request.Header.Set(key, value)
 	}
-	m.mu.Lock()
-	drop := m.dropMismatched
-	m.mu.Unlock()
-	if drop {
+	if payload.Thinking != nil && payload.Thinking.BlockBinding != nil {
 		request.Header.Set("anthropic-beta", thinkingBindingBeta)
 	}
 	// Configured headers come last so a profile can override any of these.

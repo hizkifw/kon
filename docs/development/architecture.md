@@ -285,8 +285,10 @@ roster too, and the last block of the conversation. It learns three facts from
 rejected requests and keeps them for the model's lifetime: a lower output
 limit, a model that needs budgeted rather than adaptive thinking, and
 thinking blocks whose recorded conversation changed. The last happens after a
-compaction keeps recent turns verbatim behind a new summary; kon then sends
-the thinking-binding beta so the server drops those blocks instead of failing. A provider is the
+compaction keeps recent turns verbatim behind a new summary; kon then sets
+`thinking.block_binding.prefix_mismatch_behavior` to `drop_block`, under the
+thinking-binding beta, on every later request, so the server drops those blocks
+instead of failing. The header alone does not change the default. A provider is the
 service on the other end, identified by a connection's `id` and models.dev
 `catalog_provider`. Service quirks key on that identity instead of the format:
 OpenRouter's key check, Azure's deployment names, and what `/login` asks for

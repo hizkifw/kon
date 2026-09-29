@@ -149,13 +149,11 @@ func TestMessagesRequestShape(t *testing.T) {
 
 func TestMessagesLearnsFromRejections(t *testing.T) {
 	var bodies [][]byte
-	var betas []string
 	requests := 0
 	model := newMessagesTestModel(t, func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		bodies = append(bodies, body)
 		requests++
-		betas = append(betas, r.Header.Get("anthropic-beta"))
 		fail := func(message string) {
 			w.WriteHeader(http.StatusBadRequest)
 			_, _ = io.WriteString(w, `{"type":"error","error":{"type":"invalid_request_error","message":"`+message+`"}}`)
@@ -165,8 +163,6 @@ func TestMessagesLearnsFromRejections(t *testing.T) {
 			fail("max_tokens: 32000 > 8192, which is the maximum allowed number of output tokens")
 		case 2:
 			fail("thinking.type: Input tag 'adaptive' does not match the expected tags")
-		case 3:
-			fail("messages.1.content.0: Invalid `signature` in `thinking` block. The block is bound to a different conversation.")
 		default:
 			_, _ = io.WriteString(w, sse(`{"type":"content_block_start","index":0,"content_block":{"type":"text","text":"ok"}}`)+sse(`{"type":"message_stop"}`))
 		}
@@ -174,12 +170,12 @@ func TestMessagesLearnsFromRejections(t *testing.T) {
 	if _, err := model.Stream(context.Background(), []session.Message{session.TextMessage(session.RoleUser, "hi")}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	if len(bodies) != 4 || betas[3] != thinkingBindingBeta {
-		t.Fatalf("requests = %d, betas = %q", len(bodies), betas)
+	if len(bodies) != 3 {
+		t.Fatalf("requests = %d", len(bodies))
 	}
 	// The last request fits the reported output limit and budgets thinking
 	// within it, since the model predates adaptive thinking.
-	assertWireJSON(t, bodies[3], `{
+	assertWireJSON(t, bodies[2], `{
 		"model": "claude-test",
 		"max_tokens": 8192,
 		"messages": [{"role": "user", "content": [{"type": "text", "text": "hi", "cache_control": {"type": "ephemeral"}}]}],
@@ -190,6 +186,45 @@ func TestMessagesLearnsFromRejections(t *testing.T) {
 	bodies = nil
 	if _, err := model.Stream(context.Background(), []session.Message{session.TextMessage(session.RoleUser, "again")}, nil, nil); err != nil || len(bodies) != 1 {
 		t.Fatalf("second request: %v after %d tries", err, len(bodies))
+	}
+}
+
+// A model configured without reasoning still thinks by default and returns
+// bound blocks, so the drop setting goes out with an explicit adaptive
+// thinking config, and with the beta that allows it.
+func TestMessagesDropsMismatchedThinking(t *testing.T) {
+	var bodies [][]byte
+	var betas []string
+	model := newMessagesTestModel(t, func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		bodies = append(bodies, body)
+		betas = append(betas, r.Header.Get("anthropic-beta"))
+		if len(bodies) == 1 {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = io.WriteString(w, `{"type":"error","error":{"type":"invalid_request_error","message":"messages.1.content.0: Invalid `+"`signature`"+` in `+"`thinking`"+` block. The block is bound to a different conversation."}}`)
+			return
+		}
+		_, _ = io.WriteString(w, sse(`{"type":"content_block_start","index":0,"content_block":{"type":"text","text":"ok"}}`)+sse(`{"type":"message_stop"}`))
+	})
+	model.reasoning = false
+	hi := []session.Message{session.TextMessage(session.RoleUser, "hi")}
+	if _, err := model.Stream(context.Background(), hi, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(bodies) != 2 || betas[0] != "" || betas[1] != thinkingBindingBeta {
+		t.Fatalf("requests = %d, betas = %q", len(bodies), betas)
+	}
+	assertWireJSON(t, bodies[1], fmt.Sprintf(`{
+		"model": "claude-test",
+		"max_tokens": %d,
+		"messages": [{"role": "user", "content": [{"type": "text", "text": "hi", "cache_control": {"type": "ephemeral"}}]}],
+		"thinking": {"type": "adaptive", "block_binding": {"prefix_mismatch_behavior": "drop_block"}},
+		"stream": true
+	}`, defaultMessagesMaxTokens))
+	// The server drops blocks for one request at a time, so every later
+	// request asks again.
+	if _, err := model.Stream(context.Background(), hi, nil, nil); err != nil || len(bodies) != 3 || betas[2] != thinkingBindingBeta || !strings.Contains(string(bodies[2]), "drop_block") {
+		t.Fatalf("second request: %v, betas = %q", err, betas)
 	}
 }
 
