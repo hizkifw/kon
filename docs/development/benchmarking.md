@@ -24,12 +24,42 @@ go test -run '^$' -bench DecodeChatStream -benchmem ./internal/provider
 | `internal/markdown` `BenchmarkStream*`, `BenchmarkRender*` | streamed markdown rendering |
 | `internal/ui` `BenchmarkTranscriptRender*`, `BenchmarkViewportRefresh` | transcript folding and per-frame refresh; see [rendering-performance.md](rendering-performance.md) |
 | `internal/catalog` `BenchmarkNew` | loading the bundled model catalog |
+| `internal/projectfiles` `BenchmarkList` | project-file discovery through Git and the directory fallback at 1k, 10k, 50k, and 100k files |
+| `internal/ui` `BenchmarkMentionCandidates` | per-keystroke file matching and ranking at 1k, 10k, and 50k cached paths |
 | `internal/session` `BenchmarkSubagents*` | counting subagent usage in a workspace of 2,000 sessions: the first read, the once-a-second read, and the memory kept while following them (`retained-MiB`) |
 
 Several stream benchmarks grow their input on every iteration, so their
 `ns/op` depends on `b.N` and is not comparable across machines or runs. Compare
 them before and after a change on the same machine, or report a per-unit metric
 as `BenchmarkDecodeChatStream` does with `ns/delta`.
+
+### File mentions
+
+```sh
+go test -run '^$' -bench '^BenchmarkList$' -benchmem -count=3 ./internal/projectfiles
+go test -run '^$' -bench '^BenchmarkMentionCandidates$' -benchmem -count=3 ./internal/ui
+```
+
+Discovery uses temporary trees with 100 files per package directory, varied
+filenames, and one to three directory levels below each tracking group. The Git
+case tracks half the files and leaves half untracked; the directory case calls
+the same `List` entry point before Git initialization, including the failed Git
+lookup before the fallback walk. Fixture creation and `git add` are outside the
+timer. Each operation repeats discovery, so these are warm filesystem-cache
+measurements, not cold-disk latency. Report the OS, Go version, and filesystem
+alongside results; process startup and directory walking vary by platform.
+
+The 100k case exercises the 50k-entry limit and reports the number of returned
+files as `files/op`. The walk counts directories too, so it returns fewer than
+50k files at the limit. Search benchmarks stop at 50k because discovery never
+delivers a larger list. They measure one cached filtering/ranking pass per
+query as `@model` is typed, plus fuzzy-path and no-match queries. Paths mix root
+Markdown files, commands, services, web components, guides, and test data.
+Only one in 1,000 paths contains `model`, so `@model` returns 1, 10, or 50
+matches while `@` still exercises broad matching. `matches/op` reports returned
+candidates, capped at 100. Normalization is outside the timer, as it happens
+once in the background discovery command;
+these numbers exclude terminal rendering and are not end-to-end input latency.
 
 ## Load test
 

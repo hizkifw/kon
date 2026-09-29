@@ -48,7 +48,8 @@ func (m Model) enqueue() (tea.Model, tea.Cmd) {
 	}
 	m.queued = append(slices.Clone(m.queued), text)
 	m.input.Reset()
-	m.resize()
+	m.resetMentions()
+	m.resetMenu()
 	return m, nil
 }
 
@@ -246,7 +247,7 @@ func (m Model) managePending(args []string) (tea.Model, tea.Cmd) {
 	}
 	m.input.SetValue(text)
 	m.input.CursorEnd()
-	m.refreshInput()
+	cmd := m.refreshInput()
 	m.message = "pulled back for editing"
-	return m, nil
+	return m, cmd
 }

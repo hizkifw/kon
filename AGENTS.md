@@ -62,6 +62,7 @@ Each package owns one boundary. Do not reach across them.
 | `internal/buildinfo` | build version and the outgoing User-Agent | configuration or network clients |
 | `internal/config` | paths, defaults, validation, credentials | runtime mutation |
 | `internal/contextfiles` | AGENTS.md/CLAUDE.md discovery up the directory tree | prompt assembly |
+| `internal/projectfiles` | bounded project-file discovery and Git ignore rules | terminal presentation or file contents |
 | `internal/history` | bounded prompt recall | conversation context |
 | `internal/selfupdate` | release lookup, verified download, and executable replacement | storage migrations or CLI parsing |
 

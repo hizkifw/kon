@@ -7,6 +7,7 @@ import (
 	"errors"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
@@ -182,6 +183,8 @@ type Model struct {
 	// resumed conversation opens on its latest messages instead of at the top.
 	startAtBottom bool
 	menu          menu
+	menuSource    menuSource
+	mentions      fileMentions
 	login         *loginFlow
 	// preview is a scratch transcript shown in place of the live one while a
 	// popup row that carries a Preview is highlighted, so a picker can be
@@ -282,6 +285,8 @@ func (m Model) Init() tea.Cmd {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var commands []tea.Cmd
 	switch msg := msg.(type) {
+	case mentionFilesMsg:
+		return m.applyMentionFiles(msg)
 	case sideTickMsg:
 		return m.tickSideChat(msg)
 	case sideEventMsg:
@@ -424,12 +429,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	var cmd tea.Cmd
 	before := m.input.Value()
+	cursor := m.cursorOffset()
 	pending := m.killPending
 	m.killPending = false
-	cursor := 0
-	if pending {
-		cursor = m.cursorOffset()
-	}
 	m.input, cmd = m.input.Update(msg)
 	commands = append(commands, cmd)
 	m.viewport.Update(msg)
@@ -440,12 +442,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.killRing = removed
 		}
 	}
-	if m.input.Value() != before {
-		// Refresh the popup whenever the prompt changed, regardless of which
-		// key or paste produced the change. The command source only yields
-		// candidates for input beginning with "/", so ordinary text closes it
-		// and "/" as the first rune opens the command list.
-		m.refreshInput()
+	if m.input.Value() != before || m.cursorOffset() != cursor {
+		// Mentions follow the cursor, including edits in the middle of a prompt.
+		commands = append(commands, m.refreshInput())
 		return m, tea.Batch(commands...)
 	}
 	m.resize()
@@ -456,9 +455,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // frame. Every path that changes the input or the menu ends here, so the
 // viewport height always matches the menu in the same frame instead of
 // reflowing on a later update.
-func (m *Model) refreshInput() {
+func (m *Model) refreshInput() tea.Cmd {
+	cmd := m.loadMentionFiles()
 	m.openMenu()
 	m.resize()
+	return cmd
 }
 
 // removedSpan returns the text a kill deleted between before and after, or ""
@@ -496,13 +497,27 @@ func (m Model) cursorOffset() int {
 	return offset + len(string(line[:col]))
 }
 
+func (m *Model) setCursorOffset(offset int) {
+	text := m.input.Value()
+	before := text[:min(max(offset, 0), len(text))]
+	row := strings.Count(before, "\n")
+	m.input.MoveToBegin()
+	for range len(text) {
+		if m.input.Line() >= row {
+			break
+		}
+		m.input.CursorDown()
+	}
+	m.input.SetCursorColumn(utf8.RuneCountInString(before[strings.LastIndex(before, "\n")+1:]))
+}
+
 func (m Model) handleKey(key string) (tea.Model, tea.Cmd, bool) {
 	switch key {
 	case "ctrl+c":
 		if m.input.Value() != "" {
 			m.input.Reset()
-			m.refreshInput()
-			return m, nil, true
+			cmd := m.refreshInput()
+			return m, cmd, true
 		}
 		m.message = "press Ctrl+D to exit"
 		return m, nil, true
@@ -524,8 +539,8 @@ func (m Model) handleKey(key string) (tea.Model, tea.Cmd, bool) {
 		return m, nil, false
 	case "ctrl+y":
 		m.input.InsertString(m.killRing)
-		m.refreshInput()
-		return m, nil, true
+		cmd := m.refreshInput()
+		return m, cmd, true
 	case "ctrl+r":
 		updated, cmd := m.startSearch()
 		return updated, cmd, true
@@ -537,8 +552,8 @@ func (m Model) handleKey(key string) (tea.Model, tea.Cmd, bool) {
 		return m, nil, true
 	case "shift+enter", "ctrl+enter":
 		m.input.InsertString("\n")
-		m.refreshInput()
-		return m, nil, true
+		cmd := m.refreshInput()
+		return m, cmd, true
 	case "enter":
 		if m.menu.open() {
 			return m.completeMenu()
@@ -548,12 +563,19 @@ func (m Model) handleKey(key string) (tea.Model, tea.Cmd, bool) {
 			// continuation: drop the backslash and open a new line instead of
 			// submitting.
 			m.input.SetValue(strings.TrimSuffix(m.input.Value(), `\`) + "\n")
-			m.refreshInput()
-			return m, nil, true
+			cmd := m.refreshInput()
+			return m, cmd, true
 		}
 		updated, cmd := m.submit()
 		return updated, cmd, true
 	case "tab":
+		if _, _, _, active := mentionAt(m.input.Value(), m.cursorOffset()); active {
+			updated, cmd, handled := m.completeMenu()
+			m = updated.(Model)
+			if handled || !m.canQueue() {
+				return m, cmd, handled
+			}
+		}
 		if !m.menu.open() && m.canQueue() {
 			updated, cmd := m.enqueue()
 			return updated, cmd, true
@@ -568,10 +590,12 @@ func (m Model) handleKey(key string) (tea.Model, tea.Cmd, bool) {
 		updated, cmd := m.cycleEffort()
 		return updated, cmd, true
 	case "esc":
-		if m.menu.open() {
+		if m.menu.open() || (m.menu.note != "" && m.mentions.loading) {
+			m.mentions.dismissed = true
 			m.resetMenu()
 			return m, nil, true
 		}
+		m.resetMenu()
 		if m.busy && m.runCancel != nil {
 			// Esc is the only interrupt. The first press cancels the run,
 			// which interrupts a running tool so it can stop cleanly; a
@@ -613,8 +637,8 @@ func (m Model) handleKey(key string) (tea.Model, tea.Cmd, bool) {
 		}
 		if value, ok := m.history.recall(m.input.Value(), direction); ok {
 			m.input.SetValue(value)
-			m.refreshInput()
-			return m, nil, true
+			cmd := m.refreshInput()
+			return m, cmd, true
 		}
 	}
 	m.menu.close()
@@ -631,13 +655,27 @@ func (m *Model) resetMenu() {
 	m.resize()
 }
 
-// openMenu refreshes the popup from the command registry. An empty candidate
-// set closes it. Typing "/" at the start of the prompt opens it immediately so
-// the available commands are discoverable.
+// openMenu chooses the source at the cursor; both sources share navigation and
+// rendering. Slash commands with a free-form argument can contain mentions too.
 func (m *Model) openMenu() {
-	items := m.commands.Candidates(*m, m.input.Value())
+	m.menuSource = m.commands
+	m.menu.note = ""
+	if _, _, _, active := mentionAt(m.input.Value(), m.cursorOffset()); active {
+		m.menuSource = mentionSource{}
+	}
+	items := m.menuSource.Candidates(*m, m.input.Value())
 	if len(items) == 0 {
 		m.menu.close()
+		if _, mentions := m.menuSource.(mentionSource); mentions {
+			switch {
+			case m.mentions.loading:
+				m.menu.note = "Finding files…"
+			case m.mentions.err != nil:
+				m.menu.note = "File search: " + oneLine(m.mentions.err.Error())
+			default:
+				m.menu.note = "No matching files"
+			}
+		}
 		m.syncPreview()
 		return
 	}
@@ -646,6 +684,9 @@ func (m *Model) openMenu() {
 	previous := m.menu.selected().Value
 	m.menu.items = items
 	m.menu.index = 0
+	if _, mentions := m.menuSource.(mentionSource); mentions && m.mentions.err != nil {
+		m.menu.note = "Partial file list: " + oneLine(m.mentions.err.Error())
+	}
 	if previous != "" {
 		for i, item := range items {
 			if item.Value == previous {
@@ -715,21 +756,24 @@ func (m *Model) restorePreviewScroll() {
 // completing a command with no more arguments (e.g. "/new") leaves no matching
 // candidate and closes the menu, while "/model" advances to its argument list.
 func (m Model) completeMenu() (tea.Model, tea.Cmd, bool) {
+	var cmd tea.Cmd
 	if !m.menu.open() {
+		cmd = m.loadMentionFiles()
 		m.openMenu()
+		m.resize()
 		if !m.menu.open() {
-			return m, nil, false
+			return m, cmd, m.mentions.loading
 		}
 	}
 	m.commitMenu()
-	m.refreshInput()
-	return m, nil, true
+	cmd = tea.Batch(cmd, m.refreshInput())
+	return m, cmd, true
 }
 
 // commitMenu applies the highlighted item through the popup source.
 // Callers are responsible for resizing once the menu state is final.
 func (m *Model) commitMenu() {
-	m.commands.Accept(m, m.menu.selected().Value)
+	m.menuSource.Accept(m, m.menu.selected().Value)
 }
 
 // replaceToken swaps the trailing token of input for value. Command names
@@ -757,7 +801,8 @@ func (m Model) submit() (tea.Model, tea.Cmd) {
 	}
 	// Submitting commits: drop any highlighted preview so the live transcript
 	// (or the resumed one) is what the command operates on and shows.
-	m.closePreview()
+	m.resetMenu()
+	m.resetMentions()
 	if strings.HasPrefix(text, "/") {
 		command, err := m.commands.parse(text)
 		if err != nil {

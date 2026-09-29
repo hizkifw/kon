@@ -26,6 +26,7 @@ func (m *Model) resize() {
 	}
 	// DynamicHeight sizes the input to its visual rows, but the transcript
 	// must keep at least one row, so the cap shrinks for small windows.
+	m.menu.rows = max(1, m.height-4-m.pendingHeight())
 	panels := m.menu.height() + m.pendingHeight()
 	inputHeight := min(maxInputLines, max(1, m.height-4-panels), max(1, m.input.Height()))
 	m.input.SetHeight(inputHeight)
