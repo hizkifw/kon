@@ -198,6 +198,9 @@ keep the `Current model:` line in their stored prompt.
 `Store.Context` projects a compaction summary as a flagged user message holding
 the persisted text, and `agent.Context` wraps it in the checkpoint preamble and
 `<compacted-summary>` tags. The runner and `/btw` both project through it.
+`session.go` was also split by concern: record shapes (`session.go`), messages
+(`message.go`), the writer (`store.go`), readers (`parse.go`, `discover.go`),
+and context projection with crash repair (`context.go`).
 
 ### 13. Use reported usage for compaction decisions
 
