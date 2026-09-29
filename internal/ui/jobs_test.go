@@ -117,7 +117,7 @@ func TestJobsListsJobsAndKillsOnASecondPress(t *testing.T) {
 	if len(runtime.killed) != 0 {
 		t.Fatalf("a disarmed kill ran: %v", runtime.killed)
 	}
-	m = sendKey(t, m, "K")
+	sendKey(t, m, "K")
 	if len(runtime.killed) != 1 || runtime.killed[0] != 2 {
 		t.Fatalf("killed = %v after two presses", runtime.killed)
 	}

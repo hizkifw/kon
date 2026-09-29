@@ -75,7 +75,6 @@ var (
 	colorToolFg   = lipgloss.Color("#909090")
 	colorToolName = lipgloss.Color("#C9C9C9")
 	colorToolNote = lipgloss.Color("#707070")
-	colorResult   = lipgloss.Color("#808080")
 
 	colorErrorBg = lipgloss.Color("#5A2120")
 	colorErrorFg = lipgloss.Color("#F2DCD8")
@@ -960,16 +959,4 @@ func splitDisplayLines(text string) []string {
 	text = strings.ReplaceAll(text, "\r\n", "\n")
 	text = strings.ReplaceAll(text, "\r", "\n")
 	return strings.Split(text, "\n")
-}
-
-// tailLines returns at most n lines, dropping trailing blank lines.
-func tailLines(text string, n int) []string {
-	lines := strings.Split(text, "\n")
-	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
-		lines = lines[:len(lines)-1]
-	}
-	if len(lines) > n {
-		lines = lines[len(lines)-n:]
-	}
-	return lines
 }

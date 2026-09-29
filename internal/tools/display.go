@@ -120,14 +120,6 @@ func splitDisplayLines(text string) []string {
 	return strings.Split(text, "\n")
 }
 
-// normalizeDisplay trims raw tool output for display: trailing spaces per
-// line, leading and trailing blank lines, and blank-run collapse are left to
-// the transcript's text normalizer; here CR variants become line breaks and
-// nothing else, so output keeps its shape.
-func normalizeDisplay(text string) string {
-	return strings.Join(splitDisplayLines(text), "\n")
-}
-
 // prettyPath shortens a path for display: relative to the working directory
 // when possible, otherwise with the home directory abbreviated.
 func prettyPath(path, cwd string) string {

@@ -16,10 +16,6 @@ type SourceRun struct {
 	Source, SourceLen int
 }
 
-func exactRun(at, source, n int) SourceRun {
-	return SourceRun{At: at, Len: n, Source: source, SourceLen: n}
-}
-
 // exact reports whether the run matches the source byte for byte.
 func (r SourceRun) exact() bool { return r.Len == r.SourceLen }
 

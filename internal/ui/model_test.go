@@ -42,7 +42,6 @@ type fakeRuntime struct {
 	previewed      string
 	loginProvider  config.Provider
 	catalogLoads   int
-	efforts        []string
 
 	followed    app.Followed
 	followErr   error
@@ -378,7 +377,7 @@ func TestCompatibleLoginCollectsEndpointBeforeKey(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("login command was not started")
 	}
-	updated, _ = updated.(Model).Update(cmd())
+	updated.(Model).Update(cmd())
 	if runtime.loginProvider.BaseURL != "http://localhost:8080/v1" || runtime.loginProvider.APIKey != "secret" {
 		t.Fatalf("login received %#v", runtime.loginProvider)
 	}
@@ -397,7 +396,7 @@ func TestCatalogProviderLoginUsesKnownEndpoint(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("login command was not started")
 	}
-	updated, _ = updated.(Model).Update(cmd())
+	updated.(Model).Update(cmd())
 	// The flow adds only the key; the catalog's connection passes through as
 	// the login package resolved it.
 	entry, _ := runtime.LoginEntry("fireworks-ai")

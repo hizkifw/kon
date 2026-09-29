@@ -172,9 +172,7 @@ func TestQueueCommandReportsSteerAlreadySent(t *testing.T) {
 
 func TestPendingStripKeepsTranscriptHeight(t *testing.T) {
 	m := busyModel(t)
-	for _, text := range []string{"a", "b", "c", "d", "e"} {
-		m.queued = append(m.queued, text)
-	}
+	m.queued = append(m.queued, "a", "b", "c", "d", "e")
 	m.resize()
 	view := m.View().Content
 	if lines := strings.Count(view, "\n") + 1; lines != m.height {

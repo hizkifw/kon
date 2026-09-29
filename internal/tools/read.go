@@ -144,9 +144,7 @@ func (t readTool) Run(_ context.Context, env Env, raw json.RawMessage) (Result, 
 	// image magic, so an oversized image is named as such rather than as an
 	// oversized text file.
 	if info, statErr := os.Stat(path); statErr == nil && info.Mode().IsRegular() && info.Size() > maxImageBytes {
-		if err := rejectOversize(path); err != nil {
-			return Result{}, err
-		}
+		return Result{}, rejectOversize(path)
 	}
 	// Read once and route by content, not extension: any real image is an
 	// image whatever it is named (or not named), and binary data never reaches
@@ -164,10 +162,10 @@ func (t readTool) Run(_ context.Context, env Env, raw json.RawMessage) (Result, 
 	return t.readText(args, path, b)
 }
 
-// rejectOversize fails a file too large for any read mode, naming it as an
-// unsupported image when its prefix is a known-but-unsendable format and as an
-// oversized text file otherwise. It reads only a short prefix, so a huge file is
-// never loaded to be refused.
+// rejectOversize returns the error for a file too large for any read mode,
+// naming it as an unsupported image when its prefix is a known-but-unsendable
+// format and as an oversized text file otherwise. It reads only a short prefix,
+// so a huge file is never loaded to be refused.
 func rejectOversize(path string) error {
 	prefix, err := readPrefix(path, 512)
 	if err != nil {
