@@ -39,8 +39,11 @@ kon owns orchestration, persistence, and compaction.
 
 `/btw` asks the runtime for a separate, tool-free provider stream over a
 snapshot of the live context. It leaves the stored system prompt and session
-unchanged. Requests retain tool schemas for replaying tool history, with
-tool choice set to none; unexpected tool calls are rejected without execution.
+unchanged. Requests keep the main turn's tool schemas and leave tool choice as
+the main turn sends it, since changing either invalidates the prompt cache the
+main conversation wrote. A tool call is never executed: it is answered as
+unavailable and the model asked again, which only appends to the request, and
+after two retries the side chat reports that it cannot use tools.
 The UI renders text and errors into a temporary transcript, shown in a drawer,
 while the main runner keeps streaming into its own. Drawers are a stack of
 surfaces painted over the dimmed screen; only the top one takes keys and the
@@ -288,7 +291,9 @@ thinking blocks whose recorded conversation changed. The last happens after a
 compaction keeps recent turns verbatim behind a new summary; kon then sets
 `thinking.block_binding.prefix_mismatch_behavior` to `drop_block`, under the
 thinking-binding beta, on every later request, so the server drops those blocks
-instead of failing. The header alone does not change the default. A provider is the
+instead of failing. The header alone does not change the default. No backend
+sets `tool_choice`: a request that must not run tools still sends the main
+turn's, because changing it invalidates the cached conversation. A provider is the
 service on the other end, identified by a connection's `id` and models.dev
 `catalog_provider`. Service quirks key on that identity instead of the format:
 OpenRouter's key check, Azure's deployment names, and what `/login` asks for
@@ -383,6 +388,10 @@ boundary verbatim, appending only one trailing user message that asks for the
 summary. The provider then reads the prompt cache the last streaming turn wrote
 and bills only the trailing message as new input. Instructions live in that
 trailing message rather than a system message so the prefix stays byte-identical.
+Tool choice stays as the streaming turn sends it too, since forbidding tool
+calls would invalidate the cache, so the model may call a tool anyway; kon
+answers each call as unavailable and asks again, which only appends to the same
+request, and gives up after two retries.
 When the context plus the reserve no longer fits the window, the request is
 instead built in isolation: the system prompt, then one user message holding a
 serialized transcript of the history being dropped, a prior summary included,
@@ -399,7 +408,7 @@ at four bytes per token. Either way a figure with any estimated part is marked
 approximate. Exact tokenization is model-specific and is not a
 sensible dependency for a provider-neutral harness. A cache-preserving summary
 request carries the whole live context, so its reported prompt usage, less an
-estimate of the trailing summary request, replaces an approximate count as the
+estimate of the messages appended after it, replaces an approximate count as the
 compaction's recorded size. The isolated fallback measures only a serialized
 transcript and keeps the estimate. A summary that stops at its token limit is
 refused before anything is written, so the turns it would replace are kept.

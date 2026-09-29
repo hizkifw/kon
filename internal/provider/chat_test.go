@@ -530,7 +530,9 @@ func TestChatCompleteStreamsACappedSummary(t *testing.T) {
 	}
 }
 
-func TestChatCompleteSendsToolsWithToolChoiceNone(t *testing.T) {
+// Complete sends the streaming turn's tools and no tool_choice, so the request
+// keeps the cached prefix.
+func TestChatCompleteSendsToolsWithoutToolChoice(t *testing.T) {
 	var body []byte
 	model := newTestModel(t, func(w http.ResponseWriter, r *http.Request) {
 		body, _ = io.ReadAll(r.Body)
@@ -544,7 +546,6 @@ func TestChatCompleteSendsToolsWithToolChoiceNone(t *testing.T) {
 		"model": "test-model",
 		"messages": [{"role": "user", "content": "hi"}],
 		"tools": [{"type": "function", "function": {"name": "read", "description": "read a file", "parameters": {"type": "object"}}}],
-		"tool_choice": "none",
 		"stream": true,
 		"stream_options": {"include_usage": true}
 	}`)
@@ -560,7 +561,7 @@ func TestChatCompleteOmitsToolsWhenEmpty(t *testing.T) {
 	if _, err := model.Complete(context.Background(), []session.Message{session.TextMessage(session.RoleUser, "hi")}, nil, 0, nil); err != nil {
 		t.Fatal(err)
 	}
-	if body.Tools != nil || body.ToolChoice != "" {
+	if body.Tools != nil {
 		t.Fatalf("request = %#v", body)
 	}
 }

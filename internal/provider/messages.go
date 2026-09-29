@@ -89,7 +89,6 @@ type messagesRequest struct {
 	System       []messagesBlock       `json:"system,omitempty"`
 	Messages     []messagesMessage     `json:"messages"`
 	Tools        []messagesTool        `json:"tools,omitempty"`
-	ToolChoice   *messagesToolChoice   `json:"tool_choice,omitempty"`
 	Thinking     *messagesThinking     `json:"thinking,omitempty"`
 	OutputConfig *messagesOutputConfig `json:"output_config,omitempty"`
 	Stream       bool                  `json:"stream"`
@@ -136,10 +135,6 @@ type messagesTool struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description,omitempty"`
 	InputSchema json.RawMessage `json:"input_schema"`
-}
-
-type messagesToolChoice struct {
-	Type string `json:"type"`
 }
 
 type messagesThinking struct {
@@ -341,18 +336,13 @@ func (m *messagesModel) request(messages []session.Message, tools []session.Tool
 	return payload
 }
 
-func (m *messagesModel) StreamText(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, emit func(Event)) (Response, error) {
-	return m.run(ctx, messages, tools, defaultMessagesMaxTokens, emit, true)
-}
-
 // Stream runs one streamed generation.
 func (m *messagesModel) Stream(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, emit func(Event)) (Response, error) {
-	return m.run(ctx, messages, tools, defaultMessagesMaxTokens, emit, false)
+	return m.run(ctx, messages, tools, defaultMessagesMaxTokens, emit)
 }
 
 // Complete runs one capped generation, forwarding its deltas through emit when
-// set. tools, when set, keeps the cached prefix of the streaming turn, with
-// tool calls forbidden.
+// set. tools, when set, keeps the cached prefix of the streaming turn.
 func (m *messagesModel) Complete(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, maxTokens tokens.Count, emit func(Event)) (Response, error) {
 	if maxTokens <= 0 {
 		maxTokens = defaultMessagesMaxTokens
@@ -362,19 +352,16 @@ func (m *messagesModel) Complete(ctx context.Context, messages []session.Message
 		ctx, cancel = context.WithTimeout(ctx, completeTimeout)
 		defer cancel()
 	}
-	return m.run(ctx, messages, tools, maxTokens, emit, true)
+	return m.run(ctx, messages, tools, maxTokens, emit)
 }
 
 // run sends the request, adapting once to each fact a rejection teaches: an
 // output limit below the budget, a model without adaptive thinking, and
 // thinking blocks the server no longer accepts. Each is kept for later
 // requests.
-func (m *messagesModel) run(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, maxTokens tokens.Count, emit func(Event), noTools bool) (Response, error) {
+func (m *messagesModel) run(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, maxTokens tokens.Count, emit func(Event)) (Response, error) {
 	for attempt := 0; ; attempt++ {
 		payload := m.request(messages, tools, maxTokens)
-		if noTools && len(payload.Tools) > 0 {
-			payload.ToolChoice = &messagesToolChoice{Type: "none"}
-		}
 		response, err := m.stream(ctx, payload, emit)
 		if err == nil || attempt >= 3 || !m.learn(err) {
 			return response, err

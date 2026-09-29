@@ -81,7 +81,7 @@ func (m Model) finishSideChat(err error) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// Some models print tool markup as ordinary text despite tool_choice none.
+// Some models print tool markup as ordinary text when told tools are unavailable.
 // This heuristic only adds an explanation; the answer is never
 // interpreted or executed, and quoted examples remain visible as written.
 func sideToolCallText(text string) bool {

@@ -255,8 +255,10 @@ func TestMessagesErrors(t *testing.T) {
 	}
 }
 
-func TestMessagesCompleteForbidsToolCalls(t *testing.T) {
-	var body messagesRequest
+// Complete sends the streaming turn's tools and no tool_choice: changing
+// tool_choice would invalidate the cached conversation it is meant to reuse.
+func TestMessagesCompleteKeepsCachedPrefix(t *testing.T) {
+	var body map[string]json.RawMessage
 	model := newMessagesTestModel(t, func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		_, _ = io.WriteString(w, sse(`{"type":"content_block_start","index":0,"content_block":{"type":"text","text":"summary"}}`)+sse(`{"type":"message_delta","delta":{"stop_reason":"end_turn"}}`)+sse(`{"type":"message_stop"}`))
@@ -266,7 +268,7 @@ func TestMessagesCompleteForbidsToolCalls(t *testing.T) {
 	if err != nil || response.Text() != "summary" {
 		t.Fatalf("Complete = %q, %v", response.Text(), err)
 	}
-	if body.ToolChoice == nil || body.ToolChoice.Type != "none" || body.MaxTokens != 4096 || len(body.Tools) != 1 {
-		t.Fatalf("request = %#v", body)
+	if _, ok := body["tool_choice"]; ok || string(body["max_tokens"]) != "4096" || body["tools"] == nil {
+		t.Fatalf("request = %s", body)
 	}
 }

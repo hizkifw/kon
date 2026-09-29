@@ -103,16 +103,6 @@ func newModel(spec Spec, readImage func(string) ([]byte, error)) (Model, error) 
 	return newChatModel(spec, dialect, readImage)
 }
 
-// StreamText requests a text-only stream while retaining tool schemas for
-// history compatibility. Callers must still reject unexpected tool calls.
-func (c *Client) StreamText(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, emit func(Event)) (session.Message, error) {
-	response, err := c.model.StreamText(ctx, messages, tools, emit)
-	if err != nil {
-		return c.assistantOrPartial(response, err)
-	}
-	return c.assistant(response)
-}
-
 func (c *Client) Stream(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, emit func(Event)) (session.Message, error) {
 	response, err := c.model.Stream(ctx, messages, tools, emit)
 	if err != nil {

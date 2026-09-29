@@ -437,7 +437,7 @@ func (r *Runner) compactIfNeeded(ctx context.Context, force bool, emit func(Even
 		}
 		return false, errors.New("active turn is too large to compact safely")
 	}
-	response, live, err := r.summarize(ctx, items, cut, used, estimated, emit)
+	response, tail, err := r.summarize(ctx, items, cut, used, estimated, emit)
 	// A summary cut off at its limit would be persisted and the turns it
 	// replaces dropped for good, so it is refused before anything is written.
 	if errors.Is(err, provider.ErrOutputLimit) || (err == nil && response.Finish == session.FinishLength) {
@@ -449,9 +449,12 @@ func (r *Runner) compactIfNeeded(ctx context.Context, force bool, emit func(Even
 	// The cache-preserving request carried the whole live context plus the
 	// trailing summary request, so its reported prompt size measures the
 	// context being compacted far better than the byte estimate. Only the
-	// small request message itself is estimated and taken back out.
-	if live && estimated && response.Usage != nil {
-		request := []session.ContextMessage{{Message: session.TextMessage(session.RoleUser, CompactSummaryRequest)}}
+	// small tail after the live context is estimated and taken back out.
+	if tail != nil && estimated && response.Usage != nil {
+		request := make([]session.ContextMessage, 0, len(tail))
+		for _, message := range tail {
+			request = append(request, session.ContextMessage{Message: message})
+		}
 		if reported := response.Usage.PromptTokens - estimateContext(request, nil); reported > 0 {
 			used, estimated = reported, false
 		}
@@ -515,9 +518,7 @@ Rules:
 - Output only the checkpoint text: do not call any tool or take any other action.
 - If the conversation already contains a <compacted-summary> block, it is a PRIOR checkpoint. Do not copy it forward verbatim: preserve still-true facts, drop stale ones, and merge newer information into a single consolidated summary under the same structure.`
 
-// summarize asks the provider for a compaction summary. The live result
-// reports whether the request carried the live context, making its prompt
-// usage a measurement of that context.
+// summarize asks the provider for a compaction summary.
 //
 // The preferred, cache-preserving form sends the live turn's exact prefix — the
 // system prompt, projected prior summary, every message, and the tool roster —
@@ -528,7 +529,11 @@ Rules:
 // fallback if the provider still rejects the larger request as too long. It
 // keeps the system prompt, and serializes the history before the cut, a prior
 // summary included, into one user message ending with the same instruction.
-func (r *Runner) summarize(ctx context.Context, items []session.ContextMessage, cut int, used tokens.Count, estimated bool, emit func(Event)) (session.Message, bool, error) {
+//
+// It returns the messages the cache-preserving request appended after the
+// live context, or nil when the isolated form answered. With them, the
+// response's prompt usage measures the live context.
+func (r *Runner) summarize(ctx context.Context, items []session.ContextMessage, cut int, used tokens.Count, estimated bool, emit func(Event)) (session.Message, []session.Message, error) {
 	maxSummary := r.limits.summaryBudget()
 	// Reasoning is left out: the summary is what the reader is waiting on.
 	forward := func(event provider.Event) {
@@ -543,9 +548,13 @@ func (r *Runner) summarize(ctx context.Context, items []session.ContextMessage, 
 		}
 		request = append(request, session.TextMessage(session.RoleUser, CompactSummaryRequest))
 		emit(Event{Kind: EventCompacting, Tokens: used, Estimated: estimated})
-		response, err := r.provider.Complete(ctx, request, r.tools.Definitions(), maxSummary, forward)
+		// The live tool roster keeps the prefix cached, so a tool call is
+		// answered as unavailable rather than forbidden.
+		response, request, err := AnswerWithoutTools(request, summaryToolUnavailable, func(request []session.Message) (session.Message, error) {
+			return r.provider.Complete(ctx, request, r.tools.Definitions(), maxSummary, forward)
+		})
 		if err == nil || !provider.IsContextOverflow(err) {
-			return response, true, err
+			return response, request[len(items):], err
 		}
 		// The prefix did not fit after all; fall through to the isolated form.
 	}
@@ -553,7 +562,52 @@ func (r *Runner) summarize(ctx context.Context, items []session.ContextMessage, 
 	request := []session.Message{items[0].Message, session.TextMessage(session.RoleUser, transcript+CompactSummaryRequest)}
 	emit(Event{Kind: EventCompacting, Tokens: used, Estimated: estimated})
 	response, err := r.provider.Complete(ctx, request, nil, maxSummary, forward)
-	return response, false, err
+	return response, nil, err
+}
+
+// summaryToolUnavailable answers a tool call made during compaction.
+const summaryToolUnavailable = "Tools are not available while writing the compaction summary. Reply with the summary only, using the conversation above."
+
+// ErrToolsUnavailable reports a model that kept calling tools in a request
+// that cannot run them.
+var ErrToolsUnavailable = errors.New("model kept calling tools that are unavailable")
+
+// toolRetries bounds how often a request that cannot run tools answers a tool
+// call and asks again.
+const toolRetries = 2
+
+// AnswerWithoutTools runs a request that must not run tools but still sends
+// the live tool roster, so it reads the prompt cache the main conversation
+// wrote. Forbidding tool calls through tool_choice would invalidate that cache
+// on some providers, so the model may call a tool anyway: each call is
+// answered with unavailable as an error result, and the model asked again.
+// Each retry only appends, so it still reads the cache.
+//
+// It returns the request as last sent, and the answer's cost covers every
+// attempt. A model still calling tools after the retries yields its last
+// response with ErrToolsUnavailable.
+func AnswerWithoutTools(request []session.Message, unavailable string, generate func([]session.Message) (session.Message, error)) (session.Message, []session.Message, error) {
+	var cost float64
+	for attempt := 0; ; attempt++ {
+		response, err := generate(request)
+		if response.Usage != nil {
+			cost += response.Usage.Cost
+			response.Usage.Cost = cost
+		}
+		calls := response.ToolCalls()
+		if err != nil || len(calls) == 0 {
+			return response, request, err
+		}
+		if attempt == toolRetries {
+			return response, request, ErrToolsUnavailable
+		}
+		request = append(request, response)
+		for _, call := range calls {
+			result := session.ToolResultMessage(call.ID, call.Function.Name, unavailable)
+			result.IsError = true
+			request = append(request, result)
+		}
+	}
 }
 
 func estimateContext(items []session.ContextMessage, definitions []session.ToolDefinition) tokens.Count {

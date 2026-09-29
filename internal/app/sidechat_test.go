@@ -37,6 +37,17 @@ func sideChatRuntime(t *testing.T, handler http.HandlerFunc) *Runtime {
 	return r
 }
 
+// isSideChatRequest tells a side question from a main-run request by the
+// instructions only the side question carries.
+func isSideChatRequest(t *testing.T, req *http.Request) bool {
+	t.Helper()
+	body, err := io.ReadAll(req.Body)
+	if err != nil {
+		t.Error(err)
+	}
+	return bytes.Contains(body, []byte("Tools are unavailable in this side chat"))
+}
+
 func sideChatReply(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"side answer\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":50,\"completion_tokens\":3,\"total_tokens\":53}}\n\ndata: [DONE]\n\n")
@@ -47,7 +58,7 @@ func TestSideChatPreservesSessionAndRepairsIncompleteToolContext(t *testing.T) {
 		Model      string            `json:"model"`
 		Messages   []map[string]any  `json:"messages"`
 		Tools      []json.RawMessage `json:"tools"`
-		ToolChoice string            `json:"tool_choice"`
+		ToolChoice *string           `json:"tool_choice"`
 	}
 	r := sideChatRuntime(t, func(w http.ResponseWriter, req *http.Request) {
 		if err := json.NewDecoder(req.Body).Decode(&request); err != nil {
@@ -88,8 +99,10 @@ func TestSideChatPreservesSessionAndRepairsIncompleteToolContext(t *testing.T) {
 	if got, ok := r.ContextUsage(); got != usage || ok != known {
 		t.Fatalf("context usage changed from (%d, %v) to (%d, %v)", usage, known, got, ok)
 	}
-	if request.Model != "side-model" || len(request.Tools) == 0 || request.ToolChoice != "none" {
-		t.Fatalf("model = %q, tools = %v", request.Model, request.Tools)
+	// The main conversation's tools and tool_choice go along unchanged, so the
+	// side question reads its prompt cache.
+	if request.Model != "side-model" || len(request.Tools) == 0 || request.ToolChoice != nil {
+		t.Fatalf("model = %q, tools = %v, tool_choice = %v", request.Model, request.Tools, request.ToolChoice)
 	}
 	if len(request.Messages) != 5 || request.Messages[0]["content"] != r.store.ActivePath()[0].Message.Text() {
 		t.Fatalf("unexpected context: %v", request.Messages)
@@ -111,13 +124,7 @@ func TestSideChatPreservesSessionAndRepairsIncompleteToolContext(t *testing.T) {
 func TestSideChatRunsAlongsideMainRun(t *testing.T) {
 	mainStarted := make(chan struct{})
 	r := sideChatRuntime(t, func(w http.ResponseWriter, req *http.Request) {
-		var request struct {
-			ToolChoice string `json:"tool_choice"`
-		}
-		if err := json.NewDecoder(req.Body).Decode(&request); err != nil {
-			t.Error(err)
-		}
-		if request.ToolChoice != "none" {
+		if !isSideChatRequest(t, req) {
 			close(mainStarted)
 			<-req.Context().Done()
 			return
@@ -245,6 +252,44 @@ func TestSideChatProviderFailureLeavesMainUsable(t *testing.T) {
 	}
 }
 
+// A side question keeps the main tools for the prompt cache, so the model may
+// call one; it is told tools are unavailable and answers on the next request,
+// which extends the first.
+func TestSideChatAnswersToolCallAsUnavailable(t *testing.T) {
+	var bodies [][]byte
+	r := sideChatRuntime(t, func(w http.ResponseWriter, req *http.Request) {
+		body, _ := io.ReadAll(req.Body)
+		bodies = append(bodies, body)
+		if len(bodies) == 1 {
+			w.Header().Set("Content-Type", "text/event-stream")
+			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call\",\"type\":\"function\",\"function\":{\"name\":\"shell\",\"arguments\":\"{}\"}}]},\"finish_reason\":\"tool_calls\"}],\"usage\":{\"prompt_tokens\":50,\"completion_tokens\":3,\"total_tokens\":53}}\n\ndata: [DONE]\n\n")
+			return
+		}
+		sideChatReply(w)
+	})
+	var text strings.Builder
+	if err := r.SideChat(t.Context(), "side question", func(event agent.Event) { text.WriteString(event.Text) }); err != nil {
+		t.Fatal(err)
+	}
+	if len(bodies) != 2 || text.String() != "side answer" {
+		t.Fatalf("requests = %d, answer = %q", len(bodies), text.String())
+	}
+	var first, second struct {
+		Messages []json.RawMessage `json:"messages"`
+	}
+	if json.Unmarshal(bodies[0], &first) != nil || json.Unmarshal(bodies[1], &second) != nil {
+		t.Fatal("undecodable request")
+	}
+	if len(second.Messages) != len(first.Messages)+2 || !bytes.Contains(second.Messages[len(second.Messages)-1], []byte(sideChatToolUnavailable)) {
+		t.Fatalf("retry did not answer the call: %s", bodies[1])
+	}
+	for i, message := range first.Messages {
+		if !bytes.Equal(message, second.Messages[i]) {
+			t.Fatalf("retry changed message %d", i)
+		}
+	}
+}
+
 func TestSideChatWireFormats(t *testing.T) {
 	for _, format := range []wire.Format{wire.OpenAI, wire.OpenAICompatible, wire.OpenRouter, wire.Ollama, wire.OpenAIResponses, wire.Anthropic} {
 		for _, toolHistory := range []bool{false, true} {
@@ -312,11 +357,9 @@ data: {"type":"response.completed","response":{}}
 				if text.String() != "side answer" {
 					t.Fatalf("answer = %q", text.String())
 				}
-				choice := `"none"`
-				if format == wire.Anthropic {
-					choice = `{"type":"none"}`
-				}
-				if len(request.Tools) != 4 || string(request.ToolChoice) != choice {
+				// tool_choice stays as the main turn sends it, since changing it
+				// would invalidate the cached conversation.
+				if len(request.Tools) != 4 || request.ToolChoice != nil {
 					t.Fatalf("tools = %d, tool_choice = %s", len(request.Tools), request.ToolChoice)
 				}
 				for _, want := range []string{"main prompt", "side question"} {
@@ -405,7 +448,7 @@ func TestSideChatSnapshotRetainsIncognitoImagesAfterClose(t *testing.T) {
 	if err := r.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client.StreamText(t.Context(), messages, definitions, nil); err != nil {
+	if _, err := client.Stream(t.Context(), messages, definitions, nil); err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Contains(body, []byte("data:image/png;base64,dGVzdCBpbWFnZQ==")) {
@@ -417,13 +460,7 @@ func TestSideChatSnapshotsWhileMainRunWrites(t *testing.T) {
 	started, release := make(chan struct{}), make(chan struct{})
 	mainRequests := 0
 	r := sideChatRuntime(t, func(w http.ResponseWriter, req *http.Request) {
-		var request struct {
-			ToolChoice string `json:"tool_choice"`
-		}
-		if err := json.NewDecoder(req.Body).Decode(&request); err != nil {
-			t.Error(err)
-		}
-		if request.ToolChoice != "none" {
+		if !isSideChatRequest(t, req) {
 			mainRequests++
 			if mainRequests == 1 {
 				close(started)

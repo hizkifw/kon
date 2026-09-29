@@ -2,7 +2,9 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -510,6 +512,73 @@ func TestCompactReportsMeasuredContextFromLiveSummaryRequest(t *testing.T) {
 	}
 }
 
+// A provider that cannot forbid tool calls without losing the cached prefix
+// may answer the summary request with one. It is answered as unavailable and
+// the model asked again, appending to the same request so the cache still
+// holds, and the cost of every attempt is reported.
+func TestCompactAnswersToolCallsInLiveSummary(t *testing.T) {
+	for name, test := range map[string]struct {
+		toolCalls int
+		wantErr   bool
+	}{
+		"answers after one tool call": {toolCalls: 1},
+		"gives up":                    {toolCalls: toolRetries + 1, wantErr: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			store, err := session.New(t.TempDir(), t.TempDir(), "test", "system")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer store.Close()
+			for i := 0; i < 3; i++ {
+				if _, err := store.AppendMessage(session.TextMessage(session.RoleUser, strings.Repeat("question ", 80))); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := store.AppendMessage(session.TextMessage(session.RoleAssistant, strings.Repeat("answer ", 80))); err != nil {
+					t.Fatal(err)
+				}
+			}
+			provider := &recordingProvider{usage: &session.Usage{PromptTokens: 12_345, Cost: 0.5}, toolCalls: test.toolCalls}
+			limits := testLimits
+			limits.ContextWindow = 1_000_000
+			limits.KeepRecentTokens = 100
+			runner := New(limits, provider, store, tools.New(t.TempDir(), false, nil))
+			var events []Event
+			err = runner.Compact(context.Background(), func(event Event) { events = append(events, event) })
+			if test.wantErr {
+				if err == nil || len(provider.requests) != toolRetries+1 {
+					t.Fatalf("err = %v after %d requests", err, len(provider.requests))
+				}
+				if _, ok := compactedEvent(events); ok {
+					t.Fatal("compacted without a summary")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(provider.requests) != 2 || len(provider.tools[1]) == 0 {
+				t.Fatalf("requests = %d", len(provider.requests))
+			}
+			first, second := provider.requests[0], provider.requests[1]
+			if !slices.EqualFunc(first, second[:len(first)], func(a, b session.Message) bool { return a.Text() == b.Text() && a.Role == b.Role }) || len(second) != len(first)+2 {
+				t.Fatalf("retry does not extend the first request: %d then %d messages", len(first), len(second))
+			}
+			result := second[len(second)-1]
+			if id, _ := result.ToolResult(); id.String() != "call-1" || !result.IsError || result.Text() != summaryToolUnavailable {
+				t.Fatalf("tool result = %#v", result)
+			}
+			compacted, ok := compactedEvent(events)
+			if !ok || compacted.Text != "summary" || compacted.Estimated || compacted.Tokens >= 12_345 {
+				t.Fatalf("compacted event = %#v", events)
+			}
+			if last := events[len(events)-1]; last.Kind != EventUsage || last.Cost != 1.0 {
+				t.Fatalf("usage event = %#v, want the cost of both attempts", last)
+			}
+		})
+	}
+}
+
 func TestCompactUsesPreviousSummaryWithoutReSummarizingIt(t *testing.T) {
 	store, err := session.New(t.TempDir(), t.TempDir(), "test", "system")
 	if err != nil {
@@ -573,6 +642,8 @@ type recordingProvider struct {
 	tools    [][]session.ToolDefinition
 	// usage is what each summary response reports, or nil for none.
 	usage *session.Usage
+	// toolCalls is how many summary responses call a tool before one answers.
+	toolCalls int
 }
 
 func (p *recordingProvider) Stream(context.Context, []session.Message, []session.ToolDefinition, func(provider.Event)) (session.Message, error) {
@@ -582,7 +653,16 @@ func (p *recordingProvider) Stream(context.Context, []session.Message, []session
 func (p *recordingProvider) Complete(_ context.Context, messages []session.Message, toolList []session.ToolDefinition, _ tokens.Count, _ func(provider.Event)) (session.Message, error) {
 	p.requests = append(p.requests, messages)
 	p.tools = append(p.tools, toolList)
-	return session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: "summary"}}, Usage: p.usage}, nil
+	var usage *session.Usage
+	if p.usage != nil {
+		copied := *p.usage
+		usage = &copied
+	}
+	if len(p.requests) <= p.toolCalls {
+		call := session.Part{Type: session.PartToolCall, ToolCallID: typedid.ExternalToolCallID(fmt.Sprintf("call-%d", len(p.requests))), ToolName: "read", ToolInput: json.RawMessage(`{}`)}
+		return session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: "Let me check."}, call}, Usage: usage}, nil
+	}
+	return session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: "summary"}}, Usage: usage}, nil
 }
 
 func newTestEntryID(t *testing.T) typedid.EntryID {

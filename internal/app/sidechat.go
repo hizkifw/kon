@@ -16,6 +16,9 @@ import (
 // presenting it as an executed action.
 var ErrSideChatTools = errors.New("side chat cannot use tools")
 
+// sideChatToolUnavailable answers a tool call the side chat will not run.
+const sideChatToolUnavailable = "Tools are unavailable in this side chat. Answer from the conversation above, or explain what the main conversation would need to check."
+
 const sideChatInstructions = `This is a separate side question. Answer it directly, using the conversation above as context when useful.
 Tools are unavailable in this side chat, even though the main conversation has them. Do not emit tool calls or imitate tool-call syntax.
 If answering requires reading new files, running a command, or checking live information, explain that limitation briefly and suggest asking in the main conversation. Do not invent results or claim to have performed an action.
@@ -45,7 +48,7 @@ func (r *Runtime) SideChat(ctx context.Context, question string, emit func(agent
 		r.mu.Unlock()
 	}()
 
-	answer, err := client.StreamText(opCtx, messages, definitions, func(event provider.Event) {
+	forward := func(event provider.Event) {
 		switch {
 		case emit == nil || event.Text == "":
 		case event.Thinking:
@@ -53,18 +56,20 @@ func (r *Runtime) SideChat(ctx context.Context, question string, emit func(agent
 		default:
 			emit(agent.Event{Kind: agent.EventText, Text: event.Text})
 		}
+	}
+	// The main conversation's tools go along to keep its prompt cache, so the
+	// model may still call one; it is told they are unavailable instead.
+	answer, _, err := agent.AnswerWithoutTools(messages, sideChatToolUnavailable, func(request []session.Message) (session.Message, error) {
+		return client.Stream(opCtx, request, definitions, forward)
 	})
 	if answer.Usage != nil && emit != nil {
 		// -1 means no main-context token update; the side view only consumes cost.
 		emit(agent.Event{Kind: agent.EventUsage, Tokens: -1, Cost: answer.Usage.Cost})
 	}
-	if err != nil {
-		return err
-	}
-	if len(answer.ToolCalls()) != 0 {
+	if errors.Is(err, agent.ErrToolsUnavailable) {
 		return ErrSideChatTools
 	}
-	return nil
+	return err
 }
 
 // prepareSideChat holds the runtime lock until the snapshot and provider are

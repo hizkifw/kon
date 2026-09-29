@@ -84,7 +84,6 @@ type chatRequest struct {
 	Model         string             `json:"model"`
 	Messages      []chatMessage      `json:"messages"`
 	Tools         []chatTool         `json:"tools,omitempty"`
-	ToolChoice    string             `json:"tool_choice,omitempty"`
 	Stream        bool               `json:"stream,omitempty"`
 	StreamOptions *chatStreamOptions `json:"stream_options,omitempty"`
 	MaxTokens     tokens.Count       `json:"max_tokens,omitempty"`
@@ -387,23 +386,12 @@ func toChatTools(tools []session.ToolDefinition) []chatTool {
 // Stream runs one streamed generation and forwards text and reasoning deltas
 // through emit as they arrive.
 func (m *chatModel) Stream(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, emit func(Event)) (Response, error) {
-	return m.generate(ctx, messages, tools, emit, false)
-}
-
-func (m *chatModel) StreamText(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, emit func(Event)) (Response, error) {
-	return m.generate(ctx, messages, tools, emit, true)
-}
-
-func (m *chatModel) generate(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, emit func(Event), noTools bool) (Response, error) {
 	wireMessages, err := toChatMessages(messages, m.replay(), m.readImage)
 	if err != nil {
 		return Response{}, err
 	}
 	payload := m.request(wireMessages)
 	payload.Tools = toChatTools(tools)
-	if noTools && len(payload.Tools) > 0 {
-		payload.ToolChoice = "none"
-	}
 	return m.streamWithUsage(ctx, payload, emit)
 }
 
@@ -451,9 +439,8 @@ func (m *chatModel) stream(ctx context.Context, payload chatRequest, emit func(E
 }
 
 // Complete runs one capped generation, forwarding its deltas through emit
-// when set. tools, when non-empty, is sent with tool_choice "none": the request
-// matches the streaming turn's tool roster so it can reuse the provider's
-// cached prefix, while the summary itself can never become a tool call.
+// when set. tools, when non-empty, matches the streaming turn's tool roster so
+// the request can reuse the provider's cached prefix.
 func (m *chatModel) Complete(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, maxTokens tokens.Count, emit func(Event)) (Response, error) {
 	wireMessages, err := toChatMessages(messages, m.replay(), m.readImage)
 	if err != nil {
@@ -463,7 +450,6 @@ func (m *chatModel) Complete(ctx context.Context, messages []session.Message, to
 	payload.MaxTokens = maxTokens
 	if len(tools) > 0 {
 		payload.Tools = toChatTools(tools)
-		payload.ToolChoice = "none"
 	}
 	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
 		// Guard against a hung server; callers with their own deadline win.

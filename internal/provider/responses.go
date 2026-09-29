@@ -58,7 +58,6 @@ type responsesRequest struct {
 	// Input mixes items kon builds with items replayed verbatim.
 	Input           []any               `json:"input"`
 	Tools           []responsesTool     `json:"tools,omitempty"`
-	ToolChoice      string              `json:"tool_choice,omitempty"`
 	Reasoning       *responsesReasoning `json:"reasoning,omitempty"`
 	Include         []string            `json:"include,omitempty"`
 	MaxOutputTokens tokens.Count        `json:"max_output_tokens,omitempty"`
@@ -202,27 +201,15 @@ func (m *responsesModel) request(messages []session.Message, tools []session.Too
 	return payload
 }
 
-func (m *responsesModel) StreamText(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, emit func(Event)) (Response, error) {
-	payload := m.request(messages, tools)
-	if len(payload.Tools) > 0 {
-		payload.ToolChoice = "none"
-	}
-	return m.stream(ctx, payload, emit)
-}
-
 func (m *responsesModel) Stream(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, emit func(Event)) (Response, error) {
 	return m.stream(ctx, m.request(messages, tools), emit)
 }
 
 // Complete runs one capped generation, forwarding its deltas through emit when
-// set. tools, when set, keeps the streaming turn's cached prefix, with tool
-// calls forbidden.
+// set. tools, when set, keeps the streaming turn's cached prefix.
 func (m *responsesModel) Complete(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, maxTokens tokens.Count, emit func(Event)) (Response, error) {
 	payload := m.request(messages, tools)
 	payload.MaxOutputTokens = maxTokens
-	if len(payload.Tools) > 0 {
-		payload.ToolChoice = "none"
-	}
 	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, completeTimeout)
