@@ -165,8 +165,14 @@ transcript blocks own their rendering, prompt history owns recall state,
 and slash commands are declared in a central registry that owns parsing,
 argument validation, and autocomplete dispatch while the command bodies run as
 model methods. Suggestions render in a generic popup widget driven by a
-`menuSource`, so command completion and future pickers share one renderer and
-key handler. A popup row may also carry a lazy `Preview` builder: while it is
+`menuSource`, so command completion and `@` file mentions share one renderer
+and key handler. File discovery starts in a cancellable background command
+only when the cursor enters a mention. Git supplies tracked and untracked
+paths with its ignore rules; a bounded directory walk supports projects
+without Git. The UI filters the resulting list locally and drops stale
+results. Accepting a mention edits only its token, leaving a plain file
+reference in the user message; neither provider serialization nor the root
+system prompt changes. A popup row may also carry a lazy `Preview` builder: while it is
 highlighted the model draws that scratch transcript in place of the live one, so
 `/resume` can be browsed without committing, and closing the popup restores the
 live transcript at the reader's previous scroll position. Because sessions grow

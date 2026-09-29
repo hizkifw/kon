@@ -2,7 +2,6 @@ package ui
 
 import (
 	"strings"
-	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -159,18 +158,7 @@ func (m *Model) showMatch() {
 	}
 	text := m.history.entries[s.match].Text
 	m.input.SetValue(text)
-	before := text[:s.at]
-	row := strings.Count(before, "\n")
-	m.input.MoveToBegin()
-	// CursorDown moves by wrapped line, so it runs until the cursor reaches
-	// the logical line the match is on.
-	for range len(text) {
-		if m.input.Line() >= row {
-			break
-		}
-		m.input.CursorDown()
-	}
-	m.input.SetCursorColumn(utf8.RuneCountInString(before[strings.LastIndex(before, "\n")+1:]))
+	m.setCursorOffset(s.at)
 	m.resize()
 }
 

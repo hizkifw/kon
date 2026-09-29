@@ -29,6 +29,8 @@ type menuItem struct {
 type menu struct {
 	items []menuItem
 	index int
+	note  string
+	rows  int
 }
 
 func (m menu) open() bool { return len(m.items) > 0 }
@@ -36,6 +38,7 @@ func (m menu) open() bool { return len(m.items) > 0 }
 func (m *menu) close() {
 	m.items = nil
 	m.index = 0
+	m.note = ""
 }
 
 func (m menu) selected() menuItem {
@@ -56,15 +59,25 @@ func (m *menu) move(delta int) {
 // height is the number of terminal rows the popup occupies, so the viewport
 // can shrink to make room for it. It never exceeds maxMenuRows.
 func (m menu) height() int {
+	if m.note != "" {
+		return 1
+	}
 	if !m.open() {
 		return 0
 	}
-	return min(len(m.items), maxMenuRows)
+	rows := maxMenuRows
+	if m.rows > 0 {
+		rows = min(rows, m.rows)
+	}
+	return min(len(m.items), rows)
 }
 
 // render draws the popup, highlighting the selected row. An empty string means
 // there is nothing to show.
 func (m menu) render(width int) string {
+	if m.note != "" {
+		return lipgloss.NewStyle().Foreground(colorFaint).Render(fitLine(" "+m.note, width))
+	}
 	if !m.open() {
 		return ""
 	}
@@ -72,10 +85,11 @@ func (m menu) render(width int) string {
 	description := lipgloss.NewStyle().Foreground(colorFaint)
 	// Keep the selected row visible when the list is longer than the window.
 	start := 0
-	if m.index >= maxMenuRows {
-		start = m.index - maxMenuRows + 1
+	rows := m.height()
+	if m.index >= rows {
+		start = m.index - rows + 1
 	}
-	end := min(len(m.items), start+maxMenuRows)
+	end := min(len(m.items), start+rows)
 	lines := make([]string, 0, end-start)
 	for i := start; i < end; i++ {
 		item := m.items[i]

@@ -246,7 +246,7 @@ func (m Model) managePending(args []string) (tea.Model, tea.Cmd) {
 	}
 	m.input.SetValue(text)
 	m.input.CursorEnd()
-	m.refreshInput()
+	cmd := m.refreshInput()
 	m.message = "pulled back for editing"
-	return m, nil
+	return m, cmd
 }

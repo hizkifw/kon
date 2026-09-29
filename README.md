@@ -35,6 +35,10 @@ Run `kon` in any project. Connect a provider with `/login`, pick a model with
 `/model`, and start typing. To set things up by hand, see
 [configuration](docs/product/configuration.md).
 
+Type `@` anywhere in a prompt to find a project file. Narrow the suggestions
+with a name or partial path, use Up/Down to choose, and Tab or Enter to insert
+the reference. The agent reads the file when needed.
+
 Ask `/btw <question>` for a temporary answer using the current conversation,
 even while kon is working. Press Esc to return, or Enter once the answer is
 complete; the side exchange stays out of the main conversation and saved
