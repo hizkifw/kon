@@ -59,26 +59,24 @@ func (m *menu) move(delta int) {
 // height is the number of terminal rows the popup occupies, so the viewport
 // can shrink to make room for it. It never exceeds maxMenuRows.
 func (m menu) height() int {
+	n := len(m.items)
 	if m.note != "" {
-		return 1
-	}
-	if !m.open() {
-		return 0
+		n++
 	}
 	rows := maxMenuRows
 	if m.rows > 0 {
 		rows = min(rows, m.rows)
 	}
-	return min(len(m.items), rows)
+	return min(n, rows)
 }
 
 // render draws the popup, highlighting the selected row. An empty string means
 // there is nothing to show.
 func (m menu) render(width int) string {
-	if m.note != "" {
-		return lipgloss.NewStyle().Foreground(colorFaint).Render(fitLine(" "+m.note, width))
-	}
 	if !m.open() {
+		if m.note != "" {
+			return lipgloss.NewStyle().Foreground(colorFaint).Render(fitLine(" "+m.note, width))
+		}
 		return ""
 	}
 	selected := lipgloss.NewStyle().Foreground(lipgloss.Color("#DADADA")).Background(lipgloss.Color("#333333"))
@@ -86,6 +84,10 @@ func (m menu) render(width int) string {
 	// Keep the selected row visible when the list is longer than the window.
 	start := 0
 	rows := m.height()
+	footer := m.note != "" && rows > 1
+	if footer {
+		rows--
+	}
 	if m.index >= rows {
 		start = m.index - rows + 1
 	}
@@ -98,6 +100,9 @@ func (m menu) render(width int) string {
 			label = item.Value
 		}
 		line := " " + label
+		if i == m.index && m.note != "" && !footer {
+			line = " (partial) " + label
+		}
 		if item.Description != "" {
 			line += "  " + description.Render(item.Description)
 		}
@@ -105,6 +110,9 @@ func (m menu) render(width int) string {
 			line = selected.Render(fitLine(line, width))
 		}
 		lines = append(lines, fitLine(line, width))
+	}
+	if footer {
+		lines = append(lines, description.Render(fitLine(" "+m.note, width)))
 	}
 	return strings.Join(lines, "\n")
 }

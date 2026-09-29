@@ -107,6 +107,8 @@ is case-insensitive and accepts partial paths such as `@i/u/mod` for
 `internal/ui/model.go`. Use Up/Down to choose, Tab or Enter to accept, and Esc
 to dismiss. Enter again sends the prompt. While kon works, accepting a
 suggestion takes precedence over steering or queueing.
+Enter sends the prompt if discovery is still running and there is no suggestion
+to accept. A no-match notice leaves Tab queueing and Esc interruption available.
 
 Selecting a file inserts a reference such as `@internal/ui/model.go`. Paths
 with spaces are quoted, for example `@"docs/design notes.md"`. You can mention
@@ -120,11 +122,14 @@ them. A `/btw` side question still has no tools to read a mentioned file.
 File discovery runs in the background when you start a mention, never at
 startup, and refreshes for the next mention. With Git available, the picker
 includes tracked and untracked files while respecting Git ignore rules.
+Tracked paths come directly from Git's index, so deleted files and submodule
+paths can still appear; the agent checks them when needed.
 Outside Git, or without Git installed, it walks the directory without
 following directory symlinks and skips `.git`, `.hg`, `.svn`, `node_modules`,
 `.venv`, `venv`, and `__pycache__`. Searches are bounded to five seconds and
-50,000 entries; the popup offers up to 100 matches. File mentions do not
-change the session's system prompt.
+50,000 entries; the popup offers up to 100 matches and labels an incomplete
+file list when discovery reaches a limit or fails. File mentions do not change
+the session's system prompt.
 
 ## Steering and queueing
 

@@ -555,7 +555,7 @@ func (m Model) handleKey(key string) (tea.Model, tea.Cmd, bool) {
 		cmd := m.refreshInput()
 		return m, cmd, true
 	case "enter":
-		if m.menu.open() || (m.menu.note != "" && m.mentions.loading) {
+		if m.menu.open() {
 			return m.completeMenu()
 		}
 		if strings.HasSuffix(m.input.Value(), `\`) {
@@ -570,7 +570,11 @@ func (m Model) handleKey(key string) (tea.Model, tea.Cmd, bool) {
 		return updated, cmd, true
 	case "tab":
 		if _, _, _, active := mentionAt(m.input.Value(), m.cursorOffset()); active {
-			return m.completeMenu()
+			updated, cmd, handled := m.completeMenu()
+			m = updated.(Model)
+			if handled || !m.canQueue() {
+				return m, cmd, handled
+			}
 		}
 		if !m.menu.open() && m.canQueue() {
 			updated, cmd := m.enqueue()
@@ -586,11 +590,12 @@ func (m Model) handleKey(key string) (tea.Model, tea.Cmd, bool) {
 		updated, cmd := m.cycleEffort()
 		return updated, cmd, true
 	case "esc":
-		if m.menu.height() > 0 {
+		if m.menu.open() || (m.menu.note != "" && m.mentions.loading) {
 			m.mentions.dismissed = true
 			m.resetMenu()
 			return m, nil, true
 		}
+		m.resetMenu()
 		if m.busy && m.runCancel != nil {
 			// Esc is the only interrupt. The first press cancels the run,
 			// which interrupts a running tool so it can stop cleanly; a
@@ -679,6 +684,9 @@ func (m *Model) openMenu() {
 	previous := m.menu.selected().Value
 	m.menu.items = items
 	m.menu.index = 0
+	if _, mentions := m.menuSource.(mentionSource); mentions && m.mentions.err != nil {
+		m.menu.note = "Partial file list: " + oneLine(m.mentions.err.Error())
+	}
 	if previous != "" {
 		for i, item := range items {
 			if item.Value == previous {
@@ -754,7 +762,7 @@ func (m Model) completeMenu() (tea.Model, tea.Cmd, bool) {
 		m.openMenu()
 		m.resize()
 		if !m.menu.open() {
-			return m, cmd, m.menu.note != ""
+			return m, cmd, m.mentions.loading
 		}
 	}
 	m.commitMenu()
@@ -794,6 +802,7 @@ func (m Model) submit() (tea.Model, tea.Cmd) {
 	// Submitting commits: drop any highlighted preview so the live transcript
 	// (or the resumed one) is what the command operates on and shows.
 	m.resetMenu()
+	m.resetMentions()
 	if strings.HasPrefix(text, "/") {
 		command, err := m.commands.parse(text)
 		if err != nil {

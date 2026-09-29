@@ -48,7 +48,8 @@ func (m Model) enqueue() (tea.Model, tea.Cmd) {
 	}
 	m.queued = append(slices.Clone(m.queued), text)
 	m.input.Reset()
-	m.resize()
+	m.resetMentions()
+	m.resetMenu()
 	return m, nil
 }
 

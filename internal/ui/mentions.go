@@ -10,12 +10,13 @@ import (
 	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/hizkifw/kon/internal/projectfiles"
 )
 
 const maxMentionMatches = 100
 
 type fileMentions struct {
-	files     []string
+	files     []mentionFile
 	loaded    bool
 	loading   bool
 	dismissed bool
@@ -26,8 +27,27 @@ type fileMentions struct {
 
 type mentionFilesMsg struct {
 	epoch int
-	files []string
+	files []mentionFile
 	err   error
+}
+
+type mentionFile struct {
+	path, lower string
+}
+
+func indexMentionFiles(paths []string) []mentionFile {
+	files := make([]mentionFile, len(paths))
+	for i, path := range paths {
+		files[i] = mentionFile{path: path, lower: strings.ToLower(path)}
+	}
+	return files
+}
+
+func (m *Model) resetMentions() {
+	if m.mentions.cancel != nil {
+		m.mentions.cancel()
+	}
+	m.mentions = fileMentions{epoch: m.mentions.epoch + 1}
 }
 
 // Files are discovered only while completing a mention. A fresh list for each
@@ -36,10 +56,7 @@ type mentionFilesMsg struct {
 func (m *Model) loadMentionFiles() tea.Cmd {
 	_, _, _, active := mentionAt(m.input.Value(), m.cursorOffset())
 	if !active {
-		if m.mentions.cancel != nil {
-			m.mentions.cancel()
-		}
-		m.mentions = fileMentions{epoch: m.mentions.epoch + 1}
+		m.resetMentions()
 		return nil
 	}
 	m.mentions.dismissed = false
@@ -53,8 +70,9 @@ func (m *Model) loadMentionFiles() tea.Cmd {
 	epoch, cwd := m.mentions.epoch, m.cwd
 	return func() tea.Msg {
 		defer cancel()
-		files, err := listMentionFiles(ctx, cwd)
-		return mentionFilesMsg{epoch: epoch, files: files, err: err}
+		files, err := projectfiles.List(ctx, cwd)
+		// Normalize once off the update loop; keystrokes only score paths.
+		return mentionFilesMsg{epoch: epoch, files: indexMentionFiles(files), err: err}
 	}
 }
 
@@ -87,20 +105,32 @@ func (mentionSource) Candidates(m Model, input string) []menuItem {
 		file  string
 		score int
 	}
-	var matches []match
-	for _, file := range m.mentions.files {
-		if score := mentionScore(strings.ToLower(file), query); score >= 0 {
-			matches = append(matches, match{file, score})
-		}
-	}
-	slices.SortFunc(matches, func(a, b match) int {
+	compare := func(a, b match) int {
 		if a.score != b.score {
 			return a.score - b.score
 		}
 		return strings.Compare(a.file, b.file)
-	})
-	items := make([]menuItem, 0, min(len(matches), maxMentionMatches))
-	for _, match := range matches[:min(len(matches), maxMentionMatches)] {
+	}
+	matches := make([]match, 0, maxMentionMatches)
+	for _, file := range m.mentions.files {
+		score := mentionScore(file.lower, query)
+		if score < 0 {
+			continue
+		}
+		candidate := match{file.path, score}
+		at, _ := slices.BinarySearchFunc(matches, candidate, compare)
+		if at == maxMentionMatches {
+			continue
+		}
+		// Keep only the best visible candidates instead of sorting every match.
+		if len(matches) < maxMentionMatches {
+			matches = append(matches, match{})
+		}
+		copy(matches[at+1:], matches[at:])
+		matches[at] = candidate
+	}
+	items := make([]menuItem, 0, len(matches))
+	for _, match := range matches {
 		items = append(items, menuItem{Value: match.file, Label: mentionText(match.file)})
 	}
 	return items
@@ -146,6 +176,8 @@ func (mentionSource) Accept(m *Model, file string) {
 }
 
 func mentionText(file string) string {
+	// Quote opening delimiters too, so paired punctuation reads as part of
+	// the filename even though only closing delimiters end an unquoted token.
 	if strings.ContainsAny(file, "\"\\`()[]{},;") || strings.ContainsFunc(file, unicode.IsSpace) {
 		return "@" + strconv.Quote(file)
 	}

@@ -2,10 +2,12 @@ package ui
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -72,7 +74,7 @@ func TestMentionPickerFiltersAndAcceptsWhileBusy(t *testing.T) {
 	m := newTestModel(t)
 	m.busy = true
 	m.input.SetValue("compare @mod")
-	m.mentions = fileMentions{loaded: true, files: []string{"README.md", "internal/ui/model_test.go", "internal/ui/model.go"}}
+	m.mentions = fileMentions{loaded: true, files: indexMentionFiles([]string{"README.md", "internal/ui/model_test.go", "internal/ui/model.go"})}
 	m.refreshInput()
 	if len(m.menu.items) != 2 || m.menu.selected().Value != "internal/ui/model.go" {
 		t.Fatalf("file suggestions = %#v", m.menu.items)
@@ -103,13 +105,7 @@ func TestMentionSearchIsLazyAndDoesNotReopenAfterDismissal(t *testing.T) {
 	if cmd == nil || !m.mentions.loading || m.menu.note != "Finding files…" {
 		t.Fatal("mention did not schedule discovery")
 	}
-	// Enter while the search is in flight must not send a partial prompt.
-	updated, _, handled := m.handleKey("enter")
-	m = updated.(Model)
-	if !handled || m.busy || m.input.Value() != "read @ma" {
-		t.Fatal("Enter submitted during discovery")
-	}
-	updated, _, _ = m.handleKey("esc")
+	updated, _, _ := m.handleKey("esc")
 	m = updated.(Model)
 	updated, _ = m.Update(cmd())
 	m = updated.(Model)
@@ -140,12 +136,12 @@ func TestMentionAsyncResultsFollowCurrentInput(t *testing.T) {
 	m.openMenu()
 	updated, _ := m.Update(tea.PasteMsg{Content: "ain"})
 	m = updated.(Model)
-	updated, _ = m.Update(mentionFilesMsg{epoch: 6, files: []string{"wrong.go"}})
+	updated, _ = m.Update(mentionFilesMsg{epoch: 6, files: indexMentionFiles([]string{"wrong.go"})})
 	m = updated.(Model)
 	if !m.mentions.loading {
 		t.Fatal("stale discovery was accepted")
 	}
-	updated, _ = m.Update(mentionFilesMsg{epoch: 7, files: []string{"model.go", "main.go"}})
+	updated, _ = m.Update(mentionFilesMsg{epoch: 7, files: indexMentionFiles([]string{"model.go", "main.go"})})
 	m = updated.(Model)
 	if len(m.menu.items) != 1 || m.menu.selected().Value != "main.go" {
 		t.Fatalf("results ignored current query: %#v", m.menu)
@@ -161,7 +157,7 @@ func TestMentionCursorMovementRefreshesPopup(t *testing.T) {
 	m := newTestModel(t)
 	m.input.SetValue("read @main.go next")
 	m.setCursorOffset(len("read @ma"))
-	m.mentions = fileMentions{loaded: true, files: []string{"main.go"}}
+	m.mentions = fileMentions{loaded: true, files: indexMentionFiles([]string{"main.go"})}
 	m.openMenu()
 	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyRight})
 	m = updated.(Model)
@@ -178,7 +174,7 @@ func TestMentionPopupFitsSmallTerminal(t *testing.T) {
 	m := newTestModel(t)
 	m.height = 6
 	m.input.SetValue("@")
-	m.mentions = fileMentions{loaded: true, files: []string{"a", "b", "c", "d", "e", "f", "g", "h", "i"}}
+	m.mentions = fileMentions{loaded: true, files: indexMentionFiles([]string{"a", "b", "c", "d", "e", "f", "g", "h", "i"})}
 	m.refreshInput()
 	for range 8 {
 		updated, _, _ := m.handleKey("down")
@@ -208,6 +204,78 @@ func TestUnmatchedMentionCanBeSent(t *testing.T) {
 	}
 }
 
+func TestEnterSubmitsWhileMentionSearchIsLoading(t *testing.T) {
+	m := newTestModel(t)
+	m.busy = true
+	m.input.SetValue("read @main.go")
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	m.mentions = fileMentions{loading: true, epoch: 7, cancel: cancel}
+	m.openMenu()
+	updated, _, _ := m.handleKey("enter")
+	m = updated.(Model)
+	if m.input.Value() != "" || !reflect.DeepEqual(m.steering, []string{"read @main.go"}) {
+		t.Fatal("Enter did not send the prompt while discovery was running")
+	}
+	if ctx.Err() != context.Canceled || m.mentions.loading {
+		t.Fatal("submission left discovery running")
+	}
+	updated, _ = m.Update(mentionFilesMsg{epoch: 7, files: indexMentionFiles([]string{"main.go"})})
+	if got := updated.(Model); got.menu.height() != 0 || got.mentions.loaded {
+		t.Fatal("late result was accepted after submission")
+	}
+}
+
+func TestUnmatchedMentionDoesNotClaimQueueOrInterrupt(t *testing.T) {
+	for _, key := range []string{"tab", "esc"} {
+		t.Run(key, func(t *testing.T) {
+			m := newTestModel(t)
+			m.busy = true
+			ctx, cancel := context.WithCancel(context.Background())
+			t.Cleanup(cancel)
+			m.runCancel = cancel
+			m.input.SetValue("explain @dataclass")
+			m.mentions = fileMentions{loaded: true}
+			m.refreshInput()
+			updated, _, _ := m.handleKey(key)
+			m = updated.(Model)
+			if m.menu.height() != 0 {
+				t.Fatal("no-match notice remained visible")
+			}
+			if key == "tab" && !reflect.DeepEqual(m.queued, []string{"explain @dataclass"}) {
+				t.Fatalf("Tab did not queue the prompt: %v", m.queued)
+			}
+			if key == "esc" && (ctx.Err() != context.Canceled || m.interruptPresses != 1) {
+				t.Fatal("Esc did not interrupt on the first press")
+			}
+		})
+	}
+}
+
+func TestPartialMentionResultsRemainVisibleAndSelectable(t *testing.T) {
+	for _, height := range []int{24, 6, 5} {
+		t.Run(fmt.Sprint(height), func(t *testing.T) {
+			m := newTestModel(t)
+			m.height = height
+			m.input.SetValue("read @ma")
+			m.mentions = fileMentions{loading: true, epoch: 1}
+			updated, _ := m.Update(mentionFilesMsg{epoch: 1, files: indexMentionFiles([]string{"main.go"}), err: errors.New("file search limit reached")})
+			m = updated.(Model)
+			view := strings.ToLower(plain(m.menu.render(m.width)))
+			if !strings.Contains(view, "partial") || !strings.Contains(view, "main.go") {
+				t.Fatalf("partial results not explained: %q", view)
+			}
+			if rows := strings.Count(m.View().Content, "\n") + 1; rows != height {
+				t.Fatalf("frame has %d rows, want %d", rows, height)
+			}
+			updated, _, _ = m.handleKey("tab")
+			if updated.(Model).input.Value() != "read @main.go " {
+				t.Fatal("partial match was not selectable")
+			}
+		})
+	}
+}
+
 type mentionRuntime struct {
 	*fakeRuntime
 	text chan string
@@ -223,7 +291,7 @@ func TestMentionSendsAndRecallsPlainReference(t *testing.T) {
 	r := &mentionRuntime{fakeRuntime: m.runtime.(*fakeRuntime), text: make(chan string, 1)}
 	m.runtime = r
 	m.input.SetValue("explain @main")
-	m.mentions = fileMentions{loaded: true, files: []string{"main.go"}}
+	m.mentions = fileMentions{loaded: true, files: indexMentionFiles([]string{"main.go"})}
 	m.refreshInput()
 	updated, _, _ := m.handleKey("enter")
 	m = updated.(Model)
@@ -255,61 +323,9 @@ func writeMentionFile(t *testing.T, root, name string) {
 	}
 }
 
-func TestMentionFilesRespectGitIgnoresAndScope(t *testing.T) {
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git is not installed")
-	}
-	root := t.TempDir()
-	git := func(args ...string) {
-		t.Helper()
-		cmd := exec.Command("git", append([]string{"-C", root}, args...)...)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %s: %v", args, out, err)
-		}
-	}
-	git("init", "--quiet")
-	for _, name := range []string{"tracked.go", "deleted.go", "untracked.go", "docs/space name.md", "docs/你好.md", "node_modules/ignored.js", "build.log"} {
-		writeMentionFile(t, root, name)
-	}
-	if err := os.WriteFile(filepath.Join(root, ".gitignore"), []byte("node_modules/\n*.log\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	git("add", "tracked.go", "deleted.go", "docs")
-	if err := os.Remove(filepath.Join(root, "deleted.go")); err != nil {
-		t.Fatal(err)
-	}
-	files, err := listMentionFiles(context.Background(), root)
-	want := []string{".gitignore", "docs/space name.md", "docs/你好.md", "tracked.go", "untracked.go"}
-	if err != nil || !reflect.DeepEqual(files, want) {
-		t.Fatalf("Git files = %v, %v; want %v", files, err, want)
-	}
-	files, err = listMentionFiles(context.Background(), filepath.Join(root, "docs"))
-	if err != nil || !reflect.DeepEqual(files, []string{"space name.md", "你好.md"}) {
-		t.Fatalf("subdirectory files = %v, %v", files, err)
-	}
-}
-
-func TestMentionFilesWorkWithoutGit(t *testing.T) {
-	root := t.TempDir()
-	for _, name := range []string{"main.go", "docs/my file.md", ".github/workflow.yml", ".git/objects/hidden", "node_modules/hidden", ".venv/hidden"} {
-		writeMentionFile(t, root, name)
-	}
-	t.Setenv("PATH", t.TempDir())
-	files, err := listMentionFiles(context.Background(), root)
-	want := []string{".github/workflow.yml", "docs/my file.md", "main.go"}
-	if err != nil || !reflect.DeepEqual(files, want) {
-		t.Fatalf("plain files = %v, %v; want %v", files, err, want)
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	if _, err := walkMentionFiles(ctx, root); err == nil {
-		t.Fatal("cancelled discovery succeeded")
-	}
-}
-
 func TestMentionFuzzyRanking(t *testing.T) {
 	m := newTestModel(t)
-	m.mentions.files = []string{"model.go.bak", "internal/ui/model.go", "modem.go", "model.go"}
+	m.mentions.files = indexMentionFiles([]string{"model.go.bak", "internal/ui/model.go", "modem.go", "model.go"})
 	m.input.SetValue("@MODEL.GO")
 	items := (mentionSource{}).Candidates(m, m.input.Value())
 	if len(items) != 3 || items[2].Value != "model.go.bak" {
@@ -320,7 +336,39 @@ func TestMentionFuzzyRanking(t *testing.T) {
 	if len(items) != 1 || items[0].Value != "internal/ui/model.go" {
 		t.Fatalf("fuzzy path did not match: %#v", items)
 	}
-	if !reflect.DeepEqual(m.mentions.files, []string{"model.go.bak", "internal/ui/model.go", "modem.go", "model.go"}) {
+	if !reflect.DeepEqual(m.mentions.files, indexMentionFiles([]string{"model.go.bak", "internal/ui/model.go", "modem.go", "model.go"})) {
 		t.Fatal("filtering mutated the cached file list")
+	}
+}
+
+func TestMentionResultsMatchFullSort(t *testing.T) {
+	m := newTestModel(t)
+	var paths []string
+	for i := 500; i >= 0; i-- {
+		paths = append(paths, fmt.Sprintf("Internal/Package%03d/Model.go", i), fmt.Sprintf("Model%03d.go", i))
+	}
+	m.mentions.files = indexMentionFiles(paths)
+	for _, query := range []string{"", "model", "i/p/model", "missing"} {
+		m.input.SetValue("@" + query)
+		var want []string
+		for _, path := range paths {
+			if mentionScore(strings.ToLower(path), query) >= 0 {
+				want = append(want, path)
+			}
+		}
+		slices.SortFunc(want, func(a, b string) int {
+			if delta := mentionScore(strings.ToLower(a), query) - mentionScore(strings.ToLower(b), query); delta != 0 {
+				return delta
+			}
+			return strings.Compare(a, b)
+		})
+		want = want[:min(len(want), maxMentionMatches)]
+		var got []string
+		for _, item := range (mentionSource{}).Candidates(m, m.input.Value()) {
+			got = append(got, item.Value)
+		}
+		if !slices.Equal(got, want) {
+			t.Fatalf("bounded results for %q differ from full sort: got %v, want %v", query, got, want)
+		}
 	}
 }

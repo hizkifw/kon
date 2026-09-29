@@ -166,11 +166,14 @@ and slash commands are declared in a central registry that owns parsing,
 argument validation, and autocomplete dispatch while the command bodies run as
 model methods. Suggestions render in a generic popup widget driven by a
 `menuSource`, so command completion and `@` file mentions share one renderer
-and key handler. File discovery starts in a cancellable background command
-only when the cursor enters a mention. Git supplies tracked and untracked
-paths with its ignore rules; a bounded directory walk supports projects
-without Git. The UI filters the resulting list locally and drops stale
-results. Accepting a mention edits only its token, leaving a plain file
+and key handler. `internal/projectfiles` owns bounded discovery through Git
+and a directory-walk fallback. It returns paths without reading file contents
+or statting every Git entry, and disables repository fsmonitor hooks for this
+implicit lookup. The UI starts discovery in a cancellable background command
+only when the cursor enters a mention, lowercases paths once before delivery,
+and drops stale results. Filtering retains only the best 100 matches and labels
+partial results; loading and no-match states do not block prompt submission.
+Accepting a mention edits only its token, leaving a plain file
 reference in the user message; neither provider serialization nor the root
 system prompt changes. A popup row may also carry a lazy `Preview` builder: while it is
 highlighted the model draws that scratch transcript in place of the live one, so

@@ -1,4 +1,5 @@
-package ui
+// Package projectfiles discovers project paths without reading file contents.
+package projectfiles
 
 import (
 	"bufio"
@@ -6,8 +7,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
@@ -17,27 +18,30 @@ import (
 	"unicode/utf8"
 )
 
-const maxMentionFiles = 50_000
+const maxFiles = 50_000
 
-var errMentionLimit = errors.New("file search limit reached")
+var errLimit = errors.New("file search limit reached")
 
-func listMentionFiles(ctx context.Context, cwd string) ([]string, error) {
+// List returns sorted paths relative to cwd. A non-nil error may accompany a
+// partial list when discovery reaches its time or entry limit.
+func List(ctx context.Context, cwd string) ([]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	files, err := gitMentionFiles(ctx, cwd)
-	if err != nil && ctx.Err() == nil && !errors.Is(err, errMentionLimit) {
+	files, err := gitFiles(ctx, cwd)
+	if err != nil && ctx.Err() == nil && !errors.Is(err, errLimit) {
 		// Git is optional. Plain directories still have file completion, and
 		// neither case adds a process or directory walk to startup.
-		files, err = walkMentionFiles(ctx, cwd)
+		files, err = walkFiles(ctx, cwd)
 	}
 	slices.Sort(files)
 	return slices.Compact(files), err
 }
 
-func gitMentionFiles(ctx context.Context, cwd string) ([]string, error) {
+func gitFiles(ctx context.Context, cwd string) ([]string, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", "-C", cwd, "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", ".")
+	// Completion is implicit, so a repository's fsmonitor hook must not run.
+	cmd := exec.CommandContext(ctx, "git", "-c", "core.fsmonitor=false", "-C", cwd, "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", ".")
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, err
@@ -45,40 +49,42 @@ func gitMentionFiles(ctx context.Context, cwd string) ([]string, error) {
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
-	scanner := bufio.NewScanner(stdout)
-	scanner.Split(splitMentionPath)
+	files, readErr := readPaths(ctx, stdout)
+	if readErr != nil {
+		cancel()
+	}
+	err = cmd.Wait()
+	if readErr != nil {
+		return files, readErr
+	}
+	return files, err
+}
+
+func readPaths(ctx context.Context, r io.Reader) ([]string, error) {
+	scanner := bufio.NewScanner(r)
+	scanner.Split(splitPath)
 	var files []string
 	seen := 0
 	for scanner.Scan() {
 		if err := ctx.Err(); err != nil {
-			cancel()
-			_ = cmd.Wait()
 			return files, err
 		}
 		seen++
-		if seen > maxMentionFiles {
-			cancel()
-			_ = cmd.Wait()
-			return files, errMentionLimit
+		if seen > maxFiles {
+			return files, errLimit
 		}
 		name := scanner.Text()
-		if !mentionPathOK(name) {
+		if !pathOK(name) {
 			continue
 		}
-		// The index can still contain a deleted file or a submodule directory.
-		if info, err := os.Stat(filepath.Join(cwd, filepath.FromSlash(name))); err == nil && info.Mode().IsRegular() {
-			files = append(files, name)
-		}
+		// Trust Git's index instead of statting every path. Deleted tracked
+		// files and submodules can remain useful references for the agent.
+		files = append(files, name)
 	}
-	if err := scanner.Err(); err != nil {
-		cancel()
-		_ = cmd.Wait()
-		return files, err
-	}
-	return files, cmd.Wait()
+	return files, scanner.Err()
 }
 
-func splitMentionPath(data []byte, atEOF bool) (int, []byte, error) {
+func splitPath(data []byte, atEOF bool) (int, []byte, error) {
 	if at := bytes.IndexByte(data, 0); at >= 0 {
 		return at + 1, data[:at], nil
 	}
@@ -88,7 +94,7 @@ func splitMentionPath(data []byte, atEOF bool) (int, []byte, error) {
 	return 0, nil, nil
 }
 
-func walkMentionFiles(ctx context.Context, cwd string) ([]string, error) {
+func walkFiles(ctx context.Context, cwd string) ([]string, error) {
 	var files []string
 	seen := 0
 	err := filepath.WalkDir(cwd, func(name string, entry fs.DirEntry, err error) error {
@@ -102,8 +108,8 @@ func walkMentionFiles(ctx context.Context, cwd string) ([]string, error) {
 			return nil
 		}
 		seen++
-		if seen > maxMentionFiles {
-			return errMentionLimit
+		if seen > maxFiles {
+			return errLimit
 		}
 		if entry.IsDir() {
 			if name != cwd {
@@ -124,7 +130,7 @@ func walkMentionFiles(ctx context.Context, cwd string) ([]string, error) {
 			return err
 		}
 		rel = filepath.ToSlash(rel)
-		if mentionPathOK(rel) {
+		if pathOK(rel) {
 			files = append(files, rel)
 		}
 		return nil
@@ -135,7 +141,7 @@ func walkMentionFiles(ctx context.Context, cwd string) ([]string, error) {
 	return files, nil
 }
 
-// Terminal controls cannot be represented faithfully in the prompt editor.
-func mentionPathOK(name string) bool {
+// Completion consumers cannot faithfully represent control characters in a path.
+func pathOK(name string) bool {
 	return name != "" && utf8.ValidString(name) && !strings.ContainsFunc(name, unicode.IsControl)
 }
