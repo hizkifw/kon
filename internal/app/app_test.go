@@ -30,7 +30,7 @@ func (p *blockingProvider) Stream(ctx context.Context, _ []session.Message, _ []
 	return session.Message{}, ctx.Err()
 }
 
-func (*blockingProvider) Complete(context.Context, []session.Message, []session.ToolDefinition, tokens.Count) (session.Message, error) {
+func (*blockingProvider) Complete(context.Context, []session.Message, []session.ToolDefinition, tokens.Count, func(provider.Event)) (session.Message, error) {
 	return session.Message{}, errors.New("unexpected completion")
 }
 
@@ -46,7 +46,7 @@ func (p *windingProvider) Stream(ctx context.Context, _ []session.Message, _ []s
 	return session.Message{}, ctx.Err()
 }
 
-func (*windingProvider) Complete(context.Context, []session.Message, []session.ToolDefinition, tokens.Count) (session.Message, error) {
+func (*windingProvider) Complete(context.Context, []session.Message, []session.ToolDefinition, tokens.Count, func(provider.Event)) (session.Message, error) {
 	return session.Message{}, errors.New("unexpected completion")
 }
 

@@ -20,7 +20,7 @@ import (
 
 type Provider interface {
 	Stream(context.Context, []session.Message, []session.ToolDefinition, func(provider.Event)) (session.Message, error)
-	Complete(context.Context, []session.Message, []session.ToolDefinition, tokens.Count) (session.Message, error)
+	Complete(context.Context, []session.Message, []session.ToolDefinition, tokens.Count, func(provider.Event)) (session.Message, error)
 }
 
 // ErrNothingToCompact reports that the conversation has no safe cut point yet,
@@ -42,6 +42,13 @@ const (
 	// EventSteered reports steering messages the runner has just added to the
 	// conversation; Text is the user message as sent.
 	EventSteered
+	// EventCompacting starts a compaction summary, with Tokens the context
+	// being compacted. It comes again if the summary is restarted in its
+	// fallback form, and what streamed before it is then discarded. The
+	// summary ends with EventCompacted, or with the error the run returns.
+	EventCompacting
+	// EventCompactionText is a delta of the summary being written.
+	EventCompactionText
 )
 
 type Event struct {
@@ -430,7 +437,7 @@ func (r *Runner) compactIfNeeded(ctx context.Context, force bool, emit func(Even
 		}
 		return false, errors.New("active turn is too large to compact safely")
 	}
-	response, live, err := r.summarize(ctx, items, cut, used)
+	response, live, err := r.summarize(ctx, items, cut, used, estimated, emit)
 	// A summary cut off at its limit would be persisted and the turns it
 	// replaces dropped for good, so it is refused before anything is written.
 	if errors.Is(err, provider.ErrOutputLimit) || (err == nil && response.Finish == session.FinishLength) {
@@ -521,15 +528,22 @@ Rules:
 // fallback if the provider still rejects the larger request as too long. It
 // keeps the system prompt, and serializes the history before the cut, a prior
 // summary included, into one user message ending with the same instruction.
-func (r *Runner) summarize(ctx context.Context, items []session.ContextMessage, cut int, used tokens.Count) (session.Message, bool, error) {
+func (r *Runner) summarize(ctx context.Context, items []session.ContextMessage, cut int, used tokens.Count, estimated bool, emit func(Event)) (session.Message, bool, error) {
 	maxSummary := r.limits.summaryBudget()
+	// Reasoning is left out: the summary is what the reader is waiting on.
+	forward := func(event provider.Event) {
+		if !event.Thinking && event.Text != "" {
+			emit(Event{Kind: EventCompactionText, Text: event.Text})
+		}
+	}
 	if r.limits.ContextWindow <= 0 || used < r.limits.ContextWindow {
 		request := make([]session.Message, 0, len(items)+1)
 		for _, item := range items {
 			request = append(request, item.Message)
 		}
 		request = append(request, session.TextMessage(session.RoleUser, CompactSummaryRequest))
-		response, err := r.provider.Complete(ctx, request, r.tools.Definitions(), maxSummary)
+		emit(Event{Kind: EventCompacting, Tokens: used, Estimated: estimated})
+		response, err := r.provider.Complete(ctx, request, r.tools.Definitions(), maxSummary, forward)
 		if err == nil || !provider.IsContextOverflow(err) {
 			return response, true, err
 		}
@@ -537,7 +551,8 @@ func (r *Runner) summarize(ctx context.Context, items []session.ContextMessage, 
 	}
 	transcript := serializeForSummary(items[1:cut])
 	request := []session.Message{items[0].Message, session.TextMessage(session.RoleUser, transcript+CompactSummaryRequest)}
-	response, err := r.provider.Complete(ctx, request, nil, maxSummary)
+	emit(Event{Kind: EventCompacting, Tokens: used, Estimated: estimated})
+	response, err := r.provider.Complete(ctx, request, nil, maxSummary, forward)
 	return response, false, err
 }
 

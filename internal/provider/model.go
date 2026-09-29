@@ -22,12 +22,13 @@ type Model interface {
 	// StreamText retains tool schemas for replayed history and prefix caching,
 	// but requests that the model generate no tool calls.
 	StreamText(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, emit func(Event)) (Response, error)
-	// Complete runs one non-streamed generation. maxTokens caps the completion
-	// when positive; zero means the provider default. tools carries the live
-	// tool roster so a one-shot request (such as a compaction summary) keeps the
-	// same cached prefix as the streaming turn; a Model that receives tools must
-	// forbid tool calls in its response.
-	Complete(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, maxTokens tokens.Count) (Response, error)
+	// Complete runs one capped generation, forwarding deltas through emit
+	// when it is set. maxTokens caps the completion when positive; zero means
+	// the provider default. tools carries the live tool roster so a one-shot
+	// request (such as a compaction summary) keeps the same cached prefix as
+	// the streaming turn; a Model that receives tools must forbid tool calls in
+	// its response.
+	Complete(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, maxTokens tokens.Count, emit func(Event)) (Response, error)
 }
 
 // Event is a streaming delta. Thinking marks reasoning the model produced

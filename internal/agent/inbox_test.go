@@ -37,7 +37,7 @@ func (p *steeringProvider) Stream(_ context.Context, messages []session.Message,
 	return session.TextMessage(session.RoleAssistant, "finished"), nil
 }
 
-func (p *steeringProvider) Complete(context.Context, []session.Message, []session.ToolDefinition, tokens.Count) (session.Message, error) {
+func (p *steeringProvider) Complete(context.Context, []session.Message, []session.ToolDefinition, tokens.Count, func(provider.Event)) (session.Message, error) {
 	return session.Message{}, nil
 }
 

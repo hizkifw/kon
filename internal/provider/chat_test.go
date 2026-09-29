@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -42,10 +43,10 @@ func TestChatHeadersOverrideUserAgent(t *testing.T) {
 	var userAgent string
 	model := newTestModel(t, func(w http.ResponseWriter, r *http.Request) {
 		userAgent = r.Header.Get("User-Agent")
-		_, _ = io.WriteString(w, `{"choices":[{"index":0,"message":{"content":"ok"},"finish_reason":"stop"}]}`)
+		_, _ = io.WriteString(w, okStream)
 	})
 	model.headers = map[string]string{"User-Agent": "custom/1"}
-	if _, err := model.Complete(context.Background(), []session.Message{session.TextMessage(session.RoleUser, "hi")}, nil, 0); err != nil {
+	if _, err := model.Complete(context.Background(), []session.Message{session.TextMessage(session.RoleUser, "hi")}, nil, 0, nil); err != nil {
 		t.Fatal(err)
 	}
 	if userAgent != "custom/1" {
@@ -57,6 +58,9 @@ func TestChatHeadersOverrideUserAgent(t *testing.T) {
 func sse(payload string) string {
 	return "data: " + payload + "\n\n"
 }
+
+// okStream is a complete streamed reply saying "ok".
+var okStream = sse(`{"choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":"stop"}]}`) + "data: [DONE]\n\n"
 
 // assertWireJSON fails unless got encodes the same JSON value as want, ignoring
 // key order. Decoding a request into the struct that encoded it would hide a
@@ -131,7 +135,7 @@ func TestChatRequestSendsSelectedEffort(t *testing.T) {
 	model := newTestModel(t, func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(r.Body)
 		bodies = append(bodies, string(raw))
-		_, _ = io.WriteString(w, `{"choices":[{"index":0,"message":{"content":"ok"},"finish_reason":"stop"}]}`)
+		_, _ = io.WriteString(w, okStream)
 	})
 	messages := []session.Message{session.TextMessage(session.RoleUser, "hi")}
 	for _, effort := range []struct {
@@ -140,7 +144,7 @@ func TestChatRequestSendsSelectedEffort(t *testing.T) {
 	}{{wire.OpenAICompatible, ""}, {wire.OpenAI, "low"}, {wire.OpenRouter, "max"}} {
 		model.spec, _ = wire.Lookup(effort.format)
 		model.effort = effort.effort
-		if _, err := model.Complete(context.Background(), messages, nil, 0); err != nil {
+		if _, err := model.Complete(context.Background(), messages, nil, 0, nil); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -161,7 +165,7 @@ func captureRequests(t *testing.T) (*chatModel, *[]string) {
 	model := newTestModel(t, func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(r.Body)
 		bodies = append(bodies, string(raw))
-		_, _ = io.WriteString(w, `{"choices":[{"index":0,"message":{"content":"ok"},"finish_reason":"stop"}]}`)
+		_, _ = io.WriteString(w, okStream)
 	})
 	return model, &bodies
 }
@@ -230,7 +234,7 @@ func TestChatReplayReturnsReasoningInRecordedField(t *testing.T) {
 	}
 	model, bodies := captureRequests(t)
 	model.spec, _ = wire.Lookup(wire.OpenRouter)
-	if _, err := model.Complete(context.Background(), []session.Message{session.TextMessage(session.RoleUser, "hi"), thinkingReply("test-model", ""), session.TextMessage(session.RoleUser, "again")}, nil, 0); err != nil {
+	if _, err := model.Complete(context.Background(), []session.Message{session.TextMessage(session.RoleUser, "hi"), thinkingReply("test-model", ""), session.TextMessage(session.RoleUser, "again")}, nil, 0, nil); err != nil {
 		t.Fatal(err)
 	}
 	if got := (*bodies)[0]; !strings.Contains(got, `"reasoning":"think"`) || strings.Contains(got, "reasoning_content") {
@@ -495,38 +499,31 @@ func TestChatStreamReadsUsageFromTheChoice(t *testing.T) {
 	}
 }
 
-func TestChatCompleteMapsMessageAndUsage(t *testing.T) {
+func TestChatCompleteStreamsACappedSummary(t *testing.T) {
 	var body chatRequest
 	model := newTestModel(t, func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(raw, &body)
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{
-			"choices": [{
-				"index": 0,
-				"message": {
-					"role": "assistant",
-					"content": "summary",
-					"reasoning_content": "pondering",
-					"tool_calls": [{"id": "call-1", "type": "function", "function": {"name": "read", "arguments": "{\"path\":\"x\"}"}}]
-				},
-				"finish_reason": "tool_calls"
-			}],
-			"usage": {"prompt_tokens": 50, "completion_tokens": 25, "total_tokens": 75}
-		}`)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, sse(`{"choices":[{"index":0,"delta":{"reasoning_content":"pondering"}}]}`)+
+			sse(`{"choices":[{"index":0,"delta":{"content":"sum"}}]}`)+
+			sse(`{"choices":[{"index":0,"delta":{"content":"mary"},"finish_reason":"stop"}]}`)+
+			sse(`{"choices":[],"usage":{"prompt_tokens":50,"completion_tokens":25,"total_tokens":75}}`)+
+			"data: [DONE]\n\n")
 	})
-	response, err := model.Complete(context.Background(), []session.Message{session.TextMessage(session.RoleUser, "hi")}, nil, 4096)
+	var emitted []Event
+	response, err := model.Complete(context.Background(), []session.Message{session.TextMessage(session.RoleUser, "hi")}, nil, 4096, func(e Event) { emitted = append(emitted, e) })
 	if err != nil {
 		t.Fatal(err)
 	}
-	if body.MaxTokens != 4096 || body.Stream || body.Tools != nil {
+	if body.MaxTokens != 4096 || !body.Stream || body.StreamOptions == nil || body.Tools != nil {
 		t.Fatalf("request = %#v", body)
 	}
-	if response.Text() != "summary" || response.Reasoning() != "pondering" || response.Finish != "tool_calls" {
-		t.Fatalf("response = %#v", response)
+	if want := []Event{{Text: "pondering", Thinking: true}, {Text: "sum"}, {Text: "mary"}}; !reflect.DeepEqual(emitted, want) {
+		t.Fatalf("emitted = %#v", emitted)
 	}
-	if len(response.ToolCalls()) != 1 || response.ToolCalls()[0].ID != "call-1" || string(response.ToolCalls()[0].Function.Arguments) != `{"path":"x"}` {
-		t.Fatalf("tool calls = %#v", response.ToolCalls())
+	if response.Text() != "summary" || response.Reasoning() != "pondering" || response.Finish != "stop" {
+		t.Fatalf("response = %#v", response)
 	}
 	if response.Usage == nil || response.Usage.PromptTokens != 50 || response.Usage.CompletionTokens != 25 || response.Usage.TotalTokens != 75 {
 		t.Fatalf("usage = %#v", response.Usage)
@@ -537,18 +534,19 @@ func TestChatCompleteSendsToolsWithToolChoiceNone(t *testing.T) {
 	var body []byte
 	model := newTestModel(t, func(w http.ResponseWriter, r *http.Request) {
 		body, _ = io.ReadAll(r.Body)
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"choices":[{"index":0,"message":{"role":"assistant","content":"summary"},"finish_reason":"stop"}]}`)
+		_, _ = io.WriteString(w, okStream)
 	})
 	toolList := []session.ToolDefinition{{Name: "read", Description: "read a file", Parameters: json.RawMessage(`{"type":"object"}`)}}
-	if _, err := model.Complete(context.Background(), []session.Message{session.TextMessage(session.RoleUser, "hi")}, toolList, 0); err != nil {
+	if _, err := model.Complete(context.Background(), []session.Message{session.TextMessage(session.RoleUser, "hi")}, toolList, 0, nil); err != nil {
 		t.Fatal(err)
 	}
 	assertWireJSON(t, body, `{
 		"model": "test-model",
 		"messages": [{"role": "user", "content": "hi"}],
 		"tools": [{"type": "function", "function": {"name": "read", "description": "read a file", "parameters": {"type": "object"}}}],
-		"tool_choice": "none"
+		"tool_choice": "none",
+		"stream": true,
+		"stream_options": {"include_usage": true}
 	}`)
 }
 
@@ -557,52 +555,13 @@ func TestChatCompleteOmitsToolsWhenEmpty(t *testing.T) {
 	model := newTestModel(t, func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(raw, &body)
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"choices":[{"index":0,"message":{"role":"assistant","content":"summary"},"finish_reason":"stop"}]}`)
+		_, _ = io.WriteString(w, okStream)
 	})
-	if _, err := model.Complete(context.Background(), []session.Message{session.TextMessage(session.RoleUser, "hi")}, nil, 0); err != nil {
+	if _, err := model.Complete(context.Background(), []session.Message{session.TextMessage(session.RoleUser, "hi")}, nil, 0, nil); err != nil {
 		t.Fatal(err)
 	}
 	if body.Tools != nil || body.ToolChoice != "" {
 		t.Fatalf("request = %#v", body)
-	}
-}
-
-func TestChatCompleteDerivesTotalTokens(t *testing.T) {
-	model := newTestModel(t, func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"choices":[{"index":0,"message":{"role":"assistant","content":"done"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5}}`)
-	})
-	response, err := model.Complete(context.Background(), nil, nil, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if response.Usage == nil || response.Usage.TotalTokens != 15 || response.Usage.PromptTokens != 10 {
-		t.Fatalf("usage = %#v", response.Usage)
-	}
-}
-
-func TestChatCompleteSynthesizesMissingToolCallBits(t *testing.T) {
-	model := newTestModel(t, func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"choices":[{"index":0,"message":{"role":"assistant","tool_calls":[{"id":"","type":"function","function":{"name":"shell","arguments":""}}]},"finish_reason":"tool_calls"}]}`)
-	})
-	response, err := model.Complete(context.Background(), nil, nil, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(response.ToolCalls()) != 1 || response.ToolCalls()[0].ID == "" || string(response.ToolCalls()[0].Function.Arguments) != `{}` {
-		t.Fatalf("tool calls = %#v", response.ToolCalls())
-	}
-}
-
-func TestChatCompleteRejectsMalformedArguments(t *testing.T) {
-	model := newTestModel(t, func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"choices":[{"index":0,"message":{"role":"assistant","tool_calls":[{"id":"call-1","type":"function","function":{"name":"read","arguments":"{oops"}}]},"finish_reason":"tool_calls"}]}`)
-	})
-	if _, err := model.Complete(context.Background(), nil, nil, 0); err == nil {
-		t.Fatal("malformed tool arguments were accepted")
 	}
 }
 
@@ -620,18 +579,17 @@ func TestChatCompleteRetriesWithMaxCompletionTokens(t *testing.T) {
 			return
 		}
 		finalBody = raw
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"choices":[{"index":0,"message":{"role":"assistant","content":"summary"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}`)
+		_, _ = io.WriteString(w, okStream)
 	})
-	response, err := model.Complete(context.Background(), []session.Message{session.TextMessage(session.RoleUser, "hi")}, nil, 4096)
+	response, err := model.Complete(context.Background(), []session.Message{session.TextMessage(session.RoleUser, "hi")}, nil, 4096, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if attempts != 2 {
 		t.Fatalf("attempts = %d", attempts)
 	}
-	assertWireJSON(t, finalBody, `{"model": "test-model", "messages": [{"role": "user", "content": "hi"}], "max_completion_tokens": 4096}`)
-	if response.Text() != "summary" {
+	assertWireJSON(t, finalBody, `{"model": "test-model", "messages": [{"role": "user", "content": "hi"}], "max_completion_tokens": 4096, "stream": true, "stream_options": {"include_usage": true}}`)
+	if response.Text() != "ok" {
 		t.Fatalf("response = %#v", response)
 	}
 }

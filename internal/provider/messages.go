@@ -333,11 +333,10 @@ func (m *messagesModel) Stream(ctx context.Context, messages []session.Message, 
 	return m.run(ctx, messages, tools, defaultMessagesMaxTokens, emit, false)
 }
 
-// Complete runs one generation without forwarding deltas. It streams anyway:
-// the API holds a non-streamed request open for the whole generation, and
-// streaming shares one decoder with Stream. tools, when set, keeps the cached
-// prefix of the streaming turn, with tool calls forbidden.
-func (m *messagesModel) Complete(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, maxTokens tokens.Count) (Response, error) {
+// Complete runs one capped generation, forwarding its deltas through emit when
+// set. tools, when set, keeps the cached prefix of the streaming turn, with
+// tool calls forbidden.
+func (m *messagesModel) Complete(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, maxTokens tokens.Count, emit func(Event)) (Response, error) {
 	if maxTokens <= 0 {
 		maxTokens = defaultMessagesMaxTokens
 	}
@@ -346,7 +345,7 @@ func (m *messagesModel) Complete(ctx context.Context, messages []session.Message
 		ctx, cancel = context.WithTimeout(ctx, completeTimeout)
 		defer cancel()
 	}
-	return m.run(ctx, messages, tools, maxTokens, nil, true)
+	return m.run(ctx, messages, tools, maxTokens, emit, true)
 }
 
 // run sends the request, adapting once to each fact a rejection teaches: an

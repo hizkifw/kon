@@ -38,7 +38,7 @@ func (p *toolCallingProvider) Stream(_ context.Context, messages []session.Messa
 	return session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: "saw it"}}, Finish: "stop", Usage: &session.Usage{PromptTokens: 2000, CompletionTokens: 5, TotalTokens: 2005}}, nil
 }
 
-func (p *toolCallingProvider) Complete(_ context.Context, _ []session.Message, _ []session.ToolDefinition, _ tokens.Count) (session.Message, error) {
+func (p *toolCallingProvider) Complete(_ context.Context, _ []session.Message, _ []session.ToolDefinition, _ tokens.Count, _ func(provider.Event)) (session.Message, error) {
 	p.completed++
 	return session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: "summary"}}}, nil
 }

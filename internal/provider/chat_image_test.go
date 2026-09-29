@@ -108,7 +108,7 @@ func TestModelWithoutVisionSendsNoImages(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			b, _ := io.ReadAll(r.Body)
 			body = string(b)
-			_, _ = io.WriteString(w, `{"choices":[{"index":0,"message":{"content":"ok"},"finish_reason":"stop"}]}`)
+			_, _ = io.WriteString(w, okStream)
 		}))
 		model, err := newChatModel(Spec{Name: "m", Format: wire.OpenAICompatible, ModelID: "m", BaseURL: server.URL, Vision: vision}, wire.Spec{ReasoningField: "reasoning_content"}, func(string) ([]byte, error) { return []byte("hello"), nil })
 		if err != nil {
@@ -118,7 +118,7 @@ func TestModelWithoutVisionSendsNoImages(t *testing.T) {
 			{Type: session.PartText, Text: "look"},
 			{Type: session.PartImage, ImageHash: strings.Repeat("0", 64), ImageMIME: "image/png"},
 		}}}
-		_, err = model.Complete(context.Background(), messages, nil, 0)
+		_, err = model.Complete(context.Background(), messages, nil, 0, nil)
 		server.Close()
 		if err != nil {
 			t.Fatal(err)

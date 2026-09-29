@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -33,8 +34,10 @@ func (f *fakeProvider) Stream(_ context.Context, messages []session.Message, _ [
 	return session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: "done"}}, Finish: "stop", Usage: &session.Usage{PromptTokens: 100, CompletionTokens: 1, TotalTokens: 101}}, nil
 }
 
-func (f *fakeProvider) Complete(_ context.Context, _ []session.Message, _ []session.ToolDefinition, _ tokens.Count) (session.Message, error) {
+func (f *fakeProvider) Complete(_ context.Context, _ []session.Message, _ []session.ToolDefinition, _ tokens.Count, emit func(provider.Event)) (session.Message, error) {
 	f.completeCalls++
+	emit(provider.Event{Text: "weighing it", Thinking: true})
+	emit(provider.Event{Text: "summary"})
 	return session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: "summary"}}, Usage: &session.Usage{PromptTokens: 50, CompletionTokens: 5, TotalTokens: 55}}, nil
 }
 
@@ -156,7 +159,7 @@ func (p *interruptingProvider) Stream(_ context.Context, _ []session.Message, _ 
 	}, context.Canceled
 }
 
-func (p *interruptingProvider) Complete(_ context.Context, _ []session.Message, _ []session.ToolDefinition, _ tokens.Count) (session.Message, error) {
+func (p *interruptingProvider) Complete(_ context.Context, _ []session.Message, _ []session.ToolDefinition, _ tokens.Count, _ func(provider.Event)) (session.Message, error) {
 	return session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: "summary"}}}, nil
 }
 
@@ -235,7 +238,7 @@ func (toolCallProvider) Stream(context.Context, []session.Message, []session.Too
 	}}, nil
 }
 
-func (toolCallProvider) Complete(context.Context, []session.Message, []session.ToolDefinition, tokens.Count) (session.Message, error) {
+func (toolCallProvider) Complete(context.Context, []session.Message, []session.ToolDefinition, tokens.Count, func(provider.Event)) (session.Message, error) {
 	return session.Message{}, nil
 }
 
@@ -275,7 +278,7 @@ func (reasoningProvider) Stream(_ context.Context, _ []session.Message, _ []sess
 	return session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: "answer"}}, Finish: "stop"}, nil
 }
 
-func (reasoningProvider) Complete(_ context.Context, _ []session.Message, _ []session.ToolDefinition, _ tokens.Count) (session.Message, error) {
+func (reasoningProvider) Complete(_ context.Context, _ []session.Message, _ []session.ToolDefinition, _ tokens.Count, _ func(provider.Event)) (session.Message, error) {
 	return session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: "summary"}}}, nil
 }
 
@@ -348,7 +351,13 @@ func TestCompactForcesCompactionBelowThreshold(t *testing.T) {
 	if fake.completeCalls != 1 || fake.streamCalls != 0 {
 		t.Fatalf("complete=%d stream=%d", fake.completeCalls, fake.streamCalls)
 	}
-	if len(compacted) == 0 || compacted[0].Kind != EventCompacted {
+	// The summary streams between the start and the end, without its reasoning.
+	var kinds []EventKind
+	for _, event := range compacted {
+		kinds = append(kinds, event.Kind)
+	}
+	if want := []EventKind{EventCompacting, EventCompactionText, EventCompacted, EventUsage}; !slices.Equal(kinds, want) ||
+		compacted[0].Tokens <= 0 || compacted[1].Text != "summary" || compacted[2].Text != "summary" {
 		t.Fatalf("events = %#v", compacted)
 	}
 	contextMessages, err := store.Context()
@@ -361,6 +370,16 @@ func TestCompactForcesCompactionBelowThreshold(t *testing.T) {
 	if !containsSummary(contextMessages) {
 		t.Fatal("compaction summary missing from projected context")
 	}
+}
+
+// compactedEvent finds the event that ends a compaction.
+func compactedEvent(events []Event) (Event, bool) {
+	for _, event := range events {
+		if event.Kind == EventCompacted {
+			return event, true
+		}
+	}
+	return Event{}, false
 }
 
 // containsSummary reports whether any projected message carries a compaction
@@ -402,7 +421,7 @@ func TestCompactFallsBackToIsolatedSummaryWhenLiveContextWouldOverflow(t *testin
 	if err := runner.Compact(context.Background(), func(event Event) { events = append(events, event) }); err != nil {
 		t.Fatal(err)
 	}
-	if len(events) == 0 || events[0].Kind != EventCompacted || !events[0].Estimated || events[0].Tokens == 99_999 {
+	if compacted, ok := compactedEvent(events); !ok || !compacted.Estimated || compacted.Tokens == 99_999 {
 		t.Fatalf("isolated compaction should report the estimate: %#v", events)
 	}
 	if len(provider.requests) != 1 {
@@ -486,7 +505,7 @@ func TestCompactReportsMeasuredContextFromLiveSummaryRequest(t *testing.T) {
 	// Only that request's estimate, well under a thousand tokens, comes back
 	// out, so the measured size sits just below the report and far above the
 	// byte estimate of this small fixture.
-	if len(events) == 0 || events[0].Kind != EventCompacted || events[0].Estimated || events[0].Tokens <= 11_345 || events[0].Tokens >= 12_345 {
+	if compacted, ok := compactedEvent(events); !ok || compacted.Estimated || compacted.Tokens <= 11_345 || compacted.Tokens >= 12_345 {
 		t.Fatalf("compacted event = %#v, want a measured size just under 12345 tokens", events)
 	}
 }
@@ -560,7 +579,7 @@ func (p *recordingProvider) Stream(context.Context, []session.Message, []session
 	return session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: "done"}}}, nil
 }
 
-func (p *recordingProvider) Complete(_ context.Context, messages []session.Message, toolList []session.ToolDefinition, _ tokens.Count) (session.Message, error) {
+func (p *recordingProvider) Complete(_ context.Context, messages []session.Message, toolList []session.ToolDefinition, _ tokens.Count, _ func(provider.Event)) (session.Message, error) {
 	p.requests = append(p.requests, messages)
 	p.tools = append(p.tools, toolList)
 	return session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: "summary"}}, Usage: p.usage}, nil

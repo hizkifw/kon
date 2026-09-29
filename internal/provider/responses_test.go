@@ -147,7 +147,7 @@ func TestResponsesIncompleteAndFailed(t *testing.T) {
 			sse(`{"type":"response.output_text.delta","output_index":0,"delta":"trunc"}`)+
 			sse(`{"type":"response.incomplete","response":{"incomplete_details":{"reason":"max_output_tokens"}}}`))
 	})
-	response, err := model.Complete(context.Background(), []session.Message{session.TextMessage(session.RoleUser, "hi")}, nil, 16)
+	response, err := model.Complete(context.Background(), []session.Message{session.TextMessage(session.RoleUser, "hi")}, nil, 16, nil)
 	if err != nil || response.Finish != session.FinishLength || response.Text() != "trunc" {
 		t.Fatalf("incomplete = %#v, %v", response, err)
 	}

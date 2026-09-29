@@ -43,13 +43,9 @@ type chatModel struct {
 // lines for large tool arguments; 1 MiB is far above any real chunk.
 const maxEventSize = 1 << 20
 
-// maxBodySize bounds a non-streamed response body.
-const maxBodySize = 64 << 20
-
-// completeTimeout bounds one non-streamed request, including the response
-// body read. Streaming stays unbounded so long generations are never cut
-// off; a hung non-streamed server would otherwise stall until the user
-// cancels.
+// completeTimeout bounds one capped generation, such as a compaction summary,
+// so a hung server cannot stall it until the user cancels. Turns stay
+// unbounded so long generations are never cut off.
 const completeTimeout = 10 * time.Minute
 
 // imageReader returns nil for a model without vision, so its requests carry
@@ -408,6 +404,11 @@ func (m *chatModel) generate(ctx context.Context, messages []session.Message, to
 	if noTools && len(payload.Tools) > 0 {
 		payload.ToolChoice = "none"
 	}
+	return m.streamWithUsage(ctx, payload, emit)
+}
+
+// streamWithUsage streams payload, asking the server to report usage.
+func (m *chatModel) streamWithUsage(ctx context.Context, payload chatRequest, emit func(Event)) (Response, error) {
 	payload.Stream = true
 	payload.StreamOptions = &chatStreamOptions{IncludeUsage: true}
 	response, err := m.stream(ctx, payload, emit)
@@ -449,11 +450,11 @@ func (m *chatModel) stream(ctx context.Context, payload chatRequest, emit func(E
 	return result, nil
 }
 
-// Complete runs one non-streamed generation. tools, when non-empty, is sent
-// with tool_choice "none": the request matches the streaming turn's tool roster
-// so it can reuse the provider's cached prefix, while the summary itself can
-// never become a tool call.
-func (m *chatModel) Complete(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, maxTokens tokens.Count) (Response, error) {
+// Complete runs one capped generation, forwarding its deltas through emit
+// when set. tools, when non-empty, is sent with tool_choice "none": the request
+// matches the streaming turn's tool roster so it can reuse the provider's
+// cached prefix, while the summary itself can never become a tool call.
+func (m *chatModel) Complete(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, maxTokens tokens.Count, emit func(Event)) (Response, error) {
 	wireMessages, err := toChatMessages(messages, m.replay(), m.readImage)
 	if err != nil {
 		return Response{}, err
@@ -464,74 +465,20 @@ func (m *chatModel) Complete(ctx context.Context, messages []session.Message, to
 		payload.Tools = toChatTools(tools)
 		payload.ToolChoice = "none"
 	}
-	response, err := m.complete(ctx, payload)
-	if isMaxTokensError(err) {
-		// Newer OpenAI reasoning models reject the legacy max_tokens field.
-		payload.MaxTokens = 0
-		payload.MaxCompletionTokens = maxTokens
-		return m.complete(ctx, payload)
-	}
-	return response, err
-}
-
-func (m *chatModel) complete(ctx context.Context, payload chatRequest) (Response, error) {
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return Response{}, fmt.Errorf("encode chat request: %w", err)
-	}
 	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
 		// Guard against a hung server; callers with their own deadline win.
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, completeTimeout)
 		defer cancel()
 	}
-	response, err := m.send(ctx, body, "application/json")
-	if err != nil {
-		return Response{}, err
+	response, err := m.streamWithUsage(ctx, payload, emit)
+	if isMaxTokensError(err) {
+		// Newer OpenAI reasoning models reject the legacy max_tokens field.
+		payload.MaxTokens = 0
+		payload.MaxCompletionTokens = maxTokens
+		return m.streamWithUsage(ctx, payload, emit)
 	}
-	defer response.Body.Close()
-	raw, err := io.ReadAll(io.LimitReader(response.Body, maxBodySize))
-	if err != nil {
-		return Response{}, fmt.Errorf("read chat response: %w", err)
-	}
-	if response.StatusCode != http.StatusOK {
-		return Response{}, parseAPIError(response.StatusCode, raw)
-	}
-	var decoded chatCompletion
-	if err := json.Unmarshal(raw, &decoded); err != nil {
-		return Response{}, fmt.Errorf("decode chat response: %w", err)
-	}
-	if decoded.Error != nil {
-		return Response{}, decoded.Error.apiError(raw)
-	}
-	var result Response
-	for _, choice := range decoded.Choices {
-		if choice.Index != 0 {
-			continue
-		}
-		var options chatOptions
-		if reasoning, field := choice.Message.reasoning(); reasoning != "" {
-			result.Parts = append(result.Parts, session.Part{Type: session.PartReasoning, Text: reasoning})
-			options.ReasoningField = field
-		}
-		for _, detail := range choice.Message.ReasoningDetails {
-			options.ReasoningDetails = appendReasoningDetail(options.ReasoningDetails, detail)
-		}
-		result.ProviderOptions = options.encode()
-		if choice.Message.Content != "" {
-			result.Parts = append(result.Parts, session.Part{Type: session.PartText, Text: choice.Message.Content})
-		}
-		result.Finish = chatFinishReason(choice.Finish)
-		for _, call := range choice.Message.ToolCalls {
-			result.Parts = append(result.Parts, session.Part{Type: session.PartToolCall, ToolCallID: typedid.ExternalToolCallID(call.ID), ToolName: call.Function.Name, ToolInput: json.RawMessage(call.Function.Arguments)})
-		}
-		break
-	}
-	result.Usage = decoded.Usage.usage()
-	if err := finalizeToolCalls(&result); err != nil {
-		return Response{}, err
-	}
-	return result, nil
+	return response, err
 }
 
 func (m *chatModel) send(ctx context.Context, body []byte, accept string) (*http.Response, error) {
@@ -751,25 +698,6 @@ func (u *chatUsage) usage() *session.Usage {
 	usage.CachedTokens = cmp.Or(details, u.PromptCacheHitTokens, u.CachedTokens)
 	usage.CacheWriteTokens = written
 	return usage
-}
-
-// chatCompletion is the non-streamed response shape.
-type chatCompletion struct {
-	Choices []chatCompletionChoice `json:"choices"`
-	Usage   *chatUsage             `json:"usage"`
-	Error   *chatError             `json:"error"`
-}
-
-type chatCompletionChoice struct {
-	Index   int           `json:"index"`
-	Message chatReplyBody `json:"message"`
-	Finish  string        `json:"finish_reason"`
-}
-
-type chatReplyBody struct {
-	Content string `json:"content"`
-	chatReasoningFields
-	ToolCalls []chatToolCall `json:"tool_calls"`
 }
 
 // decodeChatStream reads an SSE event stream, assembling assistant text,

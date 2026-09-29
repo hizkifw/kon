@@ -227,7 +227,7 @@ func TestMessagesCompleteForbidsToolCalls(t *testing.T) {
 		_, _ = io.WriteString(w, sse(`{"type":"content_block_start","index":0,"content_block":{"type":"text","text":"summary"}}`)+sse(`{"type":"message_delta","delta":{"stop_reason":"end_turn"}}`)+sse(`{"type":"message_stop"}`))
 	})
 	tools := []session.ToolDefinition{{Name: "read", Parameters: json.RawMessage(`{"type":"object"}`)}}
-	response, err := model.Complete(context.Background(), []session.Message{session.TextMessage(session.RoleUser, "summarize")}, tools, 4096)
+	response, err := model.Complete(context.Background(), []session.Message{session.TextMessage(session.RoleUser, "summarize")}, tools, 4096, nil)
 	if err != nil || response.Text() != "summary" {
 		t.Fatalf("Complete = %q, %v", response.Text(), err)
 	}

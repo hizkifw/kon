@@ -119,7 +119,7 @@ func (p *scriptedProvider) Stream(_ context.Context, _ []session.Message, _ []se
 	return session.TextMessage(session.RoleAssistant, "done"), nil
 }
 
-func (p *scriptedProvider) Complete(context.Context, []session.Message, []session.ToolDefinition, tokens.Count) (session.Message, error) {
+func (p *scriptedProvider) Complete(context.Context, []session.Message, []session.ToolDefinition, tokens.Count, func(provider.Event)) (session.Message, error) {
 	p.completes++
 	return p.summary, p.summaryErr
 }
@@ -231,7 +231,7 @@ func (p *overflowingProvider) Stream(context.Context, []session.Message, []sessi
 	return session.Message{}, &provider.APIError{Status: 400, Code: "context_length_exceeded", Message: "context length exceeded"}
 }
 
-func (p *overflowingProvider) Complete(context.Context, []session.Message, []session.ToolDefinition, tokens.Count) (session.Message, error) {
+func (p *overflowingProvider) Complete(context.Context, []session.Message, []session.ToolDefinition, tokens.Count, func(provider.Event)) (session.Message, error) {
 	return session.TextMessage(session.RoleAssistant, "summary"), nil
 }
 
@@ -255,7 +255,7 @@ func (pricedProvider) Stream(context.Context, []session.Message, []session.ToolD
 	return message, nil
 }
 
-func (pricedProvider) Complete(context.Context, []session.Message, []session.ToolDefinition, tokens.Count) (session.Message, error) {
+func (pricedProvider) Complete(context.Context, []session.Message, []session.ToolDefinition, tokens.Count, func(provider.Event)) (session.Message, error) {
 	message := session.TextMessage(session.RoleAssistant, "summary")
 	message.Usage = &session.Usage{PromptTokens: 50, CompletionTokens: 5, Cost: 0.25}
 	return message, nil

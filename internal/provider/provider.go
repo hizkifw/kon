@@ -158,8 +158,8 @@ func (c *Client) assistantOrPartial(response Response, err error) (session.Messa
 // answer, as when reasoning spends the whole budget.
 var ErrOutputLimit = errors.New("response reached its token limit before any answer")
 
-func (c *Client) Complete(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, maxTokens tokens.Count) (session.Message, error) {
-	response, err := c.model.Complete(ctx, messages, tools, maxTokens)
+func (c *Client) Complete(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, maxTokens tokens.Count, emit func(Event)) (session.Message, error) {
+	response, err := c.model.Complete(ctx, messages, tools, maxTokens, emit)
 	if err != nil {
 		return session.Message{}, err
 	}
