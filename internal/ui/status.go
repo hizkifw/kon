@@ -110,3 +110,10 @@ func (m Model) flashDone(msg flashDoneMsg) (tea.Model, tea.Cmd) {
 	}
 	return m, nil
 }
+
+// interruptArmed reports whether a first Esc's warning is still on the status
+// line, so the next Esc interrupts. Once the warning is gone, by its time
+// running out or by another message replacing it, Esc warns again.
+func (m Model) interruptArmed() bool {
+	return m.interruptEpoch != 0 && m.interruptEpoch == m.flashEpoch && m.message == m.flashed
+}

@@ -29,7 +29,7 @@ type loginDoneMsg struct {
 
 func (m Model) startLogin(providerID string) (tea.Model, tea.Cmd) {
 	if m.busy {
-		m.say(toneWarn, "agent is busy; Esc interrupts")
+		m.say(toneWarn, "agent is busy; press Esc twice to interrupt")
 		return m, nil
 	}
 	input := textinput.New()

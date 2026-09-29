@@ -931,21 +931,71 @@ func TestToolResultBlockTruncatesAndSanitizes(t *testing.T) {
 	}
 }
 
-func TestSecondEscKillsRunningCommand(t *testing.T) {
+// pressEsc presses Esc n times and returns the model after the last press.
+func pressEsc(t *testing.T, m Model, n int) Model {
+	t.Helper()
+	for range n {
+		updated, _, handled := m.handleKey("esc")
+		if !handled {
+			t.Fatal("esc was not handled")
+		}
+		m = updated.(Model)
+	}
+	return m
+}
+
+func TestEscWarnsThenInterruptsThenKills(t *testing.T) {
 	model := newTestModel(t)
 	model.busy = true
 	cancels := 0
 	model.runCancel = func() { cancels++ }
-	first, _, handled := model.handleKey("esc")
-	firstModel := first.(Model)
-	if !handled || cancels != 1 || firstModel.interruptPresses != 1 || !strings.Contains(firstModel.message, "interrupt") {
-		t.Fatalf("first esc did not cancel the run: cancels=%d status %q", cancels, firstModel.message)
+	model = pressEsc(t, model, 1)
+	if cancels != 0 || model.messageTone() != toneWarn || model.message != "press Esc again to interrupt" {
+		t.Fatalf("first esc: cancels=%d status %q tone %d", cancels, model.message, model.messageTone())
 	}
-	second, _, _ := firstModel.handleKey("esc")
-	secondModel := second.(Model)
-	runtime := secondModel.runtime.(*fakeRuntime)
-	if runtime.kills != 1 || !strings.Contains(secondModel.message, "killed") {
-		t.Fatalf("second esc did not kill the command: kills=%d status %q", runtime.kills, secondModel.message)
+	model = pressEsc(t, model, 1)
+	if cancels != 1 || model.interruptPresses != 1 || model.messageTone() != toneDanger || !strings.HasPrefix(model.message, "interrupted") {
+		t.Fatalf("second esc did not interrupt: cancels=%d status %q tone %d", cancels, model.message, model.messageTone())
+	}
+	model = pressEsc(t, model, 1)
+	if runtime := model.runtime.(*fakeRuntime); runtime.kills != 1 || !strings.Contains(model.message, "killed") {
+		t.Fatalf("third esc did not kill the command: kills=%d status %q", runtime.kills, model.message)
+	}
+}
+
+func TestInterruptWarningExpires(t *testing.T) {
+	model := newTestModel(t)
+	model.busy = true
+	cancels := 0
+	model.runCancel = func() { cancels++ }
+	model = pressEsc(t, model, 1)
+	model = done(model, model.flashEpoch)
+	if model.message != "" {
+		t.Fatalf("warning outlived its time: %q", model.message)
+	}
+	if model = pressEsc(t, model, 1); cancels != 0 || model.messageTone() != toneWarn {
+		t.Fatalf("esc after the warning expired interrupted: cancels=%d status %q", cancels, model.message)
+	}
+	// Another message replacing the warning disarms it as well.
+	model.say(toneInfo, "something else")
+	if model = pressEsc(t, model, 1); cancels != 0 {
+		t.Fatal("esc after the warning was replaced interrupted")
+	}
+	if model = pressEsc(t, model, 1); cancels != 1 {
+		t.Fatal("a fresh double esc did not interrupt")
+	}
+}
+
+func TestInterruptWarningNamesThePendingSteer(t *testing.T) {
+	model := newTestModel(t)
+	model.busy = true
+	model.runCancel = func() {}
+	model.steering = []string{"also check the docs"}
+	if model = pressEsc(t, model, 1); !strings.Contains(model.message, "send your steer") {
+		t.Fatalf("warning does not mention the steer: %q", model.message)
+	}
+	if model = pressEsc(t, model, 1); !strings.Contains(model.message, "sending your steer") {
+		t.Fatalf("interrupt does not mention the steer: %q", model.message)
 	}
 }
 
@@ -954,17 +1004,12 @@ func TestEscWithoutACommandReportsCancellation(t *testing.T) {
 	model.busy = true
 	model.runCancel = func() {}
 	model.runtime.(*fakeRuntime).killFails = true
-	first, _, _ := model.handleKey("esc")
-	second, _, handled := first.(Model).handleKey("esc")
-	secondModel := second.(Model)
-	if !handled {
-		t.Fatal("second esc was not handled")
+	model = pressEsc(t, model, 3)
+	if model.runtime.(*fakeRuntime).kills != 1 {
+		t.Fatal("third esc did not attempt the kill")
 	}
-	if secondModel.runtime.(*fakeRuntime).kills != 1 {
-		t.Fatal("second esc did not attempt the kill")
-	}
-	if !strings.Contains(secondModel.message, "no command to kill") {
-		t.Fatalf("second esc left a stale status: %q", secondModel.message)
+	if !strings.Contains(model.message, "no command to kill") {
+		t.Fatalf("third esc left a stale status: %q", model.message)
 	}
 }
 

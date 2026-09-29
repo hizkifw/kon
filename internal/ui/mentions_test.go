@@ -267,8 +267,14 @@ func TestUnmatchedMentionDoesNotClaimQueueOrInterrupt(t *testing.T) {
 			if key == "tab" && !reflect.DeepEqual(m.queued, []string{"explain @dataclass"}) {
 				t.Fatalf("Tab did not queue the prompt: %v", m.queued)
 			}
-			if key == "esc" && (ctx.Err() != context.Canceled || m.interruptPresses != 1) {
-				t.Fatal("Esc did not interrupt on the first press")
+			if key == "esc" {
+				// The notice takes no press of its own: the first Esc
+				// already arms the interrupt, and the second fires it.
+				updated, _, _ = m.handleKey(key)
+				m = updated.(Model)
+				if ctx.Err() != context.Canceled || m.interruptPresses != 1 {
+					t.Fatal("Esc did not interrupt on the second press")
+				}
 			}
 		})
 	}

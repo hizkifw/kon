@@ -167,8 +167,8 @@ While kon is working you can keep typing:
 - **Tab queues.** The message waits as `⏵ queue` and is sent as its own
   prompt once the current turn finishes. Queued messages go one per turn, in
   order.
-- **Esc with a steer pending** interrupts the turn and sends the steer at
-  once.
+- **Esc twice with a steer pending** interrupts the turn and sends the steer
+  at once.
 
 An interrupted or failed turn holds the queue instead of sending the next
 message, so you can decide first; Enter on an empty prompt sends the next one.
@@ -295,7 +295,7 @@ directory's permissions rather than running kon as root.
 | Tab | Queue the prompt while kon works, when there is no suggestion to fill in |
 | Shift+Tab | Cycle the model's reasoning effort when no suggestion popup is open |
 | Up/Down | Recall prompts, or move the suggestion selection |
-| Esc | Dismiss the popup, or interrupt the running turn and send any pending steer (press again to kill the command) |
+| Esc | Dismiss the popup; while kon works, press twice to interrupt the turn and send any pending steer (the first press only warns, and the warning lapses after a few seconds), then once more to kill the command |
 | Page Up/Page Down | Scroll the transcript |
 | Mouse wheel | Scroll the transcript |
 | Mouse drag | Select transcript text, copying it on release |

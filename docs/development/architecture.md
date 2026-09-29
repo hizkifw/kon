@@ -421,8 +421,10 @@ never reprices past work.
 - Shell commands must carry a model-specified timeout (at most 600 seconds)
   and report their wall-clock time with the exit status. A timed-out or
   cancelled command's captured output is preserved in the tool result.
-- Esc interrupts the active request or command through a shared context. A
-  second press force-kills the command's process group. Steering the user
+- A double Esc interrupts the active request or command through a shared
+  context; a lone press only shows a warning, so a stray key cannot discard a
+  turn, and the warning lapses with its status notice. A further press
+  force-kills the command's process group. Steering the user
   sends while a run is in flight goes through an `agent.Inbox` the runner
   drains before each provider request, appended as one user message at the end
   of the context so the cached prefix is untouched. Steering the runner never

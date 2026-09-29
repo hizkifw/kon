@@ -122,11 +122,14 @@ type Model struct {
 	side      *sideChat
 	sideEpoch int
 	sideSpent float64
-	// interruptPresses counts consecutive Esc presses while a run is in
-	// flight, so the harness can escalate: the first press cancels the run
+	// interruptPresses counts Esc presses that interrupted the run in
+	// flight, so the harness can escalate: the first cancels the run
 	// (interrupting a running command), the second kills it.
 	interruptPresses int
-	flushPending     bool
+	// interruptEpoch is the notice epoch of the warning a first Esc showed
+	// before interrupting (see interruptArmed); 0 when none was shown.
+	interruptEpoch int
+	flushPending   bool
 	// inbox carries steering (Enter while a run is in flight) to the runner,
 	// which drains it before its next request. steering mirrors what it held
 	// when last synced, so the pending strip and the layout agree within a
@@ -366,6 +369,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, timerTick(msg.epoch)
 	case runDoneMsg:
 		m.busy, m.runCancel, m.runEvents, m.interruptPresses = false, nil, nil, 0
+		m.interruptEpoch = 0
 		// A response cut off before its usage report leaves an estimate that
 		// nothing will replace, and the session never records it.
 		m.streamed, m.streamedContext = 0, 0
@@ -601,16 +605,26 @@ func (m Model) handleKey(key string) (tea.Model, tea.Cmd, bool) {
 		}
 		m.resetMenu()
 		if m.busy && m.runCancel != nil {
-			// Esc is the only interrupt. The first press cancels the run,
-			// which interrupts a running tool so it can stop cleanly; a
-			// second press escalates to a kill for a tool that ignored the
-			// interrupt.
+			// Esc is the only interrupt, and a stray press must not throw a
+			// turn away: the first press only warns, and a second while the
+			// warning is up cancels the run, which interrupts a running tool
+			// so it can stop cleanly. A press after that escalates to a kill
+			// for a tool that ignored the interrupt.
+			if m.interruptPresses == 0 && !m.interruptArmed() {
+				text := "press Esc again to interrupt"
+				if len(m.steering) > 0 {
+					text = "press Esc again to interrupt and send your steer"
+				}
+				cmd := m.flash(toneWarn, text)
+				m.interruptEpoch = m.flashEpoch
+				return m, cmd, true
+			}
 			m.interruptPresses++
 			m.runCancel()
 			if m.interruptPresses == 1 {
-				m.say(toneDanger, "interrupting… press Esc again to kill the command")
+				m.say(toneDanger, "interrupted · press Esc again to kill the command")
 				if len(m.steering) > 0 {
-					m.say(toneDanger, "interrupting to send your steer now…")
+					m.say(toneDanger, "interrupted · sending your steer now…")
 				}
 				return m, nil, true
 			}

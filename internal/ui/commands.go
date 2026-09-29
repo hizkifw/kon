@@ -461,7 +461,7 @@ func (m Model) cycleEffort() (tea.Model, tea.Cmd) {
 // operation is in flight and reports when there is nothing safe to compact.
 func (m Model) compact() (tea.Model, tea.Cmd) {
 	if m.busy {
-		m.say(toneWarn, "agent is busy; Esc interrupts")
+		m.say(toneWarn, "agent is busy; press Esc twice to interrupt")
 		return m, nil
 	}
 	if !m.takeOver() {
