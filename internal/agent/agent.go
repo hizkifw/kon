@@ -116,7 +116,7 @@ func (r *Runner) measure(id typedid.EntryID, usage session.Usage) {
 // second result is false unless that measurement covers the whole current
 // context, which is not the case for a fresh session before its first turn.
 func (r *Runner) ContextUsage() (tokens.Count, bool) {
-	items, err := r.session.Context()
+	items, err := Context(r.session)
 	if err != nil {
 		return 0, false
 	}
@@ -377,7 +377,7 @@ func (r *Runner) appendInterruptedToolResults(calls []session.ToolCall) error {
 }
 
 func (r *Runner) messages() ([]session.Message, error) {
-	contextMessages, err := r.session.Context()
+	contextMessages, err := Context(r.session)
 	if err != nil {
 		return nil, err
 	}
@@ -415,7 +415,7 @@ func (r *Runner) compactIfNeeded(ctx context.Context, force bool, emit func(Even
 	if window == 0 && !force {
 		return false, nil
 	}
-	items, err := r.session.Context()
+	items, err := Context(r.session)
 	if err != nil {
 		return false, err
 	}
@@ -479,7 +479,7 @@ func (r *Runner) compactIfNeeded(ctx context.Context, force bool, emit func(Even
 // prompt and prefix to stay cacheable. It is the compaction instruction of
 // DeepSeek Harness's compaction-basic package, verbatim, under the MIT license
 // (see THIRD_PARTY_NOTICES). It names a prior summary by the
-// <compacted-summary> tags session.CompactionSummaryPrefix wraps it in.
+// <compacted-summary> tags Context wraps it in.
 const CompactSummaryRequest = `You are now acting as a compaction engine for this AI coding assistant. Condense the conversation ABOVE into a structured checkpoint that lets another model resume the work with no loss of essential context.
 
 Output EXACTLY the Markdown structure below: keep every section, in order. Use terse bullets, not prose paragraphs. Write "(none)" for an empty section — never drop a section.

@@ -1,6 +1,41 @@
 package agent
 
-import "github.com/hizkifw/kon/internal/tokens"
+import (
+	"github.com/hizkifw/kon/internal/session"
+	"github.com/hizkifw/kon/internal/tokens"
+)
+
+// A projected compaction summary is delivered as a user message wrapped in
+// these markers rather than folded into the system prompt. Keeping the system
+// prompt byte-identical across compactions preserves the stable prefix that
+// provider prompt caches key on. Only the summary is persisted; the markers
+// wrap it each time the context is projected, so a change to them applies to
+// every session.
+const (
+	summaryPrefix = checkpointPreamble + "\n\n<compacted-summary>\n"
+	summarySuffix = "\n</compacted-summary>"
+)
+
+// checkpointPreamble tells the model what a summary is and how to go on from
+// it. It is the conversation checkpoint preamble of DeepSeek Harness's
+// compaction-basic package, verbatim, under the MIT license (see
+// THIRD_PARTY_NOTICES).
+const checkpointPreamble = "This is an automatically generated checkpoint condensing an earlier span of the conversation to free up context. Treat the captured context as established background and build on it without restating it. Continue the task directly from the messages that follow, without acknowledging this checkpoint."
+
+// Context projects a session's active path for a model request, with each
+// compaction summary wrapped in its checkpoint markers.
+func Context(store *session.Store) ([]session.ContextMessage, error) {
+	items, err := store.Context()
+	if err != nil {
+		return nil, err
+	}
+	for i := range items {
+		if items[i].Summary {
+			items[i].Message = session.TextMessage(session.RoleUser, summaryPrefix+items[i].Message.Text()+summarySuffix)
+		}
+	}
+	return items, nil
+}
 
 // Limits sizes the context a runner keeps: the model's window and output
 // limit, and the compaction budgets within them. They are the runner's own

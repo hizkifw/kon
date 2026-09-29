@@ -347,8 +347,10 @@ context, come verbatim from the compaction-basic package of DeepSeek Harness,
 under the MIT license; `THIRD_PARTY_NOTICES` carries its notice. The
 instruction asks for a checkpoint with fixed sections, from the user's request
 through the next step, and merges a prior summary it finds in
-`<compacted-summary>` tags, which is how context projection wraps it. Only the
-summary text is persisted, so the wrapper applies to every session.
+`<compacted-summary>` tags, which is how `agent.Context` wraps it. The session
+projects the summary unwrapped and flagged; the prompt wording belongs to the
+agent. Only the summary text is persisted, so the wrapper applies to every
+session.
 Automatic compaction runs at the context threshold; the `/compact` command
 forces the same routine on demand, so both paths share one boundary policy and
 one durable summary entry format. The threshold, the recent context kept

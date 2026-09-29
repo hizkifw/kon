@@ -193,13 +193,11 @@ keep the `Current model:` line in their stored prompt.
 
 ### 12. Keep prompt wording out of `session`
 
-- [ ] Return a structured summary item from `Store.Context`
+- [x] Return a structured summary item from `Store.Context`
 
-`Store.Context` wraps the compaction summary in `CompactionSummaryPrefix`
-(`internal/session/session.go:34`, applied at `:950`), and
-`agent.projectedSummary` (`internal/agent/agent.go:526`) strips it back off.
-`ContextMessage.Summary` already flags the item, so only the wording has to
-move to the agent.
+`Store.Context` projects a compaction summary as a flagged user message holding
+the persisted text, and `agent.Context` wraps it in the checkpoint preamble and
+`<compacted-summary>` tags. The runner and `/btw` both project through it.
 
 ### 13. Use reported usage for compaction decisions
 

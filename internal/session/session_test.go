@@ -530,7 +530,7 @@ func TestCompactionProjectsRetainedMessages(t *testing.T) {
 	if context[0].Message.Text() != "system prompt" {
 		t.Fatalf("system message was rewritten: %q", context[0].Message.Text())
 	}
-	if !context[1].Summary || !strings.Contains(context[1].Message.Text(), "old work summary") {
+	if !context[1].Summary || context[1].Message.Text() != "old work summary" {
 		t.Fatalf("compaction summary not projected as its own message: %#v", context[1])
 	}
 	// The summary must be a user message: the Messages backend folds every

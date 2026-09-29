@@ -29,23 +29,6 @@ const SchemaVersion = 4
 // millisecond, so Discover re-sorts by the header's full-precision timestamp.
 const fileSuffix = ".jsonl"
 
-// A projected compaction summary is delivered as a user message wrapped in
-// these markers rather than folded into the system prompt. Keeping the system
-// prompt byte-identical across compactions preserves the stable prefix that
-// provider prompt caches key on. Only the summary is persisted; the markers
-// wrap it each time the context is projected, so a change to them applies to
-// every session.
-const (
-	CompactionSummaryPrefix = compactionPreamble + "\n\n<compacted-summary>\n"
-	CompactionSummarySuffix = "\n</compacted-summary>"
-)
-
-// compactionPreamble tells the model what a summary is and how to go on from
-// it. It is the conversation checkpoint preamble of DeepSeek Harness's
-// compaction-basic package, verbatim, under the MIT license (see
-// THIRD_PARTY_NOTICES).
-const compactionPreamble = "This is an automatically generated checkpoint condensing an earlier span of the conversation to free up context. Treat the captured context as established background and build on it without restating it. Continue the task directly from the messages that follow, without acknowledging this checkpoint."
-
 // InterruptedToolResult is the model-facing result synthesized for a tool call
 // that never ran because its turn was cancelled or the process exited. Both the
 // agent, which writes it when a turn is cancelled, and context projection, which
@@ -321,8 +304,10 @@ type ModelSelection struct {
 type ContextMessage struct {
 	EntryID typedid.EntryID
 	Message Message
-	// Summary marks a synthetic message projected from a compaction entry. It
-	// carries no entry of its own and is never a valid compaction cut point.
+	// Summary marks a synthetic user message projected from a compaction
+	// entry, holding the summary text as persisted. It carries no entry of its
+	// own and is never a valid compaction cut point. How the summary is framed
+	// for the model is the agent's business, not the session's.
 	Summary bool
 }
 
@@ -1115,7 +1100,7 @@ func (s *Store) Context() ([]ContextMessage, error) {
 	}
 	out = append(out, ContextMessage{
 		EntryID: comp.ID,
-		Message: TextMessage(RoleUser, CompactionSummaryPrefix+comp.Summary+CompactionSummarySuffix),
+		Message: TextMessage(RoleUser, comp.Summary),
 		Summary: true,
 	})
 	out = append(out, messagesFromEntries(path[kept:latestCompaction])...)

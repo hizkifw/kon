@@ -78,7 +78,7 @@ func TestRunnerCompactsOlderTurnsBeforeRequest(t *testing.T) {
 		text string
 	}{
 		{session.RoleSystem, root.Text()},
-		{session.RoleUser, session.CompactionSummaryPrefix + "summary" + session.CompactionSummarySuffix},
+		{session.RoleUser, summaryPrefix + "summary" + summarySuffix},
 		{session.RoleUser, strings.Repeat("question ", 80)},
 		{session.RoleAssistant, strings.Repeat("answer ", 80)},
 		{session.RoleUser, "new work"},
@@ -472,7 +472,7 @@ func TestIsolatedSummaryCarriesThePriorCheckpoint(t *testing.T) {
 	if err := runner.Compact(context.Background(), func(Event) {}); err != nil {
 		t.Fatal(err)
 	}
-	checkpoint := session.CompactionSummaryPrefix + "existing summary" + session.CompactionSummarySuffix
+	checkpoint := summaryPrefix + "existing summary" + summarySuffix
 	if text := provider.requests[0][1].Text(); !strings.Contains(text, checkpoint) {
 		t.Fatalf("fallback transcript lost the prior checkpoint: %q", text)
 	}

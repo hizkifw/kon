@@ -93,7 +93,7 @@ func (r *Runtime) prepareSideChat(question string) (*provider.Client, []session.
 			profile = resolved
 		}
 	}
-	snapshot, err := r.store.Context()
+	snapshot, err := agent.Context(r.store)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("side chat context: %w", err)
 	}
