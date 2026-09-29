@@ -9,6 +9,7 @@ import (
 	"github.com/hizkifw/kon/internal/agent"
 	"github.com/hizkifw/kon/internal/provider"
 	"github.com/hizkifw/kon/internal/session"
+	"github.com/hizkifw/kon/internal/tools"
 )
 
 // ErrSideChatTools lets the frontend explain an attempted tool call without
@@ -25,7 +26,7 @@ Do not continue the main task. This exchange will not be added to the main conve
 // and cost events belong to the side chat, not the main runner's context usage.
 func (r *Runtime) SideChat(ctx context.Context, question string, emit func(agent.Event)) error {
 	r.mu.Lock()
-	client, messages, err := r.prepareSideChat(question)
+	client, messages, definitions, err := r.prepareSideChat(question)
 	if err != nil {
 		r.mu.Unlock()
 		return err
@@ -42,12 +43,13 @@ func (r *Runtime) SideChat(ctx context.Context, question string, emit func(agent
 		r.mu.Unlock()
 	}()
 
-	answer, err := client.Stream(opCtx, messages, nil, func(event provider.Event) {
+	answer, err := client.StreamText(opCtx, messages, definitions, func(event provider.Event) {
 		if emit != nil && !event.Thinking && event.Text != "" {
 			emit(agent.Event{Kind: agent.EventText, Text: event.Text})
 		}
 	})
 	if answer.Usage != nil && emit != nil {
+		// -1 means no main-context token update; the side view only consumes cost.
 		emit(agent.Event{Kind: agent.EventUsage, Tokens: -1, Cost: answer.Usage.Cost})
 	}
 	if err != nil {
@@ -61,23 +63,23 @@ func (r *Runtime) SideChat(ctx context.Context, question string, emit func(agent
 
 // prepareSideChat holds the runtime lock until the snapshot and provider are
 // ready, so a session or model switch cannot split them across two sessions.
-func (r *Runtime) prepareSideChat(question string) (*provider.Client, []session.Message, error) {
+func (r *Runtime) prepareSideChat(question string) (*provider.Client, []session.Message, []session.ToolDefinition, error) {
 	switch r.phase {
 	case PhaseClosed:
-		return nil, nil, ErrClosed
+		return nil, nil, nil, ErrClosed
 	case PhaseFollowing:
-		return nil, nil, ErrReadOnly
+		return nil, nil, nil, ErrReadOnly
 	case PhaseNeedsConfiguration:
-		return nil, nil, ErrNotReady
+		return nil, nil, nil, ErrNotReady
 	}
 	if r.sideDone != nil {
-		return nil, nil, ErrBusy
+		return nil, nil, nil, ErrBusy
 	}
 	if r.store == nil || r.runner == nil {
-		return nil, nil, ErrNotReady
+		return nil, nil, nil, ErrNotReady
 	}
 	if strings.TrimSpace(question) == "" {
-		return nil, nil, errors.New("side chat requires a question")
+		return nil, nil, nil, errors.New("side chat requires a question")
 	}
 	profile := r.active
 	if !profile.resolved {
@@ -85,16 +87,28 @@ func (r *Runtime) prepareSideChat(question string) (*provider.Client, []session.
 			profile = resolved
 		}
 	}
-	client, err := provider.New(profile.providerSpec(), r.store.ReadImage)
-	if err != nil {
-		return nil, nil, err
-	}
 	snapshot, err := r.store.Context()
 	if err != nil {
-		return nil, nil, fmt.Errorf("side chat context: %w", err)
+		return nil, nil, nil, fmt.Errorf("side chat context: %w", err)
 	}
+	// Detach images as well as messages before releasing the runtime lock.
+	// Session switches can then close even an incognito store immediately.
+	type imageResult struct {
+		data []byte
+		err  error
+	}
+	images := make(map[string]imageResult)
 	messages := make([]session.Message, 0, len(snapshot)+1)
 	for _, item := range snapshot {
+		for _, part := range item.Message.Parts {
+			if !profile.Vision || part.Type != session.PartImage {
+				continue
+			}
+			if _, ok := images[part.ImageHash]; !ok {
+				data, err := r.store.ReadImage(part.ImageHash)
+				images[part.ImageHash] = imageResult{data, err}
+			}
+		}
 		// Context repairs missing results as interrupted calls. A live main
 		// task may still be executing them, so qualify only those placeholders.
 		if item.EntryID.IsZero() && item.Message.Role == session.RoleTool {
@@ -106,5 +120,15 @@ func (r *Runtime) prepareSideChat(question string) (*provider.Client, []session.
 	// Keep every earlier message byte-identical, especially the root system
 	// prompt, so this detour does not change the main conversation's prefix.
 	messages = append(messages, session.TextMessage(session.RoleUser, question+"\n\n["+sideChatInstructions+"]"))
-	return client, messages, nil
+	client, err := provider.New(profile.providerSpec(), func(hash string) ([]byte, error) {
+		result, ok := images[hash]
+		if !ok {
+			return nil, errors.New("image absent from side chat snapshot")
+		}
+		return result.data, result.err
+	})
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return client, messages, tools.New(r.cwd, profile.Vision, nil).Definitions(), nil
 }

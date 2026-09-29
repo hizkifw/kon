@@ -18,6 +18,7 @@ type sideChat struct {
 	cancel     context.CancelFunc
 	events     <-chan sideEventMsg
 	position   previewReturn
+	done       bool
 }
 
 type sideEventMsg struct {
@@ -85,6 +86,7 @@ func (m Model) updateSideChat(msg sideEventMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if msg.done {
+		m.side.done = true
 		m.side.transcript.finishStream()
 		m.side.transcript.liveTimer = ""
 		if errors.Is(msg.err, app.ErrSideChatTools) || sideToolCallText(m.side.transcript.lastReply()) {
@@ -110,8 +112,8 @@ func (m Model) updateSideChat(msg sideEventMsg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(waitSideEvent(m.side.events), flush)
 }
 
-// Some models print tool markup as ordinary text even without tool schemas.
-// Recognizing common forms only adds an explanation; the answer is never
+// Some models print tool markup as ordinary text despite tool_choice none.
+// This heuristic only adds an explanation; the answer is never
 // interpreted or executed, and quoted examples remain visible as written.
 func sideToolCallText(text string) bool {
 	text = strings.ToLower(text)
@@ -142,8 +144,12 @@ func (m *Model) closeSideChat() {
 
 func (m Model) sideKey(key string) (tea.Model, tea.Cmd) {
 	switch key {
-	case "esc", "enter", "ctrl+c":
+	case "esc", "ctrl+c":
 		m.closeSideChat()
+	case "enter":
+		if m.side.done {
+			m.closeSideChat()
+		}
 	case "ctrl+d":
 		m.closeSideChat()
 		if m.runCancel != nil {

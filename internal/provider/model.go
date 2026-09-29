@@ -19,6 +19,9 @@ type Model interface {
 	// Stream runs one streamed generation, forwarding text and reasoning
 	// deltas through emit as they arrive, and returns the assembled response.
 	Stream(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, emit func(Event)) (Response, error)
+	// StreamText retains tool schemas for replayed history and prefix caching,
+	// but requests that the model generate no tool calls.
+	StreamText(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, emit func(Event)) (Response, error)
 	// Complete runs one non-streamed generation. maxTokens caps the completion
 	// when positive; zero means the provider default. tools carries the live
 	// tool roster so a one-shot request (such as a compaction summary) keeps the

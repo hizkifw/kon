@@ -110,9 +110,10 @@ For questions that need a command or fresh information, ask in the main
 conversation. If the model returns a tool call or recognizable tool-call
 markup anyway, kon adds a "Nothing was executed" note to the side answer.
 
-Press Esc, Enter, or Ctrl+C to dismiss the view and cancel an unfinished side
-answer. This leaves the main task running. Scroll with the mouse wheel or
-PgUp/PgDn; select text to copy it before dismissing. Each `/btw` starts a fresh
+Press Esc or Ctrl+C to dismiss the view and cancel an unfinished side answer.
+Enter also dismisses a completed answer. This leaves the main task running.
+Scroll with the mouse wheel or PgUp/PgDn; select text to copy it before
+dismissing. Each `/btw` starts a fresh
 question. Side questions and answers are never added to the main conversation,
 saved session, or prompt history. They still go to your configured provider
 and use tokens; reported costs are shown for the current session until you

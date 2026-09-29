@@ -36,9 +36,10 @@ Run `kon` in any project. Connect a provider with `/login`, pick a model with
 [configuration](docs/product/configuration.md).
 
 Ask `/btw <question>` for a temporary answer using the current conversation,
-even while kon is working. Press Esc or Enter to return; the side exchange
-stays out of the main conversation and saved session. Side questions have no
-tools; ask in the main conversation when you need files read or commands run.
+even while kon is working. Press Esc to return, or Enter once the answer is
+complete; the side exchange stays out of the main conversation and saved
+session. Side questions have no tools; ask in the main conversation when you
+need files read or commands run.
 
 ## Why kon
 

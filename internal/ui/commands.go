@@ -101,6 +101,7 @@ func (r *registry) register(command slashCommand) {
 // arguments, rejecting unknown commands, too many arguments, and missing
 // required arguments.
 func (r *registry) parse(text string) (parsedCommand, error) {
+	text = strings.TrimSpace(text)
 	fields := strings.Fields(text)
 	if len(fields) == 0 {
 		return parsedCommand{}, nil
@@ -112,7 +113,7 @@ func (r *registry) parse(text string) (parsedCommand, error) {
 	}
 	args := fields[1:]
 	if len(command.arguments) == 1 && command.arguments[0].rest && len(args) > 0 {
-		args = []string{strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(text), fields[0]))}
+		args = []string{strings.TrimSpace(text[len(fields[0]):])}
 	}
 	if len(args) > len(command.arguments) {
 		return parsedCommand{}, usageError(command.usage())

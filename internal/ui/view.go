@@ -116,6 +116,9 @@ func (m Model) View() tea.View {
 	input := m.input.View()
 	if m.side != nil {
 		input = " /btw · Esc or Enter returns to the main conversation"
+		if !m.side.done {
+			input = " /btw · Esc returns to the main conversation"
+		}
 	}
 	if m.login != nil {
 		input = m.login.input.View()

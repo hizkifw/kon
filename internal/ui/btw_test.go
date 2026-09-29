@@ -115,6 +115,14 @@ func TestBTWDismissCancelsOnlySideAndDropsLateEvents(t *testing.T) {
 	updated, _ := m.startSideChat("question")
 	m = updated.(Model)
 	epoch := m.sideEpoch
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = updated.(Model)
+	if m.side == nil {
+		t.Fatal("Enter dismissed an unfinished side answer")
+	}
+	if hint := plain(m.View().Content); strings.Contains(hint, "Esc or Enter") {
+		t.Fatal("streaming side view advertised Enter dismissal")
+	}
 	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	m = updated.(Model)
 	select {

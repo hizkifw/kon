@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/hizkifw/kon/internal/agent"
 	"github.com/hizkifw/kon/internal/config"
+	"github.com/hizkifw/kon/internal/provider/wire"
 	"github.com/hizkifw/kon/internal/session"
 	"github.com/hizkifw/kon/internal/typedid"
 )
@@ -42,9 +44,10 @@ func sideChatReply(w http.ResponseWriter) {
 
 func TestSideChatPreservesSessionAndRepairsIncompleteToolContext(t *testing.T) {
 	var request struct {
-		Model    string            `json:"model"`
-		Messages []map[string]any  `json:"messages"`
-		Tools    []json.RawMessage `json:"tools"`
+		Model      string            `json:"model"`
+		Messages   []map[string]any  `json:"messages"`
+		Tools      []json.RawMessage `json:"tools"`
+		ToolChoice string            `json:"tool_choice"`
 	}
 	r := sideChatRuntime(t, func(w http.ResponseWriter, req *http.Request) {
 		if err := json.NewDecoder(req.Body).Decode(&request); err != nil {
@@ -85,7 +88,7 @@ func TestSideChatPreservesSessionAndRepairsIncompleteToolContext(t *testing.T) {
 	if got, ok := r.ContextUsage(); got != usage || ok != known {
 		t.Fatalf("context usage changed from (%d, %v) to (%d, %v)", usage, known, got, ok)
 	}
-	if request.Model != "side-model" || len(request.Tools) != 0 {
+	if request.Model != "side-model" || len(request.Tools) == 0 || request.ToolChoice != "none" {
 		t.Fatalf("model = %q, tools = %v", request.Model, request.Tools)
 	}
 	if len(request.Messages) != 5 || request.Messages[0]["content"] != r.store.ActivePath()[0].Message.Text() {
@@ -109,12 +112,12 @@ func TestSideChatRunsAlongsideMainRun(t *testing.T) {
 	mainStarted := make(chan struct{})
 	r := sideChatRuntime(t, func(w http.ResponseWriter, req *http.Request) {
 		var request struct {
-			Tools []json.RawMessage `json:"tools"`
+			ToolChoice string `json:"tool_choice"`
 		}
 		if err := json.NewDecoder(req.Body).Decode(&request); err != nil {
 			t.Error(err)
 		}
-		if len(request.Tools) != 0 {
+		if request.ToolChoice != "none" {
 			close(mainStarted)
 			<-req.Context().Done()
 			return
@@ -160,7 +163,7 @@ func TestSideChatCancellationAndLifecycle(t *testing.T) {
 			if err := r.SideChat(t.Context(), "another question", nil); !errors.Is(err, ErrBusy) {
 				t.Fatalf("duplicate side chat: %v", err)
 			}
-			if err := r.NewSession(); !errors.Is(err, ErrBusy) {
+			if err := r.NewSession(); err != nil {
 				t.Fatalf("session switch during side chat: %v", err)
 			}
 			if closeRuntime {
@@ -224,6 +227,217 @@ func TestSideChatProviderFailureLeavesMainUsable(t *testing.T) {
 				t.Fatalf("session switch after failed side chat: %v", err)
 			}
 		})
+	}
+}
+
+func TestSideChatWireFormats(t *testing.T) {
+	for _, format := range []wire.Format{wire.OpenAI, wire.OpenAICompatible, wire.OpenRouter, wire.Ollama, wire.OpenAIResponses, wire.Anthropic} {
+		for _, toolHistory := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/tools=%v", format, toolHistory), func(t *testing.T) {
+				var request struct {
+					Tools      []json.RawMessage       `json:"tools"`
+					ToolChoice json.RawMessage         `json:"tool_choice"`
+					Messages   []struct{ Role string } `json:"messages"`
+				}
+				var body []byte
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+					body, _ = io.ReadAll(req.Body)
+					if err := json.Unmarshal(body, &request); err != nil {
+						t.Error(err)
+					}
+					w.Header().Set("Content-Type", "text/event-stream")
+					switch format {
+					case wire.Anthropic:
+						fmt.Fprint(w, `data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}
+
+data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"side answer"}}
+
+data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}
+
+data: {"type":"message_stop"}
+
+`)
+					case wire.OpenAIResponses:
+						fmt.Fprint(w, `data: {"type":"response.output_item.added","output_index":0,"item":{"type":"message","role":"assistant","content":[]}}
+
+data: {"type":"response.output_text.delta","output_index":0,"delta":"side answer"}
+
+data: {"type":"response.output_item.done","output_index":0,"item":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"side answer"}]}}
+
+data: {"type":"response.completed","response":{}}
+
+`)
+					default:
+						sideChatReply(w)
+					}
+				}))
+				defer server.Close()
+				cfg := configured("side-model")
+				cfg.Models[0].Type, cfg.Models[0].BaseURL = format, server.URL
+				r, err := New(cfg, config.Paths{Sessions: t.TempDir()}, t.TempDir(), "test")
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer r.Close()
+				messages := []session.Message{session.TextMessage(session.RoleUser, "main prompt")}
+				if toolHistory {
+					messages = append(messages,
+						session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartToolCall, ToolCallID: typedid.ToolCallID("call-history"), ToolName: "shell", ToolInput: json.RawMessage(`{"command":"echo hello"}`)}}},
+						session.ToolResultMessage(typedid.ToolCallID("call-history"), "shell", "historical tool result"))
+				}
+				for _, message := range messages {
+					if _, err := r.store.AppendMessage(message); err != nil {
+						t.Fatal(err)
+					}
+				}
+				var text strings.Builder
+				if err := r.SideChat(t.Context(), "side question", func(event agent.Event) { text.WriteString(event.Text) }); err != nil {
+					t.Fatal(err)
+				}
+				if text.String() != "side answer" {
+					t.Fatalf("answer = %q", text.String())
+				}
+				choice := `"none"`
+				if format == wire.Anthropic {
+					choice = `{"type":"none"}`
+				}
+				if len(request.Tools) != 4 || string(request.ToolChoice) != choice {
+					t.Fatalf("tools = %d, tool_choice = %s", len(request.Tools), request.ToolChoice)
+				}
+				for _, want := range []string{"main prompt", "side question"} {
+					if !bytes.Contains(body, []byte(want)) {
+						t.Fatalf("request missing %q: %s", want, body)
+					}
+				}
+				if toolHistory && (!bytes.Contains(body, []byte("call-history")) || !bytes.Contains(body, []byte("historical tool result"))) {
+					t.Fatalf("tool history lost: %s", body)
+				}
+				if format == wire.Anthropic {
+					for i := 1; i < len(request.Messages); i++ {
+						if request.Messages[i].Role == request.Messages[i-1].Role {
+							t.Fatalf("adjacent same-role turns: %s", body)
+						}
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestSideChatCancelledCleanupDoesNotBlockMutations(t *testing.T) {
+	started, release := make(chan struct{}), make(chan struct{})
+	r := sideChatRuntime(t, func(w http.ResponseWriter, req *http.Request) { sideChatReply(w) })
+	if _, err := r.store.AppendMessage(session.TextMessage(session.RoleUser, "saved session")); err != nil {
+		t.Fatal(err)
+	}
+	saved := r.SessionID()
+	r.paths.ConfigFile = filepath.Join(t.TempDir(), "config.json")
+	profile := r.config.Models[0]
+	profile.Name = "other"
+	r.config.Models = append(r.config.Models, profile)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- r.SideChat(ctx, "question", func(event agent.Event) {
+			if event.Kind == agent.EventText {
+				close(started)
+				<-release
+			}
+		})
+	}()
+	defer func() { close(release); <-done }()
+	awaitSideChatSignal(t, started)
+	cancel()
+	if err := r.NewSession(); err != nil {
+		t.Fatalf("new during cancelled cleanup: %v", err)
+	}
+	if err := r.Resume(saved); err != nil {
+		t.Fatalf("resume during cancelled cleanup: %v", err)
+	}
+	if err := r.SwitchModel("other"); err != nil {
+		t.Fatalf("model switch during cancelled cleanup: %v", err)
+	}
+}
+
+func TestSideChatSnapshotRetainsIncognitoImagesAfterClose(t *testing.T) {
+	var body []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		body, _ = io.ReadAll(req.Body)
+		sideChatReply(w)
+	}))
+	defer server.Close()
+	cfg := configured("side-model")
+	cfg.Models[0].BaseURL, cfg.Models[0].Vision = server.URL, true
+	r, err := Start(cfg, config.Paths{Sessions: t.TempDir()}, t.TempDir(), "test", Options{Incognito: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	part, err := r.store.SaveImage([]byte("test image"), "image/png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.store.AppendMessage(session.Message{Role: session.RoleUser, Parts: []session.Part{{Type: session.PartText, Text: "image question"}, part}}); err != nil {
+		t.Fatal(err)
+	}
+	r.mu.Lock()
+	client, messages, definitions, err := r.prepareSideChat("describe the image")
+	r.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.StreamText(t.Context(), messages, definitions, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(body, []byte("data:image/png;base64,dGVzdCBpbWFnZQ==")) {
+		t.Fatalf("snapshot lost image: %s", body)
+	}
+}
+
+func TestSideChatSnapshotsWhileMainRunWrites(t *testing.T) {
+	started, release := make(chan struct{}), make(chan struct{})
+	mainRequests := 0
+	r := sideChatRuntime(t, func(w http.ResponseWriter, req *http.Request) {
+		var request struct {
+			ToolChoice string `json:"tool_choice"`
+		}
+		if err := json.NewDecoder(req.Body).Decode(&request); err != nil {
+			t.Error(err)
+		}
+		if request.ToolChoice != "none" {
+			mainRequests++
+			if mainRequests == 1 {
+				close(started)
+				<-release
+			}
+		}
+		sideChatReply(w)
+	})
+	done := make(chan error, 1)
+	go func() {
+		for i := 0; i < 20; i++ {
+			if err := r.Run(t.Context(), "main task", nil, func(agent.Event) {}); err != nil {
+				done <- err
+				return
+			}
+		}
+		done <- nil
+	}()
+	awaitSideChatSignal(t, started)
+	close(release)
+	defer func() {
+		if err := <-done; err != nil {
+			t.Error(err)
+		}
+	}()
+	for i := 0; i < 20; i++ {
+		if err := r.SideChat(t.Context(), "side question", nil); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 

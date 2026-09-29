@@ -829,7 +829,7 @@ func (r *Runtime) mutable() error {
 	if r.phase == PhaseClosed {
 		return ErrClosed
 	}
-	if r.phase == PhaseRunning || r.sideDone != nil {
+	if r.phase == PhaseRunning {
 		return ErrBusy
 	}
 	return nil
