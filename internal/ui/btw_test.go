@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/hizkifw/kon/internal/agent"
 	"github.com/hizkifw/kon/internal/app"
+	"github.com/hizkifw/kon/internal/session"
 )
 
 type sideRuntime struct {
@@ -216,5 +217,35 @@ func TestBTWExplainsUnexecutedToolCalls(t *testing.T) {
 				t.Fatal("side notice remained after dismissal")
 			}
 		})
+	}
+}
+
+func TestBTWTakesOverAFreeSession(t *testing.T) {
+	m, runtime := newFollowingModel(t)
+	asked := make(chan string, 1)
+	m.runtime = sideRuntime{Runtime: runtime, run: func(_ context.Context, question string, _ func(agent.Event)) error {
+		asked <- question
+		return nil
+	}}
+	updated, _ := m.startSideChat("question")
+	m = updated.(Model)
+	if m.follow != nil || m.side == nil || m.message != "" {
+		t.Fatalf("following = %v, side = %v, status = %q", m.follow != nil, m.side != nil, m.message)
+	}
+	t.Cleanup(m.side.cancel)
+	select {
+	case <-asked:
+	case <-time.After(3 * time.Second):
+		t.Fatal("side question was not asked after taking over")
+	}
+}
+
+func TestBTWWhileHeldStaysReadOnly(t *testing.T) {
+	m, runtime := newFollowingModel(t)
+	runtime.takeOverErr = session.ErrInUse
+	updated, _ := m.startSideChat("question")
+	m = updated.(Model)
+	if m.message != "read-only: still open in another session" || m.follow == nil || m.side != nil {
+		t.Fatalf("status = %q, following = %v, side = %v", m.message, m.follow != nil, m.side != nil)
 	}
 }

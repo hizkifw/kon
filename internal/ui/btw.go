@@ -31,6 +31,11 @@ type sideEventMsg struct {
 const sideToolsNotice = "Nothing was executed. /btw has no tools. Ask in the main conversation to use tools."
 
 func (m Model) startSideChat(question string) (tea.Model, tea.Cmd) {
+	// A side question needs a writable session like any prompt, so a followed
+	// session its writer has let go is taken over first.
+	if !m.takeOver() {
+		return m, nil
+	}
 	state := m.runtime.State()
 	if state.Phase != app.PhaseReady && state.Phase != app.PhaseRunning {
 		m.message = "configure a model and open a writable session before using /btw"
