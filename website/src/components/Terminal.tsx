@@ -163,7 +163,7 @@ export function Terminal({ platform }: { platform: Platform }) {
               <Row className="bg-bar text-[#757575]">
                 ~/code/dates · {contextUsed(t)} · {sent && !done ? "working" : "ready"}
               </Row>
-              <div className="h-[1.5em] whitespace-pre">
+              <div className="h-[1.5em] px-[0.6em] whitespace-pre">
                 {t >= T.typeTask && !sent ? (
                   <>
                     {TASK.slice(0, typed(t, T.typeTask, TASK_KEY_MS, TASK.length))}

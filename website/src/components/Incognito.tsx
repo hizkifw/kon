@@ -107,7 +107,7 @@ function Window() {
         </div>
         <Blank />
         <Row className="bg-bar text-[#757575]">~/code/site · ctx 1.2k/400.0k · ready</Row>
-        <div className="h-[1.5em] whitespace-pre">
+        <div className="h-[1.5em] px-[0.6em] whitespace-pre">
           <span className="animate-blink bg-[#d8d8d8] text-screen">A</span>
           <span className="text-faint">sk kon…</span>
         </div>
