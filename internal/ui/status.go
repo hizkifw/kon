@@ -37,7 +37,9 @@ func (m Model) statusText() string {
 	}
 	var parts []string
 	for _, part := range []string{m.mode(), m.message} {
-		if part != "" {
+		// The status line is one row: a multi-line message, such as a
+		// provider's error body, would otherwise push the prompt down.
+		if part = oneLine(part); part != "" {
 			parts = append(parts, part)
 		}
 	}

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -105,5 +106,18 @@ func TestLoginAsksBesideItsMessages(t *testing.T) {
 	updated, _ = updated.(Model).updateLogin(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if text := updated.(Model).statusText(); text != "API key for azure · Esc cancels · API key is required" {
 		t.Fatalf("status line %q", text)
+	}
+}
+
+// A failed /compact once reported the provider's multi-line error body in the
+// status line, which then spilled over the prompt.
+func TestAMultiLineMessageKeepsTheStatusLineOneRow(t *testing.T) {
+	m := newTestModel(t)
+	m, _ = update(m, runDoneMsg{err: errors.New("provider failed\n{\n  \"error\": \"overloaded\"\n}")})
+	if text := m.statusText(); strings.Contains(text, "\n") || !strings.Contains(text, `provider failed { "error": "overloaded" }`) {
+		t.Fatalf("status line = %q", text)
+	}
+	if lines := strings.Split(m.View().Content, "\n"); len(lines) != m.height {
+		t.Fatalf("view is %d rows, want %d", len(lines), m.height)
 	}
 }
