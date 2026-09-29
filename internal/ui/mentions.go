@@ -154,6 +154,11 @@ func mentionScore(file, query string) int {
 	case strings.Contains(file, query):
 		return 4
 	}
+	// A path separator makes fuzzy intent explicit; prose such as @alice
+	// should not be replaced by a path that only shares scattered letters.
+	if !strings.Contains(query, "/") {
+		return -1
+	}
 	for _, r := range query {
 		at := strings.IndexRune(file, r)
 		if at < 0 {

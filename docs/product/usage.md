@@ -103,10 +103,11 @@ iTerm2).
 
 Type `@` in the prompt to open a file picker for the current directory and its
 subdirectories. Type part of a filename or path to narrow the list; matching
-is case-insensitive and accepts partial paths such as `@i/u/mod` for
-`internal/ui/model.go`. Use Up/Down to choose, Tab or Enter to accept, and Esc
-to dismiss. Enter again sends the prompt. While kon works, accepting a
-suggestion takes precedence over steering or queueing.
+is case-insensitive. Bare names match contiguous text; include a path separator
+for fuzzy paths such as `@i/u/mod` for `internal/ui/model.go`. Use Up/Down to
+choose, Tab or Enter to accept, and Esc to dismiss. Enter again sends the
+prompt. While kon works, accepting a suggestion takes precedence over steering
+or queueing.
 Enter sends the prompt if discovery is still running and there is no suggestion
 to accept. A no-match notice leaves Tab queueing and Esc interruption available.
 
@@ -124,12 +125,13 @@ startup, and refreshes for the next mention. With Git available, the picker
 includes tracked and untracked files while respecting Git ignore rules.
 Tracked paths come directly from Git's index, so deleted files and submodule
 paths can still appear; the agent checks them when needed.
+Untracked nested repositories reported as directories are skipped.
 Outside Git, or without Git installed, it walks the directory without
 following directory symlinks and skips `.git`, `.hg`, `.svn`, `node_modules`,
 `.venv`, `venv`, and `__pycache__`. Searches are bounded to five seconds and
-50,000 entries; the popup offers up to 100 matches and labels an incomplete
-file list when discovery reaches a limit or fails. File mentions do not change
-the session's system prompt.
+50,000 entries (including directories in the fallback walk); the popup offers
+up to 100 matches and labels an incomplete file list when discovery reaches
+a limit or fails. File mentions do not change the session's system prompt.
 
 ## Steering and queueing
 

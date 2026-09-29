@@ -17,18 +17,21 @@ func BenchmarkList(b *testing.B) {
 			// Keep the plain-directory case outside any enclosing repository,
 			// including when TMPDIR points inside the checkout.
 			b.Setenv("GIT_CEILING_DIRECTORIES", filepath.Dir(root))
+			depths := []string{"", "src", "web/components"}
+			names := []string{"Model%03d.go", "Handler%03d.go", "README%03d.md", "Button%03d.tsx", "input%03d.json"}
 			for i := range n {
 				group := "tracked"
 				if i >= n/2 {
 					group = "untracked"
 				}
-				dir := filepath.Join(root, group, fmt.Sprintf("Package%05d", i/100))
+				dir := filepath.Join(root, group, depths[(i/100)%len(depths)], fmt.Sprintf("Package%05d", i/100))
 				if i%100 == 0 {
 					if err := os.MkdirAll(dir, 0o755); err != nil {
 						b.Fatal(err)
 					}
 				}
-				if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("Model%03d.go", i%100)), nil, 0o600); err != nil {
+				name := fmt.Sprintf(names[i%len(names)], i%100)
+				if err := os.WriteFile(filepath.Join(dir, name), nil, 0o600); err != nil {
 					b.Fatal(err)
 				}
 			}

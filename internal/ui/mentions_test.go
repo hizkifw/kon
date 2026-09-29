@@ -26,6 +26,8 @@ func TestMentionAtCursor(t *testing.T) {
 		{"read (@mod|el.go), please", "mod", "@model.go", true},
 		{"你好\ncompare @一.go and @二|.go", "二", "@二.go", true},
 		{`read @"docs/my fi|le.md" please`, "docs/my fi", `@"docs/my file.md"`, true},
+		{`read @|"docs/my file.md"`, "", "", false},
+		{`read @"|docs/my file.md"`, "", `@"docs/my file.md"`, true},
 		{`read @"docs/my file.md"|`, "", "", false},
 		{"mail person@exam|ple.com", "", "", false},
 		{"`@deco|rator`", "", "", false},
@@ -223,6 +225,26 @@ func TestEnterSubmitsWhileMentionSearchIsLoading(t *testing.T) {
 	updated, _ = m.Update(mentionFilesMsg{epoch: 7, files: indexMentionFiles([]string{"main.go"})})
 	if got := updated.(Model); got.menu.height() != 0 || got.mentions.loaded {
 		t.Fatal("late result was accepted after submission")
+	}
+}
+
+func TestProseMentionDoesNotAcceptScatteredPathLetters(t *testing.T) {
+	for _, tt := range []struct{ prompt, file string }{
+		{"ping @alice", "app/logging/identity/cache/event.go"},
+		{"decorate it with @property", "project/helpers/runtime/types.go"},
+	} {
+		t.Run(tt.prompt, func(t *testing.T) {
+			m := newTestModel(t)
+			m.busy = true
+			m.input.SetValue(tt.prompt)
+			m.mentions = fileMentions{loaded: true, files: indexMentionFiles([]string{tt.file})}
+			m.refreshInput()
+			updated, _, _ := m.handleKey("enter")
+			m = updated.(Model)
+			if m.input.Value() != "" || !reflect.DeepEqual(m.steering, []string{tt.prompt}) {
+				t.Fatalf("prose mention was not sent intact: input %q, steering %v", m.input.Value(), m.steering)
+			}
+		})
 	}
 }
 

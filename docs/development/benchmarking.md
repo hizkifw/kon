@@ -40,7 +40,8 @@ go test -run '^$' -bench '^BenchmarkList$' -benchmem -count=3 ./internal/project
 go test -run '^$' -bench '^BenchmarkMentionCandidates$' -benchmem -count=3 ./internal/ui
 ```
 
-Discovery uses temporary trees with 100 files per package directory. The Git
+Discovery uses temporary trees with 100 files per package directory, varied
+filenames, and one to three directory levels below each tracking group. The Git
 case tracks half the files and leaves half untracked; the directory case calls
 the same `List` entry point before Git initialization, including the failed Git
 lookup before the fallback walk. Fixture creation and `git add` are outside the
@@ -52,8 +53,12 @@ The 100k case exercises the 50k-entry limit and reports the number of returned
 files as `files/op`. The walk counts directories too, so it returns fewer than
 50k files at the limit. Search benchmarks stop at 50k because discovery never
 delivers a larger list. They measure one cached filtering/ranking pass per
-query as `@model` is typed, plus fuzzy-path and no-match queries. Normalization
-is outside the timer, as it happens once in the background discovery command;
+query as `@model` is typed, plus fuzzy-path and no-match queries. Paths mix root
+Markdown files, commands, services, web components, guides, and test data.
+Only one in 1,000 paths contains `model`, so `@model` returns 1, 10, or 50
+matches while `@` still exercises broad matching. `matches/op` reports returned
+candidates, capped at 100. Normalization is outside the timer, as it happens
+once in the background discovery command;
 these numbers exclude terminal rendering and are not end-to-end input latency.
 
 ## Load test

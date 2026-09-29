@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func writeFile(t *testing.T, root, name string) {
@@ -122,9 +123,40 @@ func TestReadPathsReturnsPartialListAtLimit(t *testing.T) {
 }
 
 func TestReadPathsPreservesNamesAndSkipsControls(t *testing.T) {
-	input := "docs/space name.md\x00src/你好.go\x00bad\nname\x00bad\x1bname\x00bad\xffname\x00"
+	input := "docs/space name.md\x00src/你好.go\x00nested/\x00bad\nname\x00bad\x1bname\x00bad\xffname\x00"
 	files, err := readPaths(context.Background(), strings.NewReader(input))
 	if err != nil || !reflect.DeepEqual(files, []string{"docs/space name.md", "src/你好.go"}) {
 		t.Fatalf("paths = %v, %v", files, err)
+	}
+}
+
+func TestListExplainsTimeoutAndPreservesCancellation(t *testing.T) {
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+	if _, err := List(ctx, t.TempDir()); !errors.Is(err, errTimeout) {
+		t.Fatalf("expired discovery = %v, want %v", err, errTimeout)
+	}
+	ctx, cancel = context.WithCancel(context.Background())
+	cancel()
+	if _, err := List(ctx, t.TempDir()); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled discovery = %v", err)
+	}
+}
+
+func TestListSkipsUntrackedNestedRepository(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	root := t.TempDir()
+	writeFile(t, root, "main.go")
+	writeFile(t, root, "nested/inner.go")
+	for _, dir := range []string{root, filepath.Join(root, "nested")} {
+		if out, err := exec.Command("git", "-C", dir, "init", "--quiet").CombinedOutput(); err != nil {
+			t.Fatalf("git init: %s: %v", out, err)
+		}
+	}
+	files, err := List(context.Background(), root)
+	if err != nil || !reflect.DeepEqual(files, []string{"main.go"}) {
+		t.Fatalf("nested repository files = %v, %v", files, err)
 	}
 }

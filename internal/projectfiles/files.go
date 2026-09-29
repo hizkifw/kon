@@ -20,7 +20,10 @@ import (
 
 const maxFiles = 50_000
 
-var errLimit = errors.New("file search limit reached")
+var (
+	errLimit   = errors.New("file search limit reached")
+	errTimeout = errors.New("file search timed out")
+)
 
 // List returns sorted paths relative to cwd. A non-nil error may accompany a
 // partial list when discovery reaches its time or entry limit.
@@ -32,6 +35,14 @@ func List(ctx context.Context, cwd string) ([]string, error) {
 		// Git is optional. Plain directories still have file completion, and
 		// neither case adds a process or directory walk to startup.
 		files, err = walkFiles(ctx, cwd)
+	}
+	// A killed Git process may report its exit status instead of the deadline.
+	// Use the same discovery error regardless of which operation timed out.
+	if ctx.Err() != nil {
+		err = ctx.Err()
+		if errors.Is(err, context.DeadlineExceeded) {
+			err = errTimeout
+		}
 	}
 	slices.Sort(files)
 	return slices.Compact(files), err
@@ -74,7 +85,8 @@ func readPaths(ctx context.Context, r io.Reader) ([]string, error) {
 			return files, errLimit
 		}
 		name := scanner.Text()
-		if !pathOK(name) {
+		// Git reports untracked nested repositories as directory entries.
+		if strings.HasSuffix(name, "/") || !pathOK(name) {
 			continue
 		}
 		// Trust Git's index instead of statting every path. Deleted tracked
