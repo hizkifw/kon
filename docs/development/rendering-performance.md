@@ -231,3 +231,6 @@ Measured per-frame refresh + `scrollView.View` with the banner present:
   normalizes ANSI so cached and uncached renders compare directly.
 - Prefer output-equivalence tests (incremental vs. from-scratch) over
   timing-only assertions, since wall-clock timing is noisy in CI.
+- The from-scratch renderer (`transcript.render`) lives in
+  `internal/ui/render_reference_test.go`, so production code cannot call it
+  and pay O(transcript) per frame.

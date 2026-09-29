@@ -143,13 +143,17 @@ func TestIncompleteVersionRecordIsRetried(t *testing.T) {
 	}
 }
 
-func TestExclusiveWaitsForOtherInstanceAndClosesGate(t *testing.T) {
+// An upgrade must wait for running instances to exit, and must close the gate
+// while it waits so no new instance joins and reads storage mid-migration.
+func TestUpgradeWaitsForOtherInstanceAndClosesGate(t *testing.T) {
 	paths := testPaths(t.TempDir())
 	g, err := Enter(context.Background(), paths, testRegistry(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer g.Close()
+	if err := g.Close(); err != nil {
+		t.Fatal(err)
+	}
 
 	cmd := exec.Command(os.Args[0], "-test.run=^TestMigrateHelper$")
 	cmd.Env = append(os.Environ(), "KON_MIGRATE_HELPER_ROOT="+paths.DataDir)
@@ -176,8 +180,19 @@ func TestExclusiveWaitsForOtherInstanceAndClosesGate(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
+	ran := make(chan struct{})
+	upgrade := append(testRegistry(), testStep{version: 3, name: "upgrade", run: func(context.Context, config.Paths) error {
+		close(ran)
+		return nil
+	}})
 	done := make(chan error, 1)
-	go func() { done <- g.Exclusive(ctx, nil, func(context.Context) error { return nil }) }()
+	go func() {
+		g, err := Enter(ctx, paths, upgrade, nil)
+		if err == nil {
+			err = g.Close()
+		}
+		done <- err
+	}()
 	gate := flock.New(filepath.Join(paths.DataDir, "upgrade.gate.lock"))
 	deadline := time.After(time.Second)
 	for {
@@ -198,8 +213,8 @@ func TestExclusiveWaitsForOtherInstanceAndClosesGate(t *testing.T) {
 		}
 	}
 	select {
-	case err := <-done:
-		t.Fatalf("upgrade ran while another instance was active: %v", err)
+	case <-ran:
+		t.Fatal("upgrade ran while another instance was active")
 	default:
 	}
 	blockedCtx, blockedCancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
@@ -220,6 +235,9 @@ func TestExclusiveWaitsForOtherInstanceAndClosesGate(t *testing.T) {
 		}
 	case <-ctx.Done():
 		t.Fatal("upgrade did not run after other instance exited")
+	}
+	if version, err := readVersion(paths); err != nil || version != 3 {
+		t.Fatalf("version after upgrade = %d, %v", version, err)
 	}
 }
 

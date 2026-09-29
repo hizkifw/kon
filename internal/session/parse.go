@@ -236,11 +236,3 @@ func checkEntry(entry *Entry, line string, byID map[typedid.EntryID]int) error {
 	}
 	return nil
 }
-
-// ValidateFile checks a session without opening it for append or changing it.
-// Migration tests use it to confirm that upgraded files parse with the
-// current reader.
-func ValidateFile(path string) error {
-	_, err := parseSession(path)
-	return err
-}

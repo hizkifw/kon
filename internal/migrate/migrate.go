@@ -97,30 +97,6 @@ func Enter(ctx context.Context, paths config.Paths, registry []Step, report func
 	return g, nil
 }
 
-// Exclusive reserves the upgrade gate, drains other instances, and runs work
-// alone. It releases this instance's shared lease before waiting for the
-// exclusive lease, then restores it before reopening the gate.
-func (g *Guard) Exclusive(ctx context.Context, report func(string), work func(context.Context) error) (err error) {
-	if err := waitExclusive(ctx, g.gate, report, "waiting for another kon upgrade"); err != nil {
-		return err
-	}
-	if err := g.active.Unlock(); err != nil {
-		return errors.Join(err, g.gate.Unlock())
-	}
-	if err := waitExclusive(ctx, g.active, report, "waiting for other kon instances to exit before upgrading"); err != nil {
-		return errors.Join(err, shared(context.Background(), g.active), g.gate.Unlock())
-	}
-	defer func() {
-		unlockErr := g.active.Unlock()
-		var rejoinErr error
-		if unlockErr == nil {
-			rejoinErr = shared(context.Background(), g.active)
-		}
-		err = errors.Join(err, unlockErr, rejoinErr, g.gate.Unlock())
-	}()
-	return work(ctx)
-}
-
 func (g *Guard) Close() error { return g.active.Unlock() }
 
 func shared(ctx context.Context, lock *flock.Flock) error {

@@ -140,7 +140,7 @@ func TestV011MigrationResumesAfterFirstRename(t *testing.T) {
 	if err := g.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if err := session.ValidateFile(path); err != nil {
+	if _, err := session.OpenView(path); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(path + legacyBackupSuffix); !os.IsNotExist(err) {
@@ -229,7 +229,7 @@ func TestSessionWithoutHeaderIsSkipped(t *testing.T) {
 	if err := g.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if err := session.ValidateFile(path); err != nil {
+	if _, err := session.OpenView(path); err != nil {
 		t.Fatal(err)
 	}
 	if got := readFile(t, filepath.Join(dir, "torn.jsonl")); got != `{"type":"sess` {

@@ -214,7 +214,6 @@ type liveRenderer interface {
 	append(text string)
 	finalized() []string
 	currentLines() []string
-	pending() string
 }
 
 // ensureThinking promotes a buffered thinking trace into an incremental live
@@ -358,34 +357,6 @@ func (t *transcript) reset() {
 	t.dirty = false
 }
 
-// pending renders the live, not-yet-finalized portion of the transcript. Only
-// one stream is active at a time. When an incremental live stream is available
-// it is used; otherwise (e.g. a transcript built directly from blocks) the
-// buffered text is rendered from scratch. The running turn's timer, when set,
-// trails the live content as its own block.
-func (t *transcript) pending(width int) string {
-	return joinLive(t.pendingStream(width), t.timerText(width))
-}
-
-// pendingStream renders the live stream alone, without the trailing timer.
-func (t *transcript) pendingStream(width int) string {
-	switch {
-	case t.thinking != "":
-		if t.active != nil && t.activeThinking {
-			return t.active.pending()
-		}
-		return strings.Join(thinkingLines(normalizeText(t.thinking), width), "\n")
-	case len(t.stream) > 0:
-		if t.active != nil && !t.activeThinking {
-			return t.active.pending()
-		}
-		bg, fg := t.streamColors()
-		return strings.Join(renderMarkdownBlock(markdown.Render(string(t.stream), markdown.Theme{}, markdownContentWidth(width)), bg, fg, width), "\n")
-	default:
-		return ""
-	}
-}
-
 // timerText renders the running indicator as its own live section, or "" when no
 // turn is in flight. It shares blockElapsed's dim styling so the running and
 // finished forms read as the same element.
@@ -394,19 +365,6 @@ func (t *transcript) timerText(width int) string {
 		return ""
 	}
 	return strings.Join(markerLines(t.liveTimer, width), "\n")
-}
-
-// joinLive concatenates two live sections with the transcript's blank separator,
-// dropping an empty one so no stray gap is left behind.
-func joinLive(a, b string) string {
-	switch {
-	case a == "":
-		return b
-	case b == "":
-		return a
-	default:
-		return a + "\n\n" + b
-	}
 }
 
 // rebuildActive re-creates the incremental live stream at a new width from the
@@ -467,30 +425,6 @@ func (t *transcript) prepare(width int) string {
 		t.joinedChunks = len(t.chunks)
 	}
 	return t.joined
-}
-
-// render returns the whole transcript as one joined string. Production repaints
-// go through linesFor, which keeps per-line caches; render stays as the
-// from-scratch reference implementation that the output-equivalence tests
-// compare against, so any change here must keep the incremental path in sync.
-func (t *transcript) render(width int) string {
-	t.prepare(width)
-	base, live := t.assemble(width)
-	switch {
-	case live == "":
-		return base
-	case base == "":
-		return live
-	default:
-		return base + "\n\n" + live
-	}
-}
-
-// assemble returns the stable transcript text and the live (unfinished tail)
-// text separately. Keeping them apart lets the line cache append only the live
-// portion instead of splitting the whole document on every frame.
-func (t *transcript) assemble(width int) (base, live string) {
-	return t.stableBase(width), t.pending(width)
 }
 
 // linesFor returns the transcript as a slice of display lines, ready for
@@ -573,24 +507,6 @@ func (t *transcript) liveStart() int {
 		n++
 	}
 	return n
-}
-
-// stableBase returns the stable (already-finalized) transcript text: the
-// welcome banner, then the joined chunks and any trailing tool run not yet
-// folded. It is the from-scratch reference; the cached line path in linesFor
-// keeps the banner separate so a frame that changes neither never re-copies the
-// document.
-func (t *transcript) stableBase(width int) string {
-	base := t.bodyBase(width)
-	banner := t.bannerText(width)
-	switch {
-	case banner == "":
-		return base
-	case base == "":
-		return banner
-	default:
-		return banner + "\n\n" + base
-	}
 }
 
 // bodyBase returns the stable transcript body without the banner: the joined

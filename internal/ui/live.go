@@ -31,9 +31,7 @@ type liveStream struct {
 	pendingBreak bool   // a completed content line's newline is deferred
 	skipLF       bool   // previous byte was a lone CR; swallow a following LF
 
-	painted   []string // painted finished body lines, append-only
-	live      string   // cached pending() result
-	liveValid bool
+	painted []string // painted finished body lines, append-only
 }
 
 // linePainter styles wrapped plain lines into full-width display lines. It
@@ -83,7 +81,6 @@ func newLiveStream(painter linePainter) *liveStream {
 
 // append feeds a raw delta through the normalizer into the wrapper.
 func (l *liveStream) append(raw string) {
-	l.liveValid = false
 	i := 0
 	for i < len(raw) {
 		b := raw[i]
@@ -159,27 +156,6 @@ func (l *liveStream) newline() {
 	l.line = l.line[:0]
 	l.sent = 0
 	l.hasText = false
-}
-
-// pending returns the live portion as a newline-joined string, matching what
-// normalizeText plus messageSlab/thinkingLines would produce for the whole
-// accumulated stream.
-func (l *liveStream) pending() string {
-	if !l.liveValid {
-		l.live = strings.Join(l.Lines(), "\n")
-		l.liveValid = true
-	}
-	return l.live
-}
-
-// Lines returns the painted display lines for the live portion: the wrapped
-// body. All but the current body line are cached across frames.
-func (l *liveStream) Lines() []string {
-	fin := l.finalized()
-	out := make([]string, 0, len(fin)+1)
-	out = append(out, fin...)
-	out = append(out, l.current())
-	return out
 }
 
 // finalized returns the finished body lines. The result is append-only across

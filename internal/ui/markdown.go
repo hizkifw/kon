@@ -325,13 +325,6 @@ func (m *markdownLive) currentLines() []string {
 	return renderMarkdownBlock(m.stream.Pending(), m.bg, m.fg, m.width)
 }
 
-// pending returns the whole live portion (frozen plus tail) as one string for
-// the from-scratch reference path.
-func (m *markdownLive) pending() string {
-	out := append(append([]string{}, m.finalized()...), m.currentLines()...)
-	return strings.Join(out, "\n")
-}
-
 // PrintMarkdown renders the markdown read from src onto dst the way kon shows
 // a reply, without the transcript's padding, and with prose in the terminal's
 // own text color. Each block prints once it closes, so a reply piped in from a
