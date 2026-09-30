@@ -372,9 +372,8 @@ compaction entry points to the first retained entry. Context projection combines
 4. messages appended after it.
 
 The system prompt is built once when the session is created. It carries the
-built-in rules, the absolute path to the current kon executable, guidance to
-consult `kon docs` for self-questions, and the `kon tool` commands, then the
-user's global `AGENTS.md` from the config directory and any `AGENTS.md`-style
+built-in rules, guidance to consult `kon docs` for self-questions, and the
+`kon run` and `kon tool` commands, then the user's global `AGENTS.md` from the config directory and any `AGENTS.md`-style
 project instructions discovered by walking up from the working directory
 (outermost first, each tagged with its path), and finally the working
 directory. Because the prompt is persisted verbatim and never
@@ -495,7 +494,10 @@ never reprices past work.
 - A subagent is a background job running `kon run`; there is no subagent
   concept in the agent loop. The shell exports `KON_SESSION`, `KON_JOBS`, and
   an incremented `KON_DEPTH` to every command and `KON_JOB` to each job, plus
-  `KON_INCOGNITO` beneath an incognito session. `kon run` records
+  `KON_INCOGNITO` beneath an incognito session. Its `PATH` starts with a
+  directory under the data directory holding only a `kon` link to the running
+  executable (`tools.KonDir`), so the prompt can say plain `kon` and it runs
+  this kon, whatever else `PATH` holds. `kon run` records
   `KON_SESSION` as its session's parent, writes its session ID into `KON_JOB`,
   keeps its session in memory with `--incognito` or under `KON_INCOGNITO`, and
   refuses to start past a fixed depth. What subagents spend is read from their

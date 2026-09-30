@@ -46,7 +46,10 @@ type Jobs struct {
 	// incognito marks jobs of a session kept only in memory, whose kon run
 	// subagents must not save theirs either.
 	incognito bool
-	notify    func(string)
+	// konDir goes first on every command's PATH; see KonDir. Empty leaves
+	// PATH as it is.
+	konDir string
+	notify func(string)
 
 	mu      sync.Mutex
 	next    int
@@ -59,11 +62,12 @@ type Jobs struct {
 }
 
 // NewJobs supervises jobs under dir for the session with the given ID, which
-// is incognito when it is kept only in memory. notify receives a notice for
-// the model whenever a job exits on its own; it is called from the job's
-// goroutine and must not block.
-func NewJobs(dir, session string, incognito bool, notify func(string)) *Jobs {
-	j := &Jobs{dir: dir, session: session, incognito: incognito, notify: notify, next: 1, running: map[int]*exec.Cmd{}, userKilled: map[int]bool{}}
+// is incognito when it is kept only in memory. konDir, when not empty, is put
+// first on every command's PATH. notify receives a notice for the model
+// whenever a job exits on its own; it is called from the job's goroutine and
+// must not block.
+func NewJobs(dir, session string, incognito bool, konDir string, notify func(string)) *Jobs {
+	j := &Jobs{dir: dir, session: session, incognito: incognito, konDir: konDir, notify: notify, next: 1, running: map[int]*exec.Cmd{}, userKilled: map[int]bool{}}
 	j.recover()
 	return j
 }
@@ -89,8 +93,8 @@ func (j *Jobs) recover() {
 }
 
 // Env is the environment every shell command runs with, so a command can find
-// the jobs directory and a nested `kon run` its parent session, depth, and
-// whether it is incognito.
+// the jobs directory, `kon` runs this kon, and a nested `kon run` finds its
+// parent session, depth, and whether it is incognito.
 func (j *Jobs) Env() []string {
 	if j == nil {
 		return nil
@@ -98,6 +102,9 @@ func (j *Jobs) Env() []string {
 	env := []string{"KON_JOBS=" + j.dir, "KON_SESSION=" + j.session, "KON_DEPTH=" + strconv.Itoa(Depth()+1)}
 	if j.incognito {
 		env = append(env, "KON_INCOGNITO=1")
+	}
+	if j.konDir != "" {
+		env = append(env, "PATH="+j.konDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	}
 	return env
 }

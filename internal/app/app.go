@@ -294,7 +294,7 @@ func (r *Runtime) jobsFor(store *session.Store) *tools.Jobs {
 		r.jobs = map[*session.Store]*tools.Jobs{}
 	}
 	notices := r.notices
-	jobs := tools.NewJobs(store.JobsDir(), store.ID().String(), r.incognito, func(notice string) {
+	jobs := tools.NewJobs(store.JobsDir(), store.ID().String(), r.incognito, r.konDir(), func(notice string) {
 		// A frontend that is not listening, like kon run, must not stall the
 		// job's goroutine; the job's files still record how it ended.
 		select {
@@ -304,6 +304,28 @@ func (r *Runtime) jobsFor(store *session.Store) *tools.Jobs {
 	})
 	r.jobs[store] = jobs
 	return jobs
+}
+
+// konDir is the directory the shell tool puts first on PATH so that `kon`
+// runs this executable. Without a data directory, or where no link can be
+// made, the executable's own directory does the same less cleanly; failing
+// that, PATH is left alone.
+func (r *Runtime) konDir() string {
+	executable, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	// On some systems a kon started through the link reports the link, which
+	// would get a directory of its own pointing at the first.
+	if resolved, err := filepath.EvalSymlinks(executable); err == nil {
+		executable = resolved
+	}
+	if r.paths.DataDir != "" {
+		if dir, err := tools.KonDir(r.paths.DataDir, executable); err == nil {
+			return dir
+		}
+	}
+	return filepath.Dir(executable)
 }
 
 // closeStore stops the store's jobs and then closes it.
@@ -737,14 +759,6 @@ func (r *Runtime) Close() error {
 // context files that apply to the working directory, and builds the durable
 // system prompt for a new session.
 func (r *Runtime) systemPrompt() (string, error) {
-	executable, err := os.Executable()
-	if err != nil {
-		return "", fmt.Errorf("find kon executable: %w", err)
-	}
-	executable, err = filepath.Abs(executable)
-	if err != nil {
-		return "", fmt.Errorf("resolve kon executable path: %w", err)
-	}
 	var files []contextfiles.File
 	global, hasGlobal := contextfiles.Global(r.paths.ConfigDir)
 	if hasGlobal {
@@ -761,7 +775,7 @@ func (r *Runtime) systemPrompt() (string, error) {
 			return hasGlobal && file.Path == global.Path
 		})...)
 	}
-	return agent.SystemPrompt(r.cwd, executable, files), nil
+	return agent.SystemPrompt(r.cwd, files), nil
 }
 
 // prepareSession creates a new session for profile. A model that is not ready

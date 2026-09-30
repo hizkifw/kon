@@ -183,22 +183,22 @@ func (r *Runner) Interrupt(attempt int) bool {
 // message. It deliberately does not name the model: the prompt is never
 // rebuilt, so a later /model switch would leave the name stale, and telling
 // the model through a later message risks one that distrusts a user speaking
-// as the system. executable is the absolute path to this kon binary. contextFiles
-// are AGENTS.md-style instructions, the user's global file first and then the
-// project's ordered outermost to innermost; they precede the cwd so a project
-// can describe conventions before the model sees where it is working. The
-// result is byte-stable for a given input, which is what keeps the provider
-// prompt cache valid across compactions.
-func SystemPrompt(cwd, executable string, contextFiles []contextfiles.File) string {
+// as the system. It names kon's commands as plain `kon`, which the shell tool's
+// PATH resolves to this kon. contextFiles are AGENTS.md-style instructions,
+// the user's global file first and then the project's ordered outermost to
+// innermost; they precede the cwd so a project can describe conventions
+// before the model sees where it is working. The result is byte-stable for a
+// given input, which is what keeps the provider prompt cache valid across
+// compactions.
+func SystemPrompt(cwd string, contextFiles []contextfiles.File) string {
 	prompt := `You are kon, a coding agent. Work directly in the current working directory.
 Use read to inspect files, edit for exact replacements, write for complete files, and shell for commands.
 Inspect relevant code before changing it. Tools execute without a sandbox or confirmation.
 Your output will be displayed in a terminal with a markdown renderer.
 `
-	prompt += "\nCurrent kon executable: " + executable
-	prompt += "\n\nFor questions about kon itself, run `kon docs` using the executable path above, then read the relevant bundled documentation before answering."
+	prompt += "\nFor questions about kon itself, run `kon docs`, then read the relevant bundled documentation before answering."
 	prompt += "\n\nSubagents are available: run `kon run \"<task>\"` in a background shell job; it will send a message when done, so don't poll it. Use them only when the user explicitly asks."
-	prompt += "\n\nMore tools run through the executable above: `kon tool webfetch <url>` prints a web page as Markdown. Run `kon tool --help` for their usage."
+	prompt += "\n\nMore tools run through kon: `kon tool webfetch <url>` prints a web page as Markdown. Run `kon tool --help` for their usage."
 
 	prompt += renderContextFiles(contextFiles)
 	prompt += "\nCurrent working directory: " + filepath.Clean(cwd)

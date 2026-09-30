@@ -584,17 +584,6 @@ func TestNewPersistsDiscoveredContextFiles(t *testing.T) {
 		t.Fatalf("session has no system prompt: %#v", entries)
 	}
 	prompt := entries[0].Message.Text()
-	executable, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	executable, err = filepath.Abs(executable)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(prompt, "Current kon executable: "+executable) {
-		t.Fatalf("current executable missing from persisted prompt:\n%s", prompt)
-	}
 	if !strings.Contains(prompt, "workspace rules") || !strings.Contains(prompt, "service rules") {
 		t.Fatalf("context files missing from persisted prompt:\n%s", prompt)
 	}
@@ -968,5 +957,40 @@ func TestIncognitoSavesNothingAndResumesNothing(t *testing.T) {
 	summaries, err := session.Discover(paths.Sessions, cwd)
 	if err != nil || len(summaries) != 1 || summaries[0].ID != saved.ID() {
 		t.Fatalf("Discover = (%#v, %v), want only the saved session", summaries, err)
+	}
+}
+
+// The agent runs kon by name, so its shell must find this kon first rather
+// than whichever PATH names.
+func TestShellCommandsRunThisKon(t *testing.T) {
+	root := t.TempDir()
+	paths := config.Paths{ConfigFile: filepath.Join(root, "config.json"), Sessions: filepath.Join(root, "sessions"), DataDir: filepath.Join(root, "data")}
+	runtime, err := Start(config.Default(), paths, t.TempDir(), "test", Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+	var path string
+	for _, variable := range runtime.jobsFor(runtime.store).Env() {
+		if value, ok := strings.CutPrefix(variable, "PATH="); ok {
+			path = value
+		}
+	}
+	first, _, _ := strings.Cut(path, string(os.PathListSeparator))
+	if !strings.HasPrefix(first, paths.DataDir) {
+		t.Fatalf("PATH starts with %q, not a directory under %q", first, paths.DataDir)
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(first)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("PATH directory holds %v, %v; want only kon", entries, err)
+	}
+	got, err := os.Stat(filepath.Join(first, entries[0].Name()))
+	want, _ := os.Stat(executable)
+	if err != nil || !os.SameFile(got, want) {
+		t.Fatalf("kon on PATH is not this executable: %v", err)
 	}
 }

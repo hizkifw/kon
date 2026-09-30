@@ -677,7 +677,7 @@ func newTestEntryID(t *testing.T) typedid.EntryID {
 }
 
 func TestSystemPromptRendersContextFilesInOrder(t *testing.T) {
-	prompt := SystemPrompt("/work/project", "/usr/local/bin/kon", []contextfiles.File{
+	prompt := SystemPrompt("/work/project", []contextfiles.File{
 		{Path: "/work/AGENTS.md", Content: "outer rules\n"},
 		{Path: "/work/project/AGENTS.md", Content: "inner rules"},
 	})
@@ -695,22 +695,21 @@ func TestSystemPromptRendersContextFilesInOrder(t *testing.T) {
 }
 
 func TestSystemPromptOmitsContextSectionWhenEmpty(t *testing.T) {
-	prompt := SystemPrompt("/work", "/usr/local/bin/kon", nil)
+	prompt := SystemPrompt("/work", nil)
 	if strings.Contains(prompt, "<instructions") || strings.Contains(prompt, "User and project instructions") {
 		t.Fatalf("empty context files produced a section:\n%s", prompt)
 	}
 }
 
 func TestSystemPromptPointsToBundledDocs(t *testing.T) {
-	executable := "/path with spaces/kon"
-	prompt := SystemPrompt("/work", executable, nil)
-	if !strings.Contains(prompt, "Current kon executable: "+executable) {
-		t.Fatalf("executable path missing from prompt:\n%s", prompt)
+	prompt := SystemPrompt("/work", nil)
+	if !strings.Contains(prompt, "`kon docs`") {
+		t.Fatalf("kon docs missing from prompt:\n%s", prompt)
 	}
 }
 
 func TestSystemPromptPointsToShellTools(t *testing.T) {
-	prompt := SystemPrompt("/work", "/usr/local/bin/kon", nil)
+	prompt := SystemPrompt("/work", nil)
 	if !strings.Contains(prompt, "`kon tool webfetch <url>`") || !strings.Contains(prompt, "`kon tool --help`") {
 		t.Fatalf("shell tools missing from prompt:\n%s", prompt)
 	}

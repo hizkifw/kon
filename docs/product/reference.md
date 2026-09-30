@@ -189,6 +189,7 @@ Set by kon for every shell command the agent runs:
 | `KON_JOBS` | The session's job directory, so `ls $KON_JOBS` lists its jobs. |
 | `KON_DEPTH` | How many kon agents the command runs beneath: `1` under your own session. `kon run` refuses to start above `2`. |
 | `KON_INCOGNITO` | Set in an incognito session, so subagents are incognito too. |
+| `PATH` | Your `PATH`, with a directory holding only `kon` put first, so `kon` runs the kon you are using. |
 
 ## Files
 
@@ -201,6 +202,7 @@ Set by kon for every shell command the agent runs:
 | `~/.local/share/kon/models.json.gz` | The downloaded model catalog, when newer than the bundled one. |
 | `~/.local/share/kon/provider-models.json` | Model lists fetched at login. |
 | `~/.local/share/kon/docs/` | This guide, written by `kon docs`. |
+| `~/.local/share/kon/bin/` | A link to each kon executable you have run, which the agent's shell finds as `kon`. |
 
 ## Config fields
 
