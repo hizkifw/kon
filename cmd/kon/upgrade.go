@@ -11,10 +11,12 @@ import (
 	"os/signal"
 	"path/filepath"
 
+	productdocs "github.com/hizkifw/kon/docs/product"
 	"github.com/hizkifw/kon/internal/buildinfo"
 	"github.com/hizkifw/kon/internal/catalog"
 	"github.com/hizkifw/kon/internal/config"
 	"github.com/hizkifw/kon/internal/selfupdate"
+	"github.com/hizkifw/kon/internal/tools"
 )
 
 func upgradeCommand() command {
@@ -23,12 +25,12 @@ func upgradeCommand() command {
 		summary:  "install the latest kon release",
 		synopsis: "kon upgrade [--check]",
 		detail: "Download the latest release from GitHub, verify its checksum, and replace\n" +
-			"this executable. The new binary then applies any pending storage migrations\n" +
-			"and refreshes the model catalog.\n\n" +
+			"this executable. The new binary then applies any pending storage migrations,\n" +
+			"refreshes the model catalog, and removes files older versions left behind.\n\n" +
 			"  --check      report whether a newer release exists without installing it\n" +
-			"  --finalize   apply pending storage migrations and refresh the model catalog;\n" +
-			"               the new binary runs this itself after an upgrade, and it is\n" +
-			"               safe to repeat",
+			"  --finalize   apply pending storage migrations, refresh the model catalog,\n" +
+			"               and prune old files; the new binary runs this itself after an\n" +
+			"               upgrade, and it is safe to repeat",
 		run: runUpgradeCmd,
 	}
 }
@@ -67,6 +69,15 @@ func runFinalize() error {
 		fmt.Fprintln(os.Stderr, "refreshing model catalog")
 		if err := refreshCatalog(context.Background(), paths.Catalog); err != nil {
 			fmt.Fprintf(os.Stderr, "kon: warning: refresh model catalog: %v\n", err)
+		}
+		// Extracted docs of older versions and links to executables that no
+		// longer exist, one for every go run build, pile up otherwise. Leaving
+		// them is harmless, so a failure only warns.
+		if err := productdocs.Prune(paths.DataDir); err != nil {
+			fmt.Fprintf(os.Stderr, "kon: warning: prune old docs: %v\n", err)
+		}
+		if err := tools.PruneKonDirs(paths.DataDir); err != nil {
+			fmt.Fprintf(os.Stderr, "kon: warning: prune kon links: %v\n", err)
 		}
 		return nil
 	})

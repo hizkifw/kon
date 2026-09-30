@@ -3,6 +3,8 @@ package tools
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -48,6 +50,31 @@ func KonDir(dataDir, executable string) (string, error) {
 		return "", err
 	}
 	return dir, nil
+}
+
+// PruneKonDirs removes the KonDir directories whose executable is gone, such
+// as the one each `go run` build leaves. A hard link, used where symbolic
+// links are refused, never dangles, so its directory is kept.
+func PruneKonDirs(dataDir string) error {
+	root := filepath.Join(dataDir, "bin")
+	entries, err := os.ReadDir(root)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var errs []error
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		dir := filepath.Join(root, entry.Name())
+		if _, err := os.Stat(filepath.Join(dir, konName())); errors.Is(err, fs.ErrNotExist) {
+			errs = append(errs, os.RemoveAll(dir))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 func konName() string {

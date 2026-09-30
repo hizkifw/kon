@@ -57,6 +57,37 @@ func TestExtractRepairsModifiedDirectory(t *testing.T) {
 	assertDocs(t, dir, map[string]string{"index.md": "bundled"})
 }
 
+func TestPruneKeepsOnlyTheBundledVersion(t *testing.T) {
+	dataDir := t.TempDir()
+	old := fstest.MapFS{"index.md": &fstest.MapFile{Data: []byte("old")}}
+	current := fstest.MapFS{"index.md": &fstest.MapFile{Data: []byte("current")}}
+	oldDir, err := extract(old, dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentDir, err := extract(current, dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	staging := filepath.Join(dataDir, "docs", ".extract-123")
+	if err := os.Mkdir(staging, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := prune(current, dataDir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(oldDir); !os.IsNotExist(err) {
+		t.Fatalf("old version kept: %v", err)
+	}
+	assertDocs(t, currentDir, map[string]string{"index.md": "current"})
+	if _, err := os.Stat(staging); err != nil {
+		t.Fatalf("staging directory removed: %v", err)
+	}
+	if err := prune(current, t.TempDir()); err != nil {
+		t.Fatalf("nothing extracted: %v", err)
+	}
+}
+
 func assertDocs(t *testing.T, dir string, want map[string]string) {
 	t.Helper()
 	entries, err := os.ReadDir(dir)

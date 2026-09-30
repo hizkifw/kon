@@ -179,8 +179,9 @@ updates on its own.
 The download is verified against the release checksums and test-run before
 anything is replaced. The new version then upgrades kon's stored data if its
 format changed, which waits for other running kon instances to exit, and
-refreshes the
-[model catalog](configuration.md#model-catalog).
+refreshes the [model catalog](configuration.md#model-catalog). It also removes
+docs extracted by older versions and links to kon executables that no longer
+exist.
 
 Builds from source (`go install`, `go run`) report version `dev` and cannot
 upgrade themselves; reinstall them the same way. If the executable's

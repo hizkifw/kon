@@ -85,3 +85,31 @@ func TestJobsEnvPutsThisKonFirstOnPath(t *testing.T) {
 		t.Fatalf("kon ran %q, %v", out, err)
 	}
 }
+
+func TestPruneKonDirsRemovesOnlyDanglingLinks(t *testing.T) {
+	data := t.TempDir()
+	kept, err := KonDir(data, fakeKon(t, t.TempDir(), "kept"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	goneDir := t.TempDir()
+	gone, err := KonDir(data, fakeKon(t, goneDir, "gone"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(goneDir); err != nil {
+		t.Fatal(err)
+	}
+	if err := PruneKonDirs(data); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(kept); err != nil {
+		t.Fatalf("live link removed: %v", err)
+	}
+	if _, err := os.Stat(gone); !os.IsNotExist(err) {
+		t.Fatalf("dangling link kept: %v", err)
+	}
+	if err := PruneKonDirs(t.TempDir()); err != nil {
+		t.Fatalf("no bin directory: %v", err)
+	}
+}

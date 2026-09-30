@@ -5,10 +5,12 @@ import (
 	"crypto/sha256"
 	"embed"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -25,26 +27,68 @@ func Extract(dataDir string) (string, error) {
 	return extract(bundled, dataDir)
 }
 
-func extract(source fs.FS, dataDir string) (string, error) {
+// Prune removes every extracted version of the docs but this binary's. A kon
+// that still bundles an older version extracts it again when kon docs next
+// runs there.
+func Prune(dataDir string) error {
+	extractMu.Lock()
+	defer extractMu.Unlock()
+	return prune(bundled, dataDir)
+}
+
+func prune(source fs.FS, dataDir string) error {
+	_, version, err := bundle(source)
+	if err != nil {
+		return err
+	}
+	root := filepath.Join(dataDir, "docs")
+	entries, err := os.ReadDir(root)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("list extracted docs: %w", err)
+	}
+	var errs []error
+	for _, entry := range entries {
+		// A dot directory is an extraction another kon may be staging now.
+		if entry.Name() == version || strings.HasPrefix(entry.Name(), ".") {
+			continue
+		}
+		errs = append(errs, os.RemoveAll(filepath.Join(root, entry.Name())))
+	}
+	return errors.Join(errs...)
+}
+
+// bundle reads the bundled pages and names their version: a hash of every
+// page's name and content.
+func bundle(source fs.FS) (map[string][]byte, string, error) {
 	entries, err := fs.ReadDir(source, ".")
 	if err != nil {
-		return "", fmt.Errorf("read bundled docs: %w", err)
+		return nil, "", fmt.Errorf("read bundled docs: %w", err)
 	}
 	files := make(map[string][]byte, len(entries))
 	hash := sha256.New()
 	for _, entry := range entries {
 		if entry.IsDir() {
-			return "", fmt.Errorf("bundled docs contain unexpected directory %q", entry.Name())
+			return nil, "", fmt.Errorf("bundled docs contain unexpected directory %q", entry.Name())
 		}
 		content, err := fs.ReadFile(source, entry.Name())
 		if err != nil {
-			return "", fmt.Errorf("read bundled doc %q: %w", entry.Name(), err)
+			return nil, "", fmt.Errorf("read bundled doc %q: %w", entry.Name(), err)
 		}
 		files[entry.Name()] = content
 		fmt.Fprintf(hash, "%d:%s:%d:", len(entry.Name()), entry.Name(), len(content))
 		hash.Write(content)
 	}
-	version := hex.EncodeToString(hash.Sum(nil))[:16]
+	return files, hex.EncodeToString(hash.Sum(nil))[:16], nil
+}
+
+func extract(source fs.FS, dataDir string) (string, error) {
+	files, version, err := bundle(source)
+	if err != nil {
+		return "", err
+	}
 	root := filepath.Join(dataDir, "docs")
 	target := filepath.Join(root, version)
 	if exact, err := matches(target, files); err != nil {
