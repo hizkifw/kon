@@ -457,7 +457,7 @@ func (r *Runner) compactIfNeeded(ctx context.Context, force bool, emit func(Even
 	response, tail, err := r.summarize(ctx, items, cut, used, estimated, emit)
 	// A summary cut off at its limit would be persisted and the turns it
 	// replaces dropped for good, so it is refused before anything is written.
-	if errors.Is(err, provider.ErrOutputLimit) || (err == nil && response.Finish == session.FinishLength) {
+	if provider.IsOutputLimit(err) || (err == nil && response.Finish == session.FinishLength) {
 		return false, fmt.Errorf("compaction summary reached its %d-token limit, so older turns were kept; a lower reasoning effort leaves more of that budget for the summary", r.limits.summaryBudget())
 	}
 	if err != nil {

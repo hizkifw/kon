@@ -280,7 +280,6 @@ func TestMessagesErrors(t *testing.T) {
 		"overflow":     {400, `{"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 250000 tokens > 200000 maximum"}}`, IsContextOverflow},
 		"stream error": {200, sse(`{"type":"message_start","message":{}}`) + "event: error\n" + sse(`{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}`), func(err error) bool { return strings.Contains(err.Error(), "Overloaded") }},
 		"cut short":    {200, sse(`{"type":"content_block_start","index":0,"content_block":{"type":"text","text":"par"}}`), func(err error) bool { return strings.Contains(err.Error(), "closed before") }},
-		"refusal":      {200, sse(`{"type":"message_delta","delta":{"stop_reason":"refusal"}}`) + sse(`{"type":"message_stop"}`), func(err error) bool { return strings.Contains(err.Error(), "refusal") }},
 	} {
 		t.Run(name, func(t *testing.T) {
 			model := newMessagesTestModel(t, func(w http.ResponseWriter, r *http.Request) {

@@ -105,6 +105,9 @@ func newModel(spec Spec, readImage func(string) ([]byte, error)) (Model, error) 
 
 func (c *Client) Stream(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, emit func(Event)) (session.Message, error) {
 	response, err := c.model.Stream(ctx, messages, tools, emit)
+	if err == nil {
+		err = finishError(response.Finish)
+	}
 	if err != nil {
 		return c.assistantOrPartial(response, err)
 	}
@@ -115,18 +118,25 @@ func (c *Client) Stream(ctx context.Context, messages []session.Message, tools [
 // the provider had already produced before the failure. A cancelled or dropped
 // connection usually arrives with accumulated deltas and no error text; those
 // deltas are persisted so the partial turn survives a resume and the next
-// request continues from it. When nothing arrived there is no partial turn to
-// keep and the original error is returned unchanged.
+// request continues from it. A response the provider itself ended short
+// (FinishError) is kept the same way. When nothing arrived there is no partial
+// turn to keep and the original error is returned unchanged.
 func (c *Client) assistantOrPartial(response Response, err error) (session.Message, error) {
 	if response.Text() == "" && !hasReasoning(response.Parts) {
 		return session.Message{}, err
 	}
 	// An aborted stream has no finish reason and its usage is incomplete; both
-	// are omitted so the partial turn is not mistaken for a completed one.
-	// Tool calls are dropped because the aborted turn never executes them and a
-	// replay without their results would be rejected by the provider.
-	response.Finish = ""
-	response.Usage = nil
+	// are omitted so the partial turn is not mistaken for a completed one. A
+	// response the provider ended keeps both, since the server did finish it.
+	// Tool calls are dropped either way: their arguments may be cut short, the
+	// turn never executes them, and a replay without their results would be
+	// rejected by the provider.
+	var finish *FinishError
+	stopped := errors.As(err, &finish)
+	if !stopped {
+		response.Finish = ""
+		response.Usage = nil
+	}
 	parts := response.Parts[:0]
 	for _, part := range response.Parts {
 		if part.Type != session.PartToolCall {
@@ -138,25 +148,71 @@ func (c *Client) assistantOrPartial(response Response, err error) (session.Messa
 	if buildErr != nil {
 		return session.Message{}, err
 	}
-	message.Interrupted = true
+	message.Interrupted = !stopped
 	// The partial message is returned alongside the original error so callers
 	// can persist what arrived and still surface the interruption.
 	return message, err
 }
 
-// ErrOutputLimit reports a completion that reached its token limit before any
-// answer, as when reasoning spends the whole budget.
-var ErrOutputLimit = errors.New("response reached its token limit before any answer")
-
+// Complete runs one capped generation whose answer is only useful whole, such
+// as a compaction summary, so a response the provider ended short is an error
+// rather than a partial message.
 func (c *Client) Complete(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, maxTokens tokens.Count, emit func(Event)) (session.Message, error) {
 	response, err := c.model.Complete(ctx, messages, tools, maxTokens, emit)
+	if err == nil {
+		err = finishError(response.Finish)
+	}
 	if err != nil {
 		return session.Message{}, err
 	}
-	if response.Finish == session.FinishLength && response.Text() == "" && len(response.ToolCalls()) == 0 {
-		return session.Message{}, ErrOutputLimit
-	}
 	return c.assistant(response)
+}
+
+// FinishError reports a response the provider ended before its answer was
+// complete. Reason is the finish reason as the backend reported it.
+type FinishError struct {
+	Reason session.FinishReason
+}
+
+func (e *FinishError) Error() string {
+	switch e.Reason {
+	case session.FinishLength:
+		return "response reached its token limit"
+	case session.FinishRefusal:
+		return "model declined to respond (reason: refusal)"
+	case session.FinishContentFilter:
+		return "response was stopped by the provider's content filter"
+	}
+	return fmt.Sprintf("provider stopped the response early (reason: %s)", e.Reason)
+}
+
+// abandonedReasons are finish reasons for a generation the server gave up on
+// partway, which may pass on its own like a dropped connection: OpenRouter
+// normalizes upstream failures to "error", and DeepSeek reports "aborted" and
+// "insufficient_system_resource".
+var abandonedReasons = map[session.FinishReason]bool{
+	"error":                        true,
+	"aborted":                      true,
+	"insufficient_system_resource": true,
+}
+
+// finishError reports whether a finish reason leaves the answer incomplete.
+// Any reason kon does not know counts as a normal finish: compatible servers
+// invent harmless ones such as "eos_token", and whether the turn continues is
+// decided by its tool calls, not its finish reason.
+func finishError(reason session.FinishReason) error {
+	switch {
+	case reason == session.FinishLength, reason == session.FinishRefusal,
+		reason == session.FinishContentFilter, abandonedReasons[reason]:
+		return &FinishError{Reason: reason}
+	}
+	return nil
+}
+
+// IsOutputLimit reports a response that reached its token limit.
+func IsOutputLimit(err error) bool {
+	var finish *FinishError
+	return errors.As(err, &finish) && finish.Reason == session.FinishLength
 }
 
 // assistant converts a neutral response into the durable assistant message.

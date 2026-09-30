@@ -863,8 +863,13 @@ func applyChatToolCallDelta(state *chatStreamState, delta chatToolCall) {
 
 // finalizeToolCalls normalizes assembled tool calls: empty argument objects
 // become {}, malformed arguments fail loudly, and missing IDs — which some
-// compatible servers omit — get stable synthetic ones.
+// compatible servers omit — get stable synthetic ones. A response the provider
+// ended short is left alone: its last call's arguments may be cut off, and the
+// client drops its calls unrun (assistantOrPartial).
 func finalizeToolCalls(response *Response) error {
+	if finishError(response.Finish) != nil {
+		return nil
+	}
 	callIndex := 0
 	for i := range response.Parts {
 		call := &response.Parts[i]

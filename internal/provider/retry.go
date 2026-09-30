@@ -60,6 +60,9 @@ func withRetries(ctx context.Context, policy retryPolicy, emit func(Event), atte
 				emit(event)
 			}
 		})
+		if err == nil && abandonedReasons[response.Finish] {
+			err = &FinishError{Reason: response.Finish}
+		}
 		if err == nil || emitted {
 			return response, err
 		}
@@ -155,6 +158,10 @@ func transient(err error) bool {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return false
 	}
+	var finish *FinishError
+	if errors.As(err, &finish) {
+		return abandonedReasons[finish.Reason]
+	}
 	if errors.Is(err, errStreamClosed) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) ||
 		errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.EPIPE) {
 		return true
@@ -169,6 +176,10 @@ func transient(err error) bool {
 
 // retryReason names a retried failure for the user.
 func retryReason(err error) string {
+	var finish *FinishError
+	if errors.As(err, &finish) {
+		return "stopped early (" + string(finish.Reason) + ")"
+	}
 	var apiErr *APIError
 	if !errors.As(err, &apiErr) {
 		var netErr net.Error

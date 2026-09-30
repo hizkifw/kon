@@ -186,7 +186,7 @@ func TestCompactOnAShortSessionHasNothingToCompact(t *testing.T) {
 func TestTruncatedSummaryIsNotPersisted(t *testing.T) {
 	for name, fake := range map[string]*scriptedProvider{
 		"cut off":        {summary: session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: "Goal: half a sum"}}, Finish: session.FinishLength}},
-		"only reasoning": {summaryErr: provider.ErrOutputLimit},
+		"only reasoning": {summaryErr: &provider.FinishError{Reason: session.FinishLength}},
 	} {
 		store := newUsageStore(t)
 		longSession(t, store)

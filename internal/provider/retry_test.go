@@ -217,3 +217,26 @@ func TestModelsRetryByDefault(t *testing.T) {
 		}
 	}
 }
+
+// A server that gives up on a generation before anything streams reports it
+// only as a finish reason, and is retried like a dropped connection.
+func TestRetriesAbandonedGeneration(t *testing.T) {
+	abandoned := func(w http.ResponseWriter) {
+		_, _ = io.WriteString(w, sse(`{"choices":[{"index":0,"delta":{},"finish_reason":"insufficient_system_resource"}]}`)+"data: [DONE]\n\n")
+	}
+	handler, requests := failThen([]func(http.ResponseWriter){abandoned}, chatOK)
+	model := newTestModel(t, handler)
+	model.retry = fastRetries
+	var reasons []string
+	response, err := model.Stream(context.Background(), []session.Message{session.TextMessage(session.RoleUser, "hi")}, nil, func(e Event) {
+		if e.Retry != nil {
+			reasons = append(reasons, e.Retry.Reason)
+		}
+	})
+	if err != nil || *requests != 2 || response.Text() == "" {
+		t.Fatalf("response = %#v, requests = %d, err = %v", response, *requests, err)
+	}
+	if len(reasons) != 1 || reasons[0] != "stopped early (insufficient_system_resource)" {
+		t.Fatalf("retry reasons = %q", reasons)
+	}
+}

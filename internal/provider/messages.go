@@ -494,9 +494,6 @@ func (m *messagesModel) streamOnce(ctx context.Context, payload messagesRequest,
 	if err := finalizeToolCalls(&result); err != nil {
 		return Response{}, err
 	}
-	if result.Finish == "refusal" && result.Text() == "" && len(result.ToolCalls()) == 0 {
-		return Response{}, errors.New("model declined to respond (reason: refusal)")
-	}
 	return result, nil
 }
 
@@ -758,5 +755,6 @@ func messagesFinishReason(reason string) session.FinishReason {
 	case "max_tokens", "model_context_window_exceeded":
 		return session.FinishLength
 	}
+	// refusal already matches session.FinishRefusal.
 	return session.FinishReason(reason)
 }

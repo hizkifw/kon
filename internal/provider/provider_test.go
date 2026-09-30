@@ -248,3 +248,75 @@ func TestAPIErrorMessage(t *testing.T) {
 		t.Fatalf("Error() = %q, want the status and the trimmed body", got)
 	}
 }
+
+// TestStreamFinishReasons covers how a turn's finish reason decides what is
+// kept. A reason kon does not know is a normal finish, since compatible
+// servers invent harmless ones. A response the provider ended short keeps the
+// text that streamed and reports why, but its tool calls never run: the last
+// call's arguments may be cut off mid-object.
+func TestStreamFinishReasons(t *testing.T) {
+	text := sse(`{"choices":[{"index":0,"delta":{"content":"let me read"}}]}`)
+	call := sse(`{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call-1","type":"function","function":{"name":"read","arguments":"{\"pa"}}]}}]}`)
+	finish := func(reason string) string {
+		return sse(`{"choices":[{"index":0,"delta":{},"finish_reason":"`+reason+`"}]}`) + "data: [DONE]\n\n"
+	}
+	for name, test := range map[string]struct {
+		body   string
+		reason session.FinishReason // the FinishError reason, or "" for none
+		text   string
+	}{
+		"unknown reason":         {text + finish("eos_token"), "", "let me read"},
+		"content filter":         {text + call + finish("content_filter"), session.FinishContentFilter, "let me read"},
+		"content filter, empty":  {finish("content_filter"), session.FinishContentFilter, ""},
+		"refusal":                {text + finish("refusal"), session.FinishRefusal, "let me read"},
+		"length mid tool call":   {text + call + finish("length"), session.FinishLength, "let me read"},
+		"server gave up partway": {text + finish("error"), "error", "let me read"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			model := newTestModel(t, func(w http.ResponseWriter, r *http.Request) {
+				_, _ = io.WriteString(w, test.body)
+			})
+			client := &Client{model: model, modelID: typedid.ExternalModelID("test-model")}
+			message, err := client.Stream(context.Background(), []session.Message{session.TextMessage(session.RoleUser, "hi")}, nil, func(Event) {})
+			var finishErr *FinishError
+			if test.reason == "" {
+				if err != nil {
+					t.Fatalf("err = %v", err)
+				}
+			} else if !errors.As(err, &finishErr) || finishErr.Reason != test.reason {
+				t.Fatalf("err = %v, want a %q finish error", err, test.reason)
+			}
+			if message.Text() != test.text || len(message.ToolCalls()) != 0 {
+				t.Fatalf("message = %#v", message)
+			}
+			if test.text == "" {
+				return
+			}
+			// The provider finished the response itself, so it is recorded
+			// as it ended rather than as an interrupted stream.
+			if message.Interrupted || message.Finish == "" {
+				t.Fatalf("stopped turn recorded as interrupted: %#v", message)
+			}
+			if err := message.Validate(); err != nil {
+				t.Fatalf("message is invalid: %v", err)
+			}
+		})
+	}
+}
+
+// A summary is only useful whole, so Complete reports any response the
+// provider ended short instead of returning its partial text.
+func TestCompleteRejectsStoppedResponse(t *testing.T) {
+	model := newTestModel(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, sse(`{"choices":[{"index":0,"delta":{"content":"Goal: half"},"finish_reason":"content_filter"}]}`)+"data: [DONE]\n\n")
+	})
+	client := &Client{model: model, modelID: typedid.ExternalModelID("test-model")}
+	message, err := client.Complete(context.Background(), []session.Message{session.TextMessage(session.RoleUser, "hi")}, nil, 100, nil)
+	var finishErr *FinishError
+	if !errors.As(err, &finishErr) || finishErr.Reason != session.FinishContentFilter || message.Text() != "" {
+		t.Fatalf("message = %#v, err = %v", message, err)
+	}
+	if IsOutputLimit(err) {
+		t.Fatal("content filter reported as an output limit")
+	}
+}

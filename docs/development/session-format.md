@@ -141,6 +141,14 @@ turn never completed. Interrupted turns are retained so the partial trace is
 visible after a resume and the next request can continue from it; the provider
 wire mapping skips an interrupted turn that has no answer text.
 
+`finish_reason` holds the provider's reason, with `stop`, `tool_calls`,
+`length`, `refusal`, and `content_filter` as the shared spellings the backends
+map onto; any other reason is kept as sent. A turn the provider ended short —
+cut off at its token limit, refused, filtered, or abandoned by the server
+(`error`, `aborted`, `insufficient_system_resource`) — keeps the text and
+reasoning that arrived with its `finish_reason` and `usage`, is not marked
+`interrupted`, and never keeps tool calls, whose arguments may be cut off.
+
 A cancelled turn may leave an assistant tool-call batch without a result for
 every call. The agent appends `not executed: interrupted` for the calls it did
 not reach before returning; if the process died first, context projection

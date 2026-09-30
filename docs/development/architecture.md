@@ -288,7 +288,18 @@ after that would repeat what the user already saw. Each retry is reported as a
 retry 2/5 in 12s") and `kon run`'s output as an `EventRetrying`. When the
 retries run out, the error returned says "gave up after 5 retries" and wraps
 the last failure, so the checks that classify it still see the provider's
-error.
+error. A generation the server abandoned, which some compatible servers report
+only as a finish reason (`error`, `aborted`, `insufficient_system_resource`),
+is retried the same way.
+
+The client, not the backends, judges a finish reason. `length`, `refusal`, and
+`content_filter`, and an abandoned generation, end the turn with a
+`provider.FinishError`: whatever text streamed is kept, its tool calls are
+dropped unrun, and the user sees why the answer stopped. `Complete`, used for
+compaction summaries, returns only the error, since a partial summary would
+replace the turns it cut off. Any other reason is a normal finish; whether the
+loop continues depends on tool calls, since compatible servers send reasons
+such as `eos_token`, or `stop` beside tool calls.
 
 The Responses backend runs stateless (`store: false`) so the session file
 stays the source of truth. Each output item is kept verbatim in its part's

@@ -62,8 +62,17 @@ const (
 
 type FinishReason string
 
-// FinishLength is the finish reason of a response cut off at its token limit.
-const FinishLength FinishReason = "length"
+// Finish reasons kon acts on. Backends map their own spellings onto these;
+// any other reason is kept as the provider sent it.
+const (
+	// FinishLength is a response cut off at its token limit.
+	FinishLength FinishReason = "length"
+	// FinishRefusal is a response the model declined to write.
+	FinishRefusal FinishReason = "refusal"
+	// FinishContentFilter is a response withheld by the provider's content
+	// filter, possibly after part of it streamed.
+	FinishContentFilter FinishReason = "content_filter"
+)
 
 type ToolFunction struct {
 	Name      string          `json:"name"`
