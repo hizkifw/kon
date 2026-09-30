@@ -88,7 +88,7 @@ type shellDetails struct {
 func (t *shellTool) Definition() session.ToolDefinition {
 	return session.ToolDefinition{
 		Name:        "shell",
-		Description: "Run a shell command in the current working directory, interpreted by " + shellName() + ". timeout is required: 1-600 seconds, command killed when it expires. timeout 0 runs it as a background job for servers, watchers, and long builds: returns at once, output goes to a file under $KON_JOBS. Don't poll or sleep just to wait for it to finish, end your turn instead. A message will be sent when the background job exits. Only poll if you need to check its output for something mid-run, like a server becoming ready.",
+		Description: "Run a shell command in the current working directory, interpreted by " + shellName() + ". timeout is required: 1-600 seconds, command killed when it expires. timeout 0 runs it as a background job for servers, watchers, and long builds: returns at once, output goes to a file under $KON_JOBS. Don't poll or sleep just to wait for it to finish, end your turn instead. A message will be sent when the background job exits. Only poll if you need to check its output for something mid-run, like a server becoming ready. Do NOT use setsid/nohup/& to background a command: the tool already does that for you.",
 		Parameters:  json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"},"timeout":{"type":"integer","minimum":0,"maximum":600,"description":"wall-clock seconds; 0 runs in background"}},"required":["command","timeout"],"additionalProperties":false}`),
 	}
 }
