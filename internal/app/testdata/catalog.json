@@ -1,0 +1,187 @@
+{
+  "fetched_at": "2100-01-01T00:00:00Z",
+  "catalog": {
+    "fireworks-ai": {
+      "api": "https://api.fireworks.ai/inference/v1/",
+      "env": [
+        "FIREWORKS_API_KEY"
+      ],
+      "id": "fireworks-ai",
+      "name": "Fireworks AI",
+      "npm": "@ai-sdk/openai-compatible",
+      "models": {
+        "accounts/fireworks/models/deepseek-v4p1-flash": {
+          "cost": {
+            "input": 0.22,
+            "output": 0.66,
+            "cache_read": 0.007
+          },
+          "id": "accounts/fireworks/models/deepseek-v4p1-flash",
+          "limit": {
+            "context": 1000000,
+            "output": 384000
+          },
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "name": "DeepSeek V4.1 Flash",
+          "reasoning": true,
+          "reasoning_options": [
+            {
+              "type": "toggle"
+            },
+            {
+              "type": "effort",
+              "values": [
+                "low",
+                "high",
+                "max"
+              ]
+            }
+          ],
+          "tool_call": true
+        },
+        "accounts/fireworks/models/deepseek-v4-pro": {
+          "cost": {
+            "input": 1.2,
+            "output": 1.2,
+            "cache_read": 0.6
+          },
+          "id": "accounts/fireworks/models/deepseek-v4-pro",
+          "limit": {
+            "context": 1000000,
+            "output": 384000
+          },
+          "modalities": {
+            "input": [
+              "text"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "name": "DeepSeek V4 Pro",
+          "reasoning": true,
+          "reasoning_options": [
+            {
+              "type": "toggle"
+            },
+            {
+              "type": "effort",
+              "values": [
+                "high",
+                "max"
+              ]
+            }
+          ],
+          "tool_call": true
+        },
+        "accounts/fireworks/models/kimi-k2p6": {
+          "cost": {
+            "input": 0.95,
+            "output": 4,
+            "cache_read": 0.16
+          },
+          "id": "accounts/fireworks/models/kimi-k2p6",
+          "limit": {
+            "context": 262000,
+            "output": 262000
+          },
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "name": "Kimi K2.6",
+          "reasoning": true,
+          "reasoning_options": [
+            {
+              "type": "toggle"
+            }
+          ],
+          "tool_call": true
+        }
+      }
+    },
+    "deepinfra": {
+      "env": [
+        "DEEPINFRA_API_KEY"
+      ],
+      "id": "deepinfra",
+      "name": "Deep Infra",
+      "npm": "@ai-sdk/deepinfra",
+      "models": {}
+    },
+    "ai21": {
+      "api": "https://api.ai21.com/studio/v1",
+      "env": [
+        "AI21_API_KEY"
+      ],
+      "id": "ai21",
+      "name": "AI21 Labs",
+      "npm": "@ai-sdk/openai-compatible",
+      "models": {}
+    },
+    "openai": {
+      "env": [
+        "OPENAI_API_KEY"
+      ],
+      "id": "openai",
+      "name": "OpenAI",
+      "npm": "@ai-sdk/openai",
+      "models": {}
+    },
+    "anthropic": {
+      "env": [
+        "ANTHROPIC_API_KEY"
+      ],
+      "id": "anthropic",
+      "name": "Anthropic",
+      "npm": "@ai-sdk/anthropic",
+      "models": {
+        "claude-sonnet-4-5": {
+          "cost": {
+            "input": 3,
+            "output": 15,
+            "cache_read": 0.3,
+            "cache_write": 3.75
+          },
+          "id": "claude-sonnet-4-5",
+          "limit": {
+            "context": 1000000,
+            "output": 64000
+          },
+          "modalities": {
+            "input": [
+              "text",
+              "image",
+              "pdf"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "name": "Claude Sonnet 4.5 (latest)",
+          "reasoning": true,
+          "reasoning_options": [
+            {
+              "type": "budget_tokens",
+              "min": 1024
+            }
+          ],
+          "tool_call": true
+        }
+      }
+    }
+  }
+}

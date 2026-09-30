@@ -65,13 +65,17 @@ func (r *Runtime) Models() []Model {
 	return result
 }
 
+// newCatalog opens the models.dev catalog. Tests replace it with a fixture so
+// they do not depend on whatever the bundled snapshot currently lists.
+var newCatalog = catalog.New
+
 // catalogService decompresses the catalog at most once. It does not take r.mu,
 // so LoadCatalog can run it in the background while other methods wait on the
 // same load instead of starting their own. It returns nil if loading failed;
 // r.catalog.Load() peeks without waiting.
 func (r *Runtime) catalogService() *catalog.Service {
 	r.catalogOnce.Do(func() {
-		if service, err := catalog.New(r.paths.Catalog); err == nil {
+		if service, err := newCatalog(r.paths.Catalog); err == nil {
 			r.catalog.Store(service)
 		}
 	})
