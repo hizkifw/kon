@@ -119,7 +119,7 @@ it starts as fast as `kon --version`.
 `kon run` builds its runtime with `app.Start` options, which override the
 default model and effort without writing the config. `internal/headless` is a
 second frontend beside `internal/ui`. It turns agent events into streamed text
-or the JSON events documented in `docs/product/usage.md`, and that schema, not
+or the JSON events documented in `docs/product/scripting.md`, and that schema, not
 `agent.Event`, is the stable contract. A leading flag always selects it, so `kon --resume docs` resumes
 a session rather than invoking the `docs` command. Every subcommand supports
 `kon <command> --help`.

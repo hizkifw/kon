@@ -1,70 +1,63 @@
 # kon user guide
 
-kon is a terminal coding agent. Run it from the project directory where you
-want it to work. It reads files, edits them, and runs commands in that directory.
+kon is a coding agent for your terminal. Run it in a project directory, and it
+reads files, edits them, and runs commands there until the work is done.
 
 ## Install
 
 Linux and macOS:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/hizkifw/kon/main/scripts/install.sh | sh
+curl -fsSL https://kon.kitsu.red/install.sh | sh
 ```
 
-Windows PowerShell:
+Windows, in PowerShell:
 
 ```powershell
-iwr -useb https://raw.githubusercontent.com/hizkifw/kon/main/scripts/install.ps1 | iex
+iwr -useb https://kon.kitsu.red/install.ps1 | iex
 ```
 
-Or install with Go:
+With Go:
 
 ```sh
 go install github.com/hizkifw/kon/cmd/kon@latest
 ```
 
+`kon upgrade` installs later releases; see [Upgrading](usage.md#upgrading).
+
 ## First session
 
-Run `kon` from your project directory. On first launch it creates a config file
-with no model configured and opens the prompt. Nothing is sent to a model until
-you submit a prompt. Run `/login <provider>` to enter an API key, then `/model`
-to choose a model. You
-can also add an explicit model to the config file and restart kon. For example:
+1. Run `kon` in your project directory. The first launch creates an empty
+   config file and opens the prompt. Nothing is sent anywhere until you log
+   in or submit a prompt.
+2. Connect a provider with `/login <provider>`, for example
+   `/login openrouter` or `/login deepseek`. kon asks for an API key, checks
+   it, and fetches the provider's model list. `/login ollama` connects a local Ollama instead.
+3. Pick a model with `/model`. Your choice is saved as the default.
+4. Type what you want done and press Enter.
 
-```json
-{
-  "default_model": "fast",
-  "models": [
-    {
-      "name": "fast",
-      "type": "openai",
-      "model": "gpt-5-mini",
-      "api_key": "sk-...",
-      "context_window_tokens": 128000
-    }
-  ]
-}
-```
+Type `/` to see the other commands, `@` to mention a project file, and press
+`Ctrl+D` on an empty prompt to quit. kon prints a `kon --resume` command on exit
+so you can pick the session up later.
 
-The config is at `~/.config/kon/config.json` on Linux and macOS, or
-`%APPDATA%\kon\config.json` on Windows. See [Configuration](configuration.md)
-for providers, model limits, vision, and project instructions.
+To set up models by hand instead of with `/login`, see
+[Configuration](configuration.md).
 
-Type `/` to see in-app commands. See [Using kon](usage.md) for keys, sessions,
-tools, and compaction. Press `Ctrl+D` to exit when the input is empty.
+## Before you rely on it
 
-`kon models` lists bundled or cached model IDs offline. `kon models --refresh`
-fetches the latest catalog from models.dev only when you request it. See
-[Configuration](configuration.md#model-catalog) for details.
+kon has no sandbox and no confirmation prompt. Its shell commands run as you,
+in your environment, the moment the model asks. Run it only in directories and
+on work you would hand to someone else with the same access, and keep your
+work in version control.
 
-## Local copy
+## The rest of this guide
 
-Run `kon docs` to print the directory containing this guide and its companion
-pages. kon writes them under its data directory on demand, so they are available
-as ordinary Markdown files for offline reading or searching. The path includes
-a content version. An upgrade that adds, renames, or removes pages gets a new
-directory; the path printed by the new binary contains only its bundled pages.
-Older extracted versions remain available separately.
+| Page | Covers |
+| --- | --- |
+| [Working with kon](usage.md) | Prompting, steering, sessions, background jobs, subagents, and copying |
+| [Scripting](scripting.md) | `kon run` in pipelines, JSON events, and `kon md` |
+| [Configuration](configuration.md) | Providers, models, context limits, reasoning, cost, and project instructions |
+| [Reference](reference.md) | Every command, flag, key, tool, environment variable, and config field |
 
-`kon docs` checks the current directory against the bundled files each time;
-if it was edited, it restores the bundled copy. Keep personal notes elsewhere.
+Run `kon docs` to get these pages as local Markdown files. It prints the
+directory they were written to.

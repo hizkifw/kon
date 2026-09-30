@@ -13,8 +13,8 @@ func docsCommand() command {
 		summary:  "extract the bundled product guide",
 		synopsis: "kon docs",
 		detail: "Extract the bundled product guide and print the local directory containing it.\n" +
-			"Each release writes its own directory, so renamed or removed pages from an\n" +
-			"older release never appear in the path printed by this one.",
+			"Each version of the guide gets its own directory, so pages renamed or removed\n" +
+			"since an older version never appear in the path printed by this one.",
 		run: runDocs,
 	}
 }

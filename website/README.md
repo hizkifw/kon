@@ -36,8 +36,8 @@ own docs:
 | 6 native builds | the target list in `scripts/release.sh` |
 | streaming throughput | `docs/development/benchmarking.md` |
 | 11 µs frames at any session length | Phase 2b of `docs/development/rendering-performance.md` |
-| Windows behavior | `docs/product/usage.md`, `docs/development/index.md`, `docs/development/session-format.md`, `docs/development/architecture.md` |
-| Incognito behavior | the Incognito and Scripting sections of `docs/product/usage.md` |
+| Windows behavior | `docs/product/reference.md`, `docs/product/configuration.md`, `docs/development/index.md`, `docs/development/session-format.md`, `docs/development/architecture.md` |
+| Incognito behavior | the Incognito section of `docs/product/usage.md` and `docs/product/scripting.md` |
 
 Re-measure before a release that could move them.
 

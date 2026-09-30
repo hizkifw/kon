@@ -196,9 +196,9 @@ Inspect relevant code before changing it. Tools execute without a sandbox or con
 Your output will be displayed in a terminal with a markdown renderer.
 `
 	prompt += "\nCurrent kon executable: " + executable
-	prompt += "\nFor questions about kon itself, run `kon docs` using the executable path above, then read the relevant bundled documentation before answering."
-	prompt += "\n\nSubagents are available: run the executable above as `<kon> run \"<task>\"` in a background shell job; its final answer arrives automatically when the job exits, so don't poll it. Use them only when the user explicitly asks."
-	prompt += "\n\nMore tools run through the executable above: `<kon> tool webfetch <url>` prints a web page as Markdown. Run `<kon> tool --help` for their usage."
+	prompt += "\n\nFor questions about kon itself, run `kon docs` using the executable path above, then read the relevant bundled documentation before answering."
+	prompt += "\n\nSubagents are available: run `kon run \"<task>\"` in a background shell job; it will send a message when done, so don't poll it. Use them only when the user explicitly asks."
+	prompt += "\n\nMore tools run through the executable above: `kon tool webfetch <url>` prints a web page as Markdown. Run `kon tool --help` for their usage."
 
 	prompt += renderContextFiles(contextFiles)
 	prompt += "\nCurrent working directory: " + filepath.Clean(cwd)
@@ -213,7 +213,7 @@ func renderContextFiles(files []contextfiles.File) string {
 		return ""
 	}
 	var out strings.Builder
-	out.WriteString("\nUser and project instructions:")
+	out.WriteString("\n\nUser and project instructions:")
 	for _, file := range files {
 		out.WriteString("\n\n<instructions path=\"")
 		out.WriteString(file.Path)

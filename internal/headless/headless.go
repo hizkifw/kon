@@ -31,7 +31,7 @@ const (
 	// FormatText streams the assistant's messages to stdout as they are
 	// written, separated by blank lines.
 	FormatText Format = "text"
-	// FormatJSON writes one JSON event per line; see docs/product/usage.md.
+	// FormatJSON writes one JSON event per line; see docs/product/scripting.md.
 	FormatJSON Format = "json"
 )
 

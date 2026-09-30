@@ -1,261 +1,245 @@
 # Configuration
 
-kon creates `config.json` on first launch. The default location is
-`~/.config/kon/config.json` on Linux and macOS, or
-`%APPDATA%\kon\config.json` on Windows. The file is created with owner-only
-permissions because it contains literal API keys.
+kon keeps its settings in one JSON file. `/login`, `/model`, and Shift+Tab
+write it for you, so most people never edit it; this page covers what they
+write and what you can set by hand. Every field is listed under
+[Config fields](reference.md#config-fields).
 
-The generated file configures no model:
+The file is `~/.config/kon/config.json` on Linux and macOS and
+`%APPDATA%\kon\config.json` on Windows, or `$XDG_CONFIG_HOME/kon/config.json`
+when that variable is set. kon creates it on first launch, readable only by
+you, because it holds API keys. Unknown fields are rejected, so a typo fails
+loudly instead of being ignored. Changes by hand take effect the next time kon
+starts.
 
-```json
-{
-  "default_model": "",
-  "models": []
-}
-```
+## Connect a provider
 
-kon still opens the prompt, but asks you to run `/login <provider>` and pick
-a model with `/model`, or to add a profile under `models` as described below.
+`/login <provider>` saves a connection to a provider. It asks for an API key,
+checks it, and fetches the provider's model list for `/model`. Autocomplete offers the providers
+from the [model catalog](#model-catalog) that kon can talk to. A few need more
+than a key:
 
-Each model profile is standalone: it needs a distinct `name`, the provider's
-model ID in `model`, and its own connection fields. `default_model` names the
-profile used for new sessions. `type` is the wire format kon speaks: `openai`,
-`openrouter`, `ollama`, `openai-responses`, `anthropic`, or
-`openai-compatible`, which is the default when `type` is omitted.
-`openai-compatible` accepts any endpoint speaking OpenAI Chat Completions and
-requires `base_url`. A wire format says how kon talks to a server, not which
-service it is: many services share `openai-compatible`. `openai`,
-`openrouter`, `ollama`, and `openai-compatible` are dialects of Chat
-Completions that differ in their default endpoint and how they encode
-reasoning. `openai-responses` is OpenAI's Responses API, which carries a
-reasoning model's reasoning from one turn to the next; `/login openai` uses
-it. kon runs it without server-side storage, so the session file stays the
-only copy of the conversation. `anthropic` is Anthropic's Messages API, which
-Anthropic-compatible services such as MiniMax also speak. For example:
+| Login | Asks for |
+| --- | --- |
+| `/login ollama` | The server URL, `http://localhost:11434` by default. No key. |
+| `/login openai-compatible` | The server URL, and an optional key. |
+| `/login azure` | Your resource's OpenAI v1 endpoint, and a key. |
 
-```json
-{
-  "default_model": "fast",
-  "models": [
-    {
-      "name": "fast",
-      "type": "openai",
-      "model": "gpt-5-mini",
-      "api_key": "sk-...",
-      "context_window_tokens": 128000
-    },
-    {
-      "name": "local",
-      "type": "ollama",
-      "model": "qwen3-coder",
-      "base_url": "http://localhost:11434",
-      "context_window_tokens": 32768
-    }
-  ]
-}
-```
+Login is the only time kon contacts a provider before you send a prompt. The
+model list is cached for offline use. A compatible server that has no model
+list can still be saved, marked unverified. A working model list does not
+prove a model can handle kon's tool calls.
 
-To reuse one connection across many models, add it to `providers` instead.
-Explicit profiles never read from `providers`; models from a connection are
-selected by derived names (below). `/login <provider>` accepts a supported models.dev provider ID
-(for example `openai`, `openrouter`, `fireworks-ai`, or `deepinfra`), creates
-or replaces a connection with that ID, and asks only for its API key when
-the provider has a fixed endpoint. The `type` field is kon's wire format,
-not the provider's identity:
+A connection is saved under `providers`. `/login zai`, then choosing
+`zai/glm-5.3-flash` with `/model`, writes:
 
 ```json
 {
-  "default_model": "openai/gpt-5-mini",
+  "default_model": "zai/glm-5.3-flash",
   "providers": [
-    {"id": "openai", "type": "openai", "api_key": "sk-..."}
+    {"id": "zai", "type": "openai-compatible", "catalog_provider": "zai", "base_url": "https://api.z.ai/api/paas/v4", "api_key": "..."}
   ],
   "models": []
 }
 ```
 
-For example, `/login fireworks-ai` saves a `fireworks-ai` connection with
-`type: "openai-compatible"` and the API URL from models.dev. `/login`
-autocomplete includes catalog providers whose `npm` package maps to a wire
-format kon implements and whose API URL can be used directly. A few providers
-with missing endpoints or special login behavior use kon-maintained
-overrides. kon does not install or execute AI SDK packages. Catalog entries
-with templated URLs or non-HTTPS remote endpoints are not offered for key-only
-login. Azure is an exception to the key-only flow:
-`/login azure` also asks for your resource-specific OpenAI v1 endpoint.
-Azure deployments have user-defined names, so its catalog models are not
-automatically offered as deployable models; add an explicit model or use a
-derived `azure/<deployment-name>` ID.
+The catalog tells kon which [wire format](#wire-formats) a provider speaks
+and where its API is. `/login openai` saves `"type": "openai-responses"`
+instead, and `/login anthropic` saves `"type": "anthropic"`.
 
-For a second connection to the same provider, edit the config manually and
-give it a distinct `id`, plus `catalog_provider` to retain the original
-models.dev identity. For example:
+Logging in again to the same provider replaces its connection. For a second
+connection to the same provider, such as another account, add one by hand
+with its own `id`, and set `catalog_provider` so kon still finds its models in
+the catalog:
 
 ```json
-{"id":"fireworks-2","catalog_provider":"fireworks-ai","type":"openai-compatible","base_url":"https://api.fireworks.ai/inference/v1","api_key":"..."}
+{"id": "fireworks-2", "catalog_provider": "fireworks-ai", "type": "openai-compatible", "base_url": "https://api.fireworks.ai/inference/v1", "api_key": "..."}
 ```
 
-Its derived model names start with `fireworks-2/`.
+## Choose a model
 
-`/model` combines explicit profiles with model IDs discovered during login
-and metadata from the bundled models.dev catalog. Derived names have the form
-`<provider-id>/<model-id>`; provider model IDs may themselves contain `/`.
-Selecting one saves its name as `default_model` without copying it into
-`models`. Explicit profiles take precedence over a duplicate derived entry.
-The picker shows `<connection id> · <model display name>` when catalog metadata
-is available, with the provider's model ID in the muted detail. Selecting a
-row still saves the stable qualified name. The no-argument `/model` list also
-marks configured, provider-listed, and catalog-only entries so reference data
-is not mistaken for confirmed access.
+`/model` lists the models of every connection, named
+`<connection-id>/<model-id>`, such as `zai/glm-5.3-flash` or
+`openrouter/qwen/qwen3.8-27b`. The list marks which models
+the provider reported and which are only known from the catalog. Choosing one
+saves its name as `default_model`, which new sessions use.
 
-You can still configure a model manually when a server has no listing API or
-the catalog lacks its ID. A derived model absent from the catalog has an
-unknown context window; add an explicit profile when you need a known limit
-for proactive compaction.
+A model chosen this way takes its context window, output limit, image
+support, reasoning levels, and prices from the catalog. For a model the
+catalog does not know, those are unknown; define it by hand to set them.
 
-During setup, login is the only time kon contacts the chosen provider to check
-a connection and discover models; it does not poll on startup. OpenAI and
-Ollama use their model-list endpoints. OpenRouter checks the key before
-fetching its model list.
-An OpenAI-compatible server without `/models` can be saved, but kon labels it
-unverified. A successful list request does not guarantee that a model supports
-kon's chat and tool calls. Discovery results are cached under kon's data
-directory for later offline use.
+Azure deployments have names you choose, so use `azure/<deployment-name>`.
 
-Set `context_window_tokens` to the model's actual context limit. kon uses it
-to show context usage and to compact before the window fills. A value of `0`
-means unknown and disables proactive compaction; in that case kon still
-summarizes after a provider overflow error, and `/compact` still works. The numbers above are examples.
+## Define a model by hand
 
-kon sizes compaction from the context window. It keeps room for a reply and
-for the summary, each up to 32K tokens or an eighth of the window, and
-compacts once the context would reach 80% of the window or eat into that room,
-whichever comes first. It then keeps 16% of what the reply room leaves as
-recent context, verbatim. A 200K window compacts at 150K tokens and keeps 28K;
-a 1M window compacts at 800K and keeps about 155K. Set `max_output_tokens` to
-the model's output limit so the summary can use its full room; unknown, the
-summary is held to 8K tokens, a size every model accepts. Catalog models take
-both limits from the catalog. The `compaction` settings override the sizes kon
-derives, for every model.
-
-Set `"vision": true` for a model that accepts image input. The `read` tool
-then attaches PNG, JPEG, GIF, and WebP files up to 5 MB as image content.
-Without this flag, reading an image returns a text notice. Derived models use
-catalog image-input metadata when available. After `/model` switches to a
-model without vision, images already in the session are sent as a short text
-placeholder, so the conversation continues instead of failing.
-
-Set `reasoning_efforts` to the effort levels a reasoning model accepts, in the
-order Shift+Tab should cycle through them:
+Add a profile under `models` when a server has no model list, when the
+catalog lacks the model, or when you want your own limits or prices. A profile
+is standalone: it carries its own connection and never reads from
+`providers`.
 
 ```json
-{"name": "deep", "model": "o4-mini", "base_url": "https://api.openai.com/v1", "api_key": "...", "reasoning_efforts": ["low", "medium", "high"]}
+{
+  "default_model": "flash",
+  "models": [
+    {
+      "name": "flash",
+      "type": "openai-compatible",
+      "base_url": "https://api.deepseek.com",
+      "model": "deepseek-v4.1-flash",
+      "api_key": "...",
+      "context_window_tokens": 1000000,
+      "max_output_tokens": 393216,
+      "reasoning": true
+    },
+    {
+      "name": "local",
+      "type": "ollama",
+      "model": "qwen3.8:27b",
+      "context_window_tokens": 262144
+    }
+  ]
+}
 ```
 
-The cycle ends on `default`, which sends no effort and leaves the choice to
-the provider. Without `reasoning_efforts`, kon never sends the parameter. For
-a model that can only switch reasoning off, use `["none"]`; the header shows
-that level as `no thinking`. Derived models use the catalog's effort levels,
-and a catalog model that only has an on/off toggle gets the same `none` level.
-The selected level is sent as `reasoning_effort`, or as `reasoning.effort` for
-OpenRouter.
+`name` is what `/model` and `default_model` use, and `model` is the provider's
+own model ID, sent exactly as written. Names you choose, such as `name` and
+`id`, may use only letters, digits, `.`, `_`, and `-`.
 
-A model's reasoning is sent back with its earlier replies, in the field the
-server streamed it in, so a model that thinks across tool calls keeps its
-chain of thought. Reasoning written by a different model is left out after a
-model switch. Set `"reasoning": true` for a model that produces reasoning;
-DeepSeek's API then receives the empty `reasoning_content` it requires on
-replies without reasoning. Derived models use the catalog's reasoning metadata.
+### Wire formats
 
-Like `default_model`, the selected level is saved as the top-level
-`reasoning_effort` and restored on the next launch. Switching models resets it
-to `default`. A saved level the model does not list is ignored, so the model
-starts on `default` instead of failing.
+`type` says which API kon speaks to the server. It describes the protocol,
+not the company: many services speak `openai-compatible`.
 
-Set `cost` to what the model charges, in US dollars per million tokens, so the
-status bar can show what a session has cost:
+| `type` | API | Default `base_url` |
+| --- | --- | --- |
+| `openai-compatible` | OpenAI Chat Completions. The default when `type` is omitted. | none; `base_url` is required |
+| `openai` | Chat Completions | `https://api.openai.com/v1` |
+| `openrouter` | Chat Completions | `https://openrouter.ai/api/v1` |
+| `ollama` | Chat Completions | `http://localhost:11434` (kon adds `/v1`) |
+| `openai-responses` | OpenAI Responses | `https://api.openai.com/v1` |
+| `anthropic` | Anthropic Messages, also spoken by services such as MiniMax | `https://api.anthropic.com/v1` |
+
+The Chat Completions formats differ only in their default server and in how
+they send reasoning. `openai-responses` is what `/login openai` uses, because
+it carries a reasoning model's reasoning from one turn to the next. kon asks
+the server not to store the conversation, so the session file stays the only
+copy.
+
+The API key is sent as a bearer token, or as `x-api-key` for `anthropic`.
+`headers` adds or overrides HTTP headers; an `anthropic-beta` header is
+combined with the betas kon sends itself.
+
+## Context window and compaction
+
+Set `context_window_tokens` to the model's context limit and
+`max_output_tokens` to its output limit. kon uses them to show context usage
+and to [compact](usage.md#long-conversations) before the window fills.
+
+kon compacts once the context reaches about 80% of the window, sooner on
+smaller windows so there is room left for a reply and the summary, and keeps
+roughly the most recent 15% of the window verbatim. On a 1M-token window, it
+compacts at 800K tokens and keeps about 155K.
+
+- With `context_window_tokens` unset or `0`, kon cannot compact ahead of time.
+  It still compacts when the provider reports that the context overflowed, and
+  `/compact` still works.
+- With `max_output_tokens` unset, the summary is held to 8K tokens, a size
+  every model accepts.
+
+`compaction.reserve_tokens` (how much room to keep free below the window) and
+`compaction.keep_recent_tokens` (how much recent context to keep verbatim)
+override the sizes kon works out, for every model.
+
+## Reasoning
+
+For a model that reasons, set `"reasoning": true`, and list the effort levels
+it accepts in `reasoning_efforts`, in the order Shift+Tab should cycle through
+them:
 
 ```json
-{"name": "sonnet", "type": "anthropic", "model": "claude-sonnet-4-5", "api_key": "...", "cost": {"input": 3, "output": 15, "cache_read": 0.3, "cache_write": 3.75}}
+{"name": "glm", "type": "openai-compatible", "base_url": "https://api.z.ai/api/paas/v4", "model": "glm-5.3-flash", "api_key": "...", "reasoning": true, "reasoning_efforts": ["low", "high", "max"]}
 ```
 
-Input served from a prompt cache is billed at `cache_read`, and input written
-to one at `cache_write`; either left out is billed at `input`. A profile
-without `cost` goes unpriced, even for a model the catalog lists. Derived
-models use the catalog's prices.
+The cycle ends on `default`, which sends no effort and leaves the choice to the
+provider. Without `reasoning_efforts`, kon never sends an effort. For a model
+that can only turn reasoning off, use `["none"]`; the header shows it as
+`no thinking`. Models from `/model` take both settings from the catalog.
 
-## Schema reference
+The chosen level is saved as `reasoning_effort` and restored at the next
+launch. Switching models resets it to `default`.
 
-Unknown fields are rejected, so a typo fails loudly instead of being ignored.
-Names and IDs that kon owns (`name`, `id`, `catalog_provider`, and each
-reasoning effort) use only letters, digits, `.`, `_`, and `-`.
+What the two fields do depends on the wire format:
 
-Top level:
+| Wire format | Effort is sent as | `"reasoning": true` |
+| --- | --- | --- |
+| Chat Completions formats | `reasoning_effort`, or `reasoning.effort` for `openrouter` | For DeepSeek's own API (a `base_url` on `deepseek.com`), sends the empty `reasoning_content` it requires |
+| `openai-responses` | `reasoning.effort`, only with `"reasoning": true` | Required for any reasoning: requests it, and carries it between turns |
+| `anthropic` | `output_config.effort` | Turns on extended thinking |
 
-| Field | Type | Default | Meaning |
-| --- | --- | --- | --- |
-| `default_model` | string | `""` | Model used for new sessions: an explicit profile `name`, or a derived `<provider-id>/<model-id>`. Empty means no model is configured yet. `/model` rewrites it. |
-| `reasoning_effort` | string | omitted | Effort last selected with Shift+Tab. Ignored when the model does not list it. |
-| `providers` | array | omitted | Reusable connections; see below. |
-| `models` | array | `[]` | Explicit model profiles; see below. |
-| `compaction.reserve_tokens` | integer | derived | Tokens kept free below the window: compaction starts once the context would eat into them. Omit it to derive it from the window, as above. |
-| `compaction.keep_recent_tokens` | integer | derived | Recent context kept verbatim when older history is summarized. Omit it to derive it from the window. |
-| `context_files` | boolean | `true` | Load `AGENTS.md` and `CLAUDE.md` files; see [Project instructions](#project-instructions). |
+For example, OpenAI's and Anthropic's own APIs both need `"reasoning": true`
+for their models to reason at all:
 
-Each entry in `providers`:
+```json
+{"name": "sol", "type": "openai-responses", "model": "gpt-6.1-sol", "api_key": "...", "reasoning": true, "reasoning_efforts": ["low", "medium", "high", "xhigh", "max"]}
+{"name": "sonnet", "type": "anthropic", "model": "claude-sonnet-5-5", "api_key": "...", "reasoning": true, "reasoning_efforts": ["low", "medium", "high", "xhigh", "max"]}
+```
 
-| Field | Type | Required | Meaning |
-| --- | --- | --- | --- |
-| `id` | string | yes | Unique connection ID and the prefix of its derived model names. |
-| `type` | string | yes | Wire format: `openai`, `openrouter`, `ollama`, `openai-responses`, `anthropic`, or `openai-compatible`. |
-| `catalog_provider` | string | no | models.dev provider key, when `id` differs from it. |
-| `base_url` | string | for `openai-compatible` | API root. Other types default to their public endpoint. |
-| `api_key` | string | no | Sent as a bearer token, or as `x-api-key` for `anthropic`. |
-| `headers` | object | no | Extra HTTP headers, which may override kon's own. An Anthropic `anthropic-beta` value is joined with any beta kon adds. |
+kon sends a model's reasoning back with its earlier replies, so a model that
+thinks across tool calls keeps its chain of thought. After a model switch,
+reasoning from the previous model is left out where the provider cannot use it.
 
-Each entry in `models`:
+## Images
 
-| Field | Type | Required | Meaning |
-| --- | --- | --- | --- |
-| `name` | string | yes | Unique profile name used by `default_model` and `/model`. |
-| `type` | string | no | Wire format, as for providers. Defaults to `openai-compatible`. |
-| `model` | string | to run | The provider's model ID, sent as written. |
-| `base_url` | string | for `openai-compatible` | API root. `openai` defaults to `https://api.openai.com/v1`, `openrouter` to `https://openrouter.ai/api/v1`, `ollama` to `http://localhost:11434/v1`, `openai-responses` to `https://api.openai.com/v1`, and `anthropic` to `https://api.anthropic.com/v1`. |
-| `api_key` | string | no | Sent as a bearer token, or as `x-api-key` for `anthropic`. |
-| `headers` | object | no | Extra HTTP headers, which may override kon's own. An Anthropic `anthropic-beta` value is joined with any beta kon adds. |
-| `context_window_tokens` | integer | no | Context limit. `0` means unknown; otherwise it must exceed the compaction budgets you set, combined. |
-| `max_output_tokens` | integer | no | The most the model writes in one reply. It sizes the compaction summary; `0` or omitted means unknown. |
-| `vision` | boolean | no | Accepts image input. |
-| `reasoning` | boolean | no | Produces reasoning. |
-| `reasoning_efforts` | array of strings | no | Effort levels in Shift+Tab order, without duplicates. |
-| `cost` | object | no | Prices in US dollars per million tokens: `input`, `output`, and optionally `cache_read` and `cache_write`. None may be negative. |
+Set `"vision": true` for a model that accepts images. The `read` tool then
+passes PNG, JPEG, GIF, and WebP files of up to 5 MiB to the model. Without it,
+reading an image returns a short text notice. Models from `/model` take this
+from the catalog.
 
-## Model catalog
+After switching to a model without image support, images earlier in the
+session are sent as a text placeholder, so the conversation can continue.
 
-Run `kon models` to list model IDs from the bundled models.dev catalog or a
-newer local cache. It works offline and does not change your configuration.
-Run `kon models --refresh` when you choose to fetch the latest catalog from
-models.dev; the validated response is cached for later offline use. kon never
-refreshes the catalog automatically.
+## Cost
 
-The catalog is reference data, not a list of providers kon can necessarily
-call. `/model` only derives names for supported, configured connections.
+The status bar's [cost](usage.md#context-and-cost) needs each model's prices.
+Models from `/model` use the catalog's. For a profile, set `cost` in US
+dollars per million tokens:
+
+```json
+{"name": "qwen", "type": "openrouter", "model": "qwen/qwen3.8-27b", "api_key": "...", "cost": {"input": 0.42, "output": 3, "cache_read": 0.085}}
+```
+
+Input read from or written to a prompt cache is priced at `cache_read` and
+`cache_write`, or at `input` when those are left out. A profile without `cost`
+is not priced, even if the catalog knows the model.
 
 ## Project instructions
 
-Instructions that apply everywhere go in `AGENTS.md` in the config directory,
-next to `config.json` (`~/.config/kon/AGENTS.md` on Linux and macOS). kon
-loads it into every new session, ahead of any project's files. Earlier
-releases took this text from an `instructions` field in `config.json`; kon
-moves it into this file on upgrade.
+kon adds instructions from `AGENTS.md` files to every new session:
 
-kon also walks from the working directory to the filesystem root and loads the
-first `AGENTS.md` it finds in each directory. Inherited instructions come
-first and more specific ones last. `CLAUDE.md` is accepted as a compatibility
-alias, and `AGENTS.override.md` replaces the plain file in its directory.
-Empty files and directories whose name begins with `.` are ignored.
+- **Your own**, from `AGENTS.md` next to `config.json`
+  (`~/.config/kon/AGENTS.md` on Linux and macOS), for every project.
+- **The project's**, from the `AGENTS.md` in the working directory and in
+  each directory above it, up to the filesystem root. Outer directories
+  come first, so the most specific instructions come last.
 
-Set `"context_files": false` in the config to turn off discovery in the
-working directory; the global `AGENTS.md` still loads. The prompt
-is recorded when a session is created. Changes to instruction files therefore
-apply to new sessions (`/new` or a fresh launch); resumed sessions keep their
-original prompt.
+In each directory, `AGENTS.override.md` takes the place of `AGENTS.md`, and
+`CLAUDE.md` is used when there is no `AGENTS.md`. Empty files, and directories
+whose names start with `.`, are skipped.
+
+Set `"context_files": false` to skip the project's files; your own
+`AGENTS.md` still loads.
+
+Instructions are read when a session starts and kept with it, so edits apply
+to new sessions (`/new` or a fresh launch). A resumed session keeps the
+instructions it started with.
+
+## Model catalog
+
+kon ships a copy of the [models.dev](https://models.dev) catalog, which it uses
+for `/login` autocomplete and for the limits, image support, reasoning levels,
+and prices of models chosen with `/model`. The catalog is reference data: a
+model listed there is not necessarily one your account can use.
+
+`kon models` lists the catalog's model IDs, offline.
+`kon models --refresh` downloads the latest catalog and caches it; so does
+`kon upgrade`. kon never downloads it otherwise.

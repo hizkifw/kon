@@ -327,7 +327,7 @@ source.
 - [ ] **Streaming tool-call events.** A large `write` shows nothing while its
   arguments stream.
 - [x] **Headless frontend.** `kon run` in `internal/headless` streams text or
-  writes JSON events. The JSON schema in `docs/product/usage.md` is the
+  writes JSON events. The JSON schema in `docs/product/scripting.md` is the
   contract, not `agent.Event`, which can keep changing behind it.
 - [ ] **Keep blocking work off the Bubble Tea update loop.** All of these run
   synchronously in `Update`:

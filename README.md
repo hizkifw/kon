@@ -14,13 +14,13 @@ kon reads, edits, and runs commands in your project until the work is done. One
 Linux and macOS:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/hizkifw/kon/main/scripts/install.sh | sh
+curl -fsSL https://kon.kitsu.red/install.sh | sh
 ```
 
 Windows, in PowerShell:
 
 ```powershell
-iwr -useb https://raw.githubusercontent.com/hizkifw/kon/main/scripts/install.ps1 | iex
+iwr -useb https://kon.kitsu.red/install.ps1 | iex
 ```
 
 With Go:
@@ -32,18 +32,11 @@ go install github.com/hizkifw/kon/cmd/kon@latest
 ## Get started
 
 Run `kon` in any project. Connect a provider with `/login`, pick a model with
-`/model`, and start typing. To set things up by hand, see
-[configuration](docs/product/configuration.md).
+`/model`, and start typing. Type `@` to mention a file, and `/` for commands.
 
-Type `@` anywhere in a prompt to find a project file. Narrow the suggestions
-with a name or partial path, use Up/Down to choose, and Tab or Enter to insert
-the reference. The agent reads the file when needed.
-
-Ask `/btw <question>` for a temporary answer using the current conversation,
-even while kon is working. Press Esc to return, or Enter once the answer is
-complete; the side exchange stays out of the main conversation and saved
-session. Side questions have no tools; ask in the main conversation when you
-need files read or commands run.
+kon has no sandbox and does not ask before running commands, so use it on work
+you keep in version control. The [user guide](docs/product/index.md) covers
+the rest.
 
 ## Why kon
 
@@ -56,33 +49,28 @@ need files read or commands run.
 - **No lock-in.** Sessions are plain JSONL you can read, grep, and keep.
   OpenAI, Anthropic, OpenRouter, Ollama, or any OpenAI-compatible endpoint.
 
-## Commands
+## Scripting
 
-| Command | Does |
-| --- | --- |
-| `kon` | Start a session in the current directory |
-| `kon --resume` | Reopen the latest session here |
-| `kon --incognito` | Start a session that is never saved |
-| `kon run <message>` | Send one prompt and stream the reply to stdout |
-| `kon md [file]` | Render Markdown in the terminal, as it streams in |
-| `kon upgrade` | Install the latest verified release |
-| `kon models` | List models offline; `--refresh` updates the catalog |
-| `kon docs` | Unpack the user guide as Markdown |
-| `kon tool webfetch <url>` | Print a web page as Markdown |
+`kon run` sends one prompt and streams the reply, so kon fits in pipelines:
 
-`kon run` is built for pipelines: `git diff | kon run --stdin review this`. On
-a terminal the reply renders as Markdown while it streams; piped, it stays
-plain Markdown. Add `--format json` for one event per line. `kon --help` lists every flag.
+```sh
+git diff | kon run --stdin review this
+```
+
+Add `--format json` for one event per line. See [scripting](docs/product/scripting.md).
 
 ## Documentation
 
-- [Using kon](docs/product/usage.md) — commands, keys, sessions, and tools
-- [Configuration](docs/product/configuration.md) — models, providers, and project instructions
-- [Development](docs/development/index.md) — building and contributing
-- [Architecture](docs/development/architecture.md) — how the pieces fit together
-- [Session format](docs/development/session-format.md) — the on-disk JSONL contract
-- [Storage migrations](docs/development/migrations.md) — version upgrades and recovery
-- [Rendering performance](docs/development/rendering-performance.md) — how the TUI stays fast
+- [User guide](docs/product/index.md): install and first session
+- [Working with kon](docs/product/usage.md): prompting, sessions, jobs, and subagents
+- [Scripting](docs/product/scripting.md): `kon run` and `kon md`
+- [Configuration](docs/product/configuration.md): providers, models, and project instructions
+- [Reference](docs/product/reference.md): every command, key, tool, and setting
+- [Development](docs/development/index.md): building and contributing
+- [Architecture](docs/development/architecture.md): how the pieces fit together
+- [Session format](docs/development/session-format.md): the on-disk JSONL contract
+- [Storage migrations](docs/development/migrations.md): version upgrades and recovery
+- [Rendering performance](docs/development/rendering-performance.md): how the TUI stays fast
 
 ## License
 
