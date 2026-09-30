@@ -92,14 +92,22 @@ Schema-breaking changes need a named migration in the ordered registry. See
 
 ## Release artifacts
 
-The bundled models.dev snapshot is committed at `internal/catalog/snapshot.json.gz`.
-Run `make catalog-update` to fetch and validate a new snapshot, then review and
-commit the generated file. Ordinary builds, tests, and releases use that file
-and do not need network access or a JavaScript toolchain.
+The bundled models.dev snapshot is committed at `internal/catalog/snapshot.json.gz`,
+so `go install` and ordinary builds work offline. Run `make catalog-update` to
+fetch and validate a new snapshot, then review and commit the generated file.
 
-At runtime, `kon models` reads the bundled snapshot or newer local cache;
-`kon models --refresh` is the only user-facing command that requests the latest
-catalog from models.dev. Starting kon never refreshes it automatically.
+Release builds do not use the committed file. On a version tag, the `catalog`
+job in `.github/workflows/ci.yml` runs `make catalog-update` once and every
+target embeds that result, so a release ships the catalog as of its release
+day.
+
+Tests must not depend on what the snapshot lists, since models.dev adds and
+drops models freely. `internal/app` tests read `internal/app/testdata/catalog.json`
+instead; add any catalog entry a new test needs there.
+
+At runtime, `kon models` reads the bundled snapshot or newer local cache.
+`kon models --refresh` and `kon upgrade` are the only commands that request
+the latest catalog from models.dev. Starting kon never refreshes it.
 
 `/login <provider>` explicitly checks a configured provider endpoint and
 caches its returned model IDs in the data directory. It does not refresh the

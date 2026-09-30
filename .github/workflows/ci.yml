@@ -23,11 +23,35 @@ jobs:
       - run: make check
       - run: make test-race
 
+  # A release ships the models.dev catalog as it is on release day rather than
+  # as last committed. It is fetched once, so every target embeds the same one.
+  catalog:
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.25.x'
+          cache: true
+      - run: make catalog-update
+      - uses: actions/upload-artifact@v7
+        with:
+          name: catalog
+          path: internal/catalog/snapshot.json.gz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
   # Builds each release archive the way scripts/release.sh does, so every
   # push checks that each target builds and fits the size limit. On a version
   # tag the archives carry the tag's version and are what the release
   # publishes, so it never builds them again.
   build:
+    needs: [catalog]
+    # The catalog job only runs on a tag; elsewhere it is skipped and the
+    # build uses the committed snapshot.
+    if: ${{ !cancelled() && needs.catalog.result != 'failure' }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -39,6 +63,11 @@ jobs:
         with:
           go-version: '1.25.x'
           cache: true
+      - if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/download-artifact@v8
+        with:
+          name: catalog
+          path: internal/catalog
       - name: Build
         run: |
           version=v0.0.0-ci
