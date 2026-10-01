@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hizkifw/kon/internal/agent"
-	"github.com/hizkifw/kon/internal/tools"
+	"github.com/hizkifw/kon/core/agent"
+	"github.com/hizkifw/kon/internal/codetools"
 )
 
 // TestToolOutputEventStreamsIntoTranscript drives a running shell call's live
@@ -20,11 +20,11 @@ func TestToolOutputEventStreamsIntoTranscript(t *testing.T) {
 	model = updated.(Model)
 
 	// First snapshot: two lines of build output.
-	snap := tools.Display{
-		State: tools.StateRunning, Summary: "./build",
+	snap := codetools.Display{
+		State: codetools.StateRunning, Summary: "./build",
 		Lines: []string{"go build ./..."}, More: 0,
 	}
-	updated, _ = model.Update(turnEvent(model, agent.Event{Kind: agent.EventToolOutput, Tool: "shell", Display: snap}))
+	updated, _ = model.Update(turnEvent(model, agent.Event{Kind: agent.EventToolOutput, Tool: "shell", Progress: snap}))
 	model = updated.(Model)
 	updated, _ = model.Update(flushTranscriptMsg{})
 	model = updated.(Model)
@@ -35,7 +35,7 @@ func TestToolOutputEventStreamsIntoTranscript(t *testing.T) {
 
 	// A later snapshot with more output replaces the previous one.
 	snap.Lines = []string{"go build ./...", "compile errors below"}
-	updated, _ = model.Update(turnEvent(model, agent.Event{Kind: agent.EventToolOutput, Tool: "shell", Display: snap}))
+	updated, _ = model.Update(turnEvent(model, agent.Event{Kind: agent.EventToolOutput, Tool: "shell", Progress: snap}))
 	model = updated.(Model)
 	updated, _ = model.Update(flushTranscriptMsg{})
 	model = updated.(Model)
@@ -70,7 +70,7 @@ func TestToolOutputEventWithoutRunningToolIsDropped(t *testing.T) {
 	tr.cwd = "/tmp"
 	tr.add(toolCallBlock("shell", `{"command":"./build"}`, "/tmp"))
 	tr.add(toolDoneBlock("shell", `{"command":"./build"}`, "exit code: 0 (took 1.0s)", false, "/tmp"))
-	tr.updateToolLive(tools.Display{State: tools.StateRunning, Summary: "./build", Lines: []string{"late"}})
+	tr.updateToolLive(codetools.Display{State: codetools.StateRunning, Summary: "./build", Lines: []string{"late"}})
 	got := plain(tr.render(80))
 	if strings.Contains(got, "late") {
 		t.Fatalf("late snapshot resurrected a live display: %q", got)

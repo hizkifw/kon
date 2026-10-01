@@ -14,9 +14,9 @@ import (
 	productdocs "github.com/hizkifw/kon/docs/product"
 	"github.com/hizkifw/kon/internal/buildinfo"
 	"github.com/hizkifw/kon/internal/catalog"
+	"github.com/hizkifw/kon/internal/codetools"
 	"github.com/hizkifw/kon/internal/config"
 	"github.com/hizkifw/kon/internal/selfupdate"
-	"github.com/hizkifw/kon/internal/tools"
 )
 
 func upgradeCommand() command {
@@ -76,7 +76,7 @@ func runFinalize() error {
 		if err := productdocs.Prune(paths.DataDir); err != nil {
 			fmt.Fprintf(os.Stderr, "kon: warning: prune old docs: %v\n", err)
 		}
-		if err := tools.PruneKonDirs(paths.DataDir); err != nil {
+		if err := codetools.PruneKonDirs(paths.DataDir); err != nil {
 			fmt.Fprintf(os.Stderr, "kon: warning: prune kon links: %v\n", err)
 		}
 		return nil

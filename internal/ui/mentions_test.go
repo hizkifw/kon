@@ -13,7 +13,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/hizkifw/kon/internal/agent"
+	"github.com/hizkifw/kon/core/agent"
 )
 
 func TestMentionAtCursor(t *testing.T) {

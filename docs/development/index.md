@@ -30,6 +30,11 @@ XDG_CONFIG_HOME="$(mktemp -d)" XDG_DATA_HOME="$(mktemp -d)" go run ./cmd/kon
 
 ## Package map
 
+Packages under `core/` are the reusable half of kon and its public Go API: the
+loop, providers, sessions, and the tool contract. They never import `internal/`
+or `cmd/` (`core/boundary_test.go` enforces it), so another program can drive
+them with its own prompt and tools. Everything kon-specific lives in `internal/`.
+
 | Package | Owns | Must not own |
 | --- | --- | --- |
 | `cmd/kon` | startup wiring and CLI metadata | business logic |
@@ -37,18 +42,20 @@ XDG_CONFIG_HOME="$(mktemp -d)" XDG_DATA_HOME="$(mktemp -d)" go run ./cmd/kon
 | `internal/ui` | terminal state and presentation | HTTP or JSONL encoding |
 | `internal/headless` | `kon run` output: streamed text or JSON events, one run per process | terminal state or session policy |
 | `internal/app` | live runner/store lifecycle and model switching | terminal presentation |
-| `internal/agent` | model/tool loop and compaction policy | terminal rendering |
-| `internal/provider` | provider `Model` backends and durable-message conversion | session policy |
-| `internal/provider/wire` | the wire-format table: names, default endpoints, and dialect facts | HTTP, backends, or service quirks |
+| `core/agent` | the model/tool loop, retry events, and compaction policy | prompts, concrete tools, or terminal rendering |
+| `core/tool` | the tool contract: `Tool`, `Registry`, and `Executor` | concrete tools or their presentation |
+| `core/provider` | provider `Model` backends and durable-message conversion | session policy |
+| `core/provider/wire` | the wire-format table: names, default endpoints, and dialect facts | HTTP, backends, or service quirks |
 | `internal/login` | `/login` choices per service and connection verification | wire backends or config writes |
 | `internal/catalog` | bundled model metadata and local refresh cache | provider requests or configuration writes |
-| `internal/session` | domain messages and append-only context tree | provider requests |
+| `core/session` | domain messages and append-only context tree | provider requests |
 | `internal/migrate` | storage version tracking and process locks | session format conversion |
 | `internal/migrations` | ordered storage conversion steps | live runtime state |
-| `internal/tools` | tool registry, bounded tool schemas and execution | agent orchestration |
+| `internal/codetools` | kon's coding tools: bounded schemas, execution, and transcript displays | agent orchestration |
+| `internal/prompt` | kon's system prompt | context-file discovery |
 | `internal/web` | `kon tool` web access: fetching pages as Markdown | tool schemas or agent state |
-| `internal/typedid` | identifier construction and parsing | storage or provider policy |
-| `internal/tokens` | the token count type and its compact display | usage policy or estimation |
+| `core/typedid` | identifier construction and parsing | storage or provider policy |
+| `core/tokens` | the token count type and its compact display | usage policy or estimation |
 | `internal/buildinfo` | build version and the outgoing User-Agent | configuration or network clients |
 | `internal/config` | paths, defaults, validation, credentials | runtime mutation |
 | `internal/contextfiles` | AGENTS.md/CLAUDE.md discovery up the directory tree | prompt assembly |
@@ -62,7 +69,7 @@ Known structural debt and the planned restructuring order are tracked in
 
 kon-owned IDs are immutable value objects with unexported storage. Add a prefix
 only when introducing a new durable entity with its own identity. Register it in
-`internal/typedid`, use 20 unbiased base62 characters, add JSON rejection tests,
+`core/typedid`, use 20 unbiased base62 characters, add JSON rejection tests,
 and document it in the session format.
 
 Current prefixes:

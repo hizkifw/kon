@@ -29,10 +29,10 @@ run:
 	go run ./cmd/kon
 
 fmt:
-	gofmt -w cmd internal docs/product scripts
+	gofmt -w cmd core internal docs/product scripts
 
 fmt-check:
-	test -z "$$(gofmt -l cmd internal docs/product scripts)"
+	test -z "$$(gofmt -l cmd core internal docs/product scripts)"
 
 vet:
 	go vet ./...

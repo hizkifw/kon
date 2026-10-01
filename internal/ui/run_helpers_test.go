@@ -3,7 +3,7 @@ package ui
 import (
 	"time"
 
-	"github.com/hizkifw/kon/internal/agent"
+	"github.com/hizkifw/kon/core/agent"
 )
 
 // fakeTurn puts m in a turn, as a submitted prompt would, without starting

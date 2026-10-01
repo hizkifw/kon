@@ -7,9 +7,9 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/hizkifw/kon/core/session"
+	"github.com/hizkifw/kon/internal/codetools"
 	"github.com/hizkifw/kon/internal/markdown"
-	"github.com/hizkifw/kon/internal/session"
-	"github.com/hizkifw/kon/internal/tools"
 )
 
 type blockKind uint8
@@ -45,7 +45,7 @@ type block struct {
 	name    string // tool name for tool blocks
 	args    string // raw JSON arguments for tool blocks
 	text    string
-	display tools.Display
+	display codetools.Display
 	// model is the recorded selection behind a replayed model change, kept so
 	// its title can be named again once the catalog loads.
 	model *session.ModelSelection
@@ -198,7 +198,7 @@ func (t *transcript) add(value block) {
 // block: the agent runs tools one at a time and the result block terminates
 // the run. When no trailing tool block matches (a done event already
 // finalized the call), the snapshot is dropped.
-func (t *transcript) updateToolLive(d tools.Display) {
+func (t *transcript) updateToolLive(d codetools.Display) {
 	if len(t.blocks) == 0 || t.blocks[len(t.blocks)-1].kind != blockTool {
 		return
 	}
@@ -635,14 +635,14 @@ func (t *transcript) renderToolRun(run []block, width int) []string {
 // callDisplay picks the display that carries a call's outcome: the result's
 // resolved display when the call finished, otherwise the running call's live
 // snapshot, and finally a bare running shell.
-func (t *transcript) callDisplay(start, done *block) tools.Display {
+func (t *transcript) callDisplay(start, done *block) codetools.Display {
 	if done != nil {
 		return done.display
 	}
-	if start != nil && start.display.State == tools.StateRunning || start != nil && start.display.Summary != "" {
+	if start != nil && start.display.State == codetools.StateRunning || start != nil && start.display.Summary != "" {
 		return start.display
 	}
-	return tools.Display{State: tools.StateRunning}
+	return codetools.Display{State: codetools.StateRunning}
 }
 
 // toolRequestLine renders one call's request line: status icon, the padded
@@ -667,9 +667,9 @@ func (t *transcript) toolRequestLine(start, done *block, width int) string {
 	noteColor := colorToolNote
 	if done != nil || start == nil {
 		switch outcome.State {
-		case tools.StateFailed:
+		case codetools.StateFailed:
 			icon, iconColor, noteColor = "✗", colorFail, colorFail
-		case tools.StateDone:
+		case codetools.StateDone:
 			icon, iconColor = "✓", colorOK
 		}
 	}
@@ -696,7 +696,7 @@ func (t *transcript) toolBodyLines(start, done *block, width int) []string {
 	if display.Quiet {
 		fg = colorToolNote
 	}
-	if display.State == tools.StateFailed {
+	if display.State == codetools.StateFailed {
 		fg = colorFail
 	}
 	var out []string
@@ -716,9 +716,9 @@ func (t *transcript) toolBodyLines(start, done *block, width int) []string {
 		// finished call colors its status line.
 		statusColor := colorOK
 		switch display.State {
-		case tools.StateFailed:
+		case codetools.StateFailed:
 			statusColor = colorFail
-		case tools.StateRunning:
+		case codetools.StateRunning:
 			statusColor = colorToolNote
 		}
 		out = append(out, slabLine(colorToolBg, width, part{text: "  " + display.Status, fg: statusColor}))

@@ -1,0 +1,395 @@
+package codetools
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/hizkifw/kon/core/session"
+	"github.com/hizkifw/kon/core/tool"
+)
+
+const (
+	maxOutputBytes = 64 * 1024
+	// maxShellTimeout caps the timeout the model may request for a shell
+	// command. Every command must carry one; a timeout of 0 runs the command
+	// as a background job, which has none.
+	maxShellTimeout = 600 * time.Second
+)
+
+// shellInterruptGrace is how long a shell command may ignore the interrupt
+// from a cancellation before it is killed. Tests shorten it.
+var shellInterruptGrace = 10 * time.Second
+
+// shellDrainWindow is how long the output reader may keep draining after the
+// command's process has exited. It bounds the wait when a backgrounded
+// grandchild inherited the output pipe and keeps it open.
+var shellDrainWindow = 250 * time.Millisecond
+
+// liveDisplayInterval paces the live display snapshots a running shell call
+// publishes. The latest snapshot wins downstream, so this only bounds the
+// reporting rate, not the freshness floor.
+const liveDisplayInterval = 100 * time.Millisecond
+
+// shellBackend is the interpreter a shell command runs through. name is the
+// human-readable label the model sees in the tool description; path and args
+// are the argv prefix the command text is appended to.
+type shellBackend struct {
+	path string
+	args []string
+	name string
+}
+
+// shellBackendOnce resolves the interpreter shell commands run through exactly
+// once: probing is cheap but the choice never changes mid-session, and the tool
+// description must agree with what Run actually executes. Resolution is lazy
+// because package initialization order would otherwise run it before the tool
+// registry is assembled.
+var (
+	shellBackendOnce  sync.Once
+	shellBackendValue shellBackend
+)
+
+// shellCommand returns the interpreter shell commands run through.
+func shellCommand() shellBackend {
+	shellBackendOnce.Do(func() { shellBackendValue = resolveShell() })
+	return shellBackendValue
+}
+
+// shellName is the human-readable label for the resolved interpreter, used in
+// the model-facing tool description.
+func shellName() string {
+	return shellCommand().name
+}
+
+// shellTool runs one shell command in the workspace with a mandatory timeout.
+type shellTool struct {
+	// jobs supervises the session's background commands; nil where there
+	// is no session to keep them in.
+	jobs    *Jobs
+	mu      sync.Mutex
+	running *exec.Cmd // command currently running, if any
+}
+
+type shellDetails struct {
+	// Job is set for a command started in the background, which has no exit
+	// code yet when the call returns.
+	Job         int    `json:"job,omitempty"`
+	ExitCode    *int   `json:"exit_code"`
+	Duration    string `json:"duration"`
+	OutputBytes int    `json:"output_bytes"`
+}
+
+func (t *shellTool) Definition() session.ToolDefinition {
+	return session.ToolDefinition{
+		Name:        "shell",
+		Description: "Run a shell command in the current working directory, interpreted by " + shellName() + ". timeout is required: 1-600 seconds, command killed when it expires. timeout 0 runs it as a background job for servers, watchers, and long builds: returns at once, output goes to a file under $KON_JOBS. Don't poll or sleep just to wait for it to finish, end your turn instead. A message will be sent when the background job exits. Only poll if you need to check its output for something mid-run, like a server becoming ready. Do NOT use setsid/nohup/& to background a command: the tool already does that for you.",
+		Parameters:  json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"},"timeout":{"type":"integer","minimum":0,"maximum":600,"description":"wall-clock seconds; 0 runs in background"}},"required":["command","timeout"],"additionalProperties":false}`),
+	}
+}
+
+// toolTailLines bounds how many trailing output lines the transcript echoes
+// for one call, and bounds the live buffer a running call keeps for its
+// streaming display.
+const toolTailLines = maxToolLines
+
+// Summarize renders the request line: the command with line breaks collapsed.
+func (t *shellTool) Summarize(raw json.RawMessage, cwd string) string {
+	args := struct {
+		Command string `json:"command"`
+	}{}
+	if err := json.Unmarshal(raw, &args); err != nil {
+		return FallbackSummary(raw)
+	}
+	return strings.ReplaceAll(args.Command, "\n", "; ")
+}
+
+// Describe renders the finished call from persisted details. Older sessions
+// without details still use the trailing marker in the model-facing text.
+func (t *shellTool) Describe(raw json.RawMessage, result string, failed bool, details json.RawMessage, cwd string) Display {
+	summary := ""
+	if len(raw) > 0 {
+		summary = t.Summarize(raw, cwd)
+	}
+	var output, exit, took string
+	var hasExit bool
+	var meta shellDetails
+	if len(details) > 0 && json.Unmarshal(details, &meta) == nil && meta.Job > 0 {
+		return Display{State: StateDone, Summary: summary, Note: fmt.Sprintf("background job %d", meta.Job)}
+	}
+	if len(details) > 0 && json.Unmarshal(details, &meta) == nil && meta.ExitCode != nil && meta.OutputBytes >= 0 && meta.OutputBytes <= len(result) {
+		output = strings.TrimRight(result[:meta.OutputBytes], "\n")
+		exit, took, hasExit = fmt.Sprint(*meta.ExitCode), meta.Duration, true
+	} else {
+		output, exit, took, hasExit = splitResult(result)
+	}
+	status := ""
+	if hasExit {
+		status = "exit " + exit
+		if took != "" {
+			status += " · took " + took
+		}
+	}
+	state := StateDone
+	if failed {
+		state = StateFailed
+	} else if hasExit && exit != "0" {
+		state = StateFailed
+	}
+	if state == StateDone && output == "" {
+		// Successful calls with nothing to echo carry their outcome on the
+		// request line alone.
+		return Display{State: state, Summary: summary, Note: status}
+	}
+	if state == StateFailed {
+		// A failure's message is the primary result; the status line rides
+		// along on the request line so the reason for failure stays adjacent
+		// to the command.
+		note := status
+		if !hasExit {
+			note = "failed"
+		}
+		lines, more := tailLines(output, toolTailLines)
+		return Display{State: state, Summary: summary, Note: note, Lines: lines, More: more}
+	}
+	lines, more := tailLines(output, toolTailLines)
+	return Display{State: state, Summary: summary, Lines: lines, More: more, Status: status, Quiet: true}
+}
+
+// liveDisplay builds a running-call snapshot from the writer's tail lines. The
+// status line shows elapsed time against the command's timeout so a running
+// command visibly ticks and its budget is known; the finished result replaces it
+// with the exit-code status. The outcome note is empty: the call has no exit
+// code yet.
+func (t *shellTool) liveDisplay(raw json.RawMessage, env tool.Env, lines []string, elapsed, timeout time.Duration) Display {
+	return Display{
+		State:   StateRunning,
+		Summary: t.Summarize(raw, env.CWD),
+		Lines:   lines,
+		Status:  runningStatus(elapsed, timeout),
+	}
+}
+
+// runningStatus renders a running command's progress line: elapsed time over its
+// total budget, e.g. "12.0s / 30s". The ticking clock signals the command is
+// alive and how long remains before the timeout. Elapsed always carries one
+// decimal so the line reads as a stepping clock rather than jittering per frame.
+func runningStatus(elapsed, timeout time.Duration) string {
+	return fmt.Sprintf("%.1fs / %s", elapsed.Seconds(), timeout)
+}
+
+// splitResult separates a shell result into the output body and the trailing
+// "exit code: N (took D)" marker the tool appends. hasExit reports whether a
+// well-formed marker was found; without one the whole result is output.
+func splitResult(text string) (output, exit, took string, hasExit bool) {
+	const marker = "exit code: "
+	at := strings.LastIndex(text, marker)
+	if at < 0 {
+		return text, "", "", false
+	}
+	rest, tail := text[at+len(marker):], ""
+	if open := strings.LastIndex(rest, " (took "); open >= 0 && strings.HasSuffix(rest, ")") {
+		rest, tail = rest[:open], rest[open+len(" (took "):len(rest)-1]
+	}
+	if rest == "" || strings.Trim(rest, "0123456789") != "" {
+		return text, "", "", false
+	}
+	return strings.TrimRight(text[:at], "\n"), rest, tail, true
+}
+
+func (t *shellTool) Run(ctx context.Context, env tool.Env, raw json.RawMessage) (tool.Result, error) {
+	var args struct {
+		Command string `json:"command"`
+		// Timeout is a pointer so a missing timeout is an error rather than
+		// a background job the model never asked for.
+		Timeout *int `json:"timeout"`
+	}
+	if err := decodeArgs(raw, &args); err != nil {
+		return tool.Result{}, err
+	}
+	if strings.TrimSpace(args.Command) == "" {
+		return tool.Result{}, errors.New("command must not be empty")
+	}
+	switch {
+	case args.Timeout == nil || *args.Timeout < 0:
+		return tool.Result{}, fmt.Errorf("timeout required: 1-%d seconds, or 0 to run in background", int(maxShellTimeout/time.Second))
+	case *args.Timeout == 0:
+		return t.startJob(env, args.Command)
+	case time.Duration(*args.Timeout)*time.Second > maxShellTimeout:
+		return tool.Result{}, fmt.Errorf("timeout must be at most %d seconds", int(maxShellTimeout/time.Second))
+	}
+	timeout := time.Duration(*args.Timeout) * time.Second
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	backend := shellCommand()
+	cmd := exec.CommandContext(ctx, backend.path, append(backend.args, args.Command)...)
+	cmd.Dir = env.CWD
+	if vars := t.jobs.Env(); vars != nil {
+		cmd.Env = append(os.Environ(), vars...)
+	}
+	// The command runs in its own process group. Cancelling the context first
+	// interrupts the group so the command can stop cleanly; if it ignores the
+	// interrupt, it is killed once the grace period passes. WaitDelay is the
+	// backstop that unblocks Wait even if a process survives both.
+	configureProcessGroup(cmd)
+	cmd.Cancel = func() error {
+		if err := interruptProcess(cmd); err != nil {
+			return err
+		}
+		time.AfterFunc(shellInterruptGrace, func() { _ = killProcess(cmd) })
+		return nil
+	}
+	cmd.WaitDelay = shellInterruptGrace
+	// Output is captured through a pipe the tool owns. Handing the child the
+	// write end as an *os.File means exec passes the descriptor straight
+	// through, without an intermediary copying goroutine: Wait reports the
+	// moment the process exits instead of waiting for the pipe to drain. The
+	// reader below drains it concurrently; a backgrounded grandchild that
+	// inherits the descriptor and outlives the command cannot stall the
+	// result past shellDrainWindow.
+	pr, pw, pipeErr := os.Pipe()
+	if pipeErr != nil {
+		return tool.Result{}, pipeErr
+	}
+	defer pr.Close()
+	writer := &headTailWriter{limit: maxOutputBytes}
+	cmd.Stdout, cmd.Stderr = pw, pw
+	readerDone := make(chan struct{})
+	go func() {
+		defer close(readerDone)
+		_, _ = io.Copy(writer, pr)
+	}()
+	// While the command runs, publish the tail of its output as the live
+	// display, throttled to a frame-friendly rate. Snapshots are idempotent
+	// and the latest wins downstream, so a burst between ticks coalesces. The
+	// snapshot carries elapsed time against the timeout so the status line ticks
+	// for as long as the command lives.
+	start := time.Now()
+	if env.Progress != nil {
+		stop := make(chan struct{})
+		reporterDone := make(chan struct{})
+		go func() {
+			defer close(reporterDone)
+			ticker := time.NewTicker(liveDisplayInterval)
+			defer ticker.Stop()
+			for {
+				// Exit promptly once stopped, without firing a final tick.
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				select {
+				case <-stop:
+					return
+				case <-ticker.C:
+					elapsed := time.Since(start)
+					env.Report(t.liveDisplay(raw, env, writer.Tail(toolTailLines), elapsed, timeout))
+				}
+			}
+		}()
+		// The reporter must be fully stopped before Run returns: its snapshots
+		// flow to the same channel the result event will, so a straggler could
+		// otherwise race the result or outlive the run's emit channel.
+		defer func() { close(stop); <-reporterDone }()
+	}
+	startErr := cmd.Start()
+	// The child received its own descriptor at fork; the parent must not keep
+	// the write end, or the reader never sees EOF for ordinary commands.
+	_ = pw.Close()
+	if startErr != nil {
+		_ = pr.Close()
+		<-readerDone
+		return tool.Result{}, startErr
+	}
+	t.track(cmd)
+	defer t.track(nil)
+	err := cmd.Wait()
+	elapsed := time.Since(start).Round(10 * time.Millisecond)
+	// Give the reader a moment to pick up whatever the command wrote last,
+	// then unblock it even if a grandchild still holds the write end.
+	drain := time.AfterFunc(shellDrainWindow, func() { _ = pr.Close() })
+	<-readerDone
+	drain.Stop()
+	output := normalizeShellOutput(writer.String())
+	if ctx.Err() != nil {
+		// The command did not finish on its own. Surface why, together with
+		// whatever output it produced first, so the model can react.
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return tool.Result{}, fmt.Errorf("timed out after %s\n%s", timeout, output)
+		}
+		return tool.Result{}, fmt.Errorf("cancelled after %s\n%s", elapsed, output)
+	}
+	exitCode := 0
+	if err != nil {
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) {
+			return tool.Result{}, err
+		}
+		exitCode = exitErr.ExitCode()
+	}
+	details, _ := json.Marshal(shellDetails{ExitCode: &exitCode, Duration: elapsed.String(), OutputBytes: len(output)})
+	return tool.Result{Content: fmt.Sprintf("%sexit code: %d (took %s)", output, exitCode, elapsed), Details: details, IsError: exitCode != 0}, nil
+}
+
+// startJob hands command to the session's job supervisor. The result says
+// where everything is, so the model can manage the job with ordinary commands
+// even long after this call has scrolled out of its attention.
+func (t *shellTool) startJob(env tool.Env, command string) (tool.Result, error) {
+	if t.jobs == nil {
+		return tool.Result{}, errors.New("background jobs not available in this session")
+	}
+	id, pid, err := t.jobs.Start(command, env.CWD)
+	if err != nil {
+		return tool.Result{}, err
+	}
+	dir := filepath.Join(t.jobs.Dir(), strconv.Itoa(id))
+	details, _ := json.Marshal(shellDetails{Job: id})
+	content := fmt.Sprintf("background job %d started (pid %d)\noutput: %s\nnotice arrives automatically on exit, even after your turn ends: don't poll or sleep just to wait for it to finish (checking output for something mid-run, like a server becoming ready, is fine); end your turn if nothing else to do. list jobs: ls $KON_JOBS (each has cmd, pid, output, exit when done). stop: %s",
+		id, pid, filepath.Join(dir, "output"), killHint(pid))
+	return tool.Result{Content: content, Details: details}, nil
+}
+
+// normalizeShellOutput ensures captured output ends with a newline so a
+// trailing marker (exit code, error reason) starts on its own line.
+func normalizeShellOutput(output string) string {
+	if output != "" && !strings.HasSuffix(output, "\n") {
+		return output + "\n"
+	}
+	return output
+}
+
+// Interrupt escalates cancellation of the command currently running in the
+// shell tool. attempt 1 interrupts the command's process group: the polite
+// terminal interrupt that lets it clean up and exit on its own terms. attempt 2
+// and above force-kill it, for a command that ignored the interrupt. It reports
+// whether a command was running to receive the escalation.
+func (t *shellTool) Interrupt(attempt int) bool {
+	t.mu.Lock()
+	cmd := t.running
+	t.mu.Unlock()
+	if cmd == nil {
+		return false
+	}
+	if attempt <= 1 {
+		return interruptProcess(cmd) == nil
+	}
+	return killProcess(cmd) == nil
+}
+
+// track records or clears the command currently running so Interrupt can
+// escalate cancellation against it.
+func (t *shellTool) track(cmd *exec.Cmd) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.running = cmd
+}

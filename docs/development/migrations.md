@@ -29,7 +29,7 @@ explicit [step order](../../internal/migrations/registry.go).
 `Run` receives paths to kon's config and data files. It runs before config,
 history, or sessions are loaded, so it must read the old representation itself.
 Freeze every shape the step reads or writes inside `internal/migrations`: do not
-use `internal/session` types, `session.SchemaVersion`, or `config.Config`. A
+use `core/session` types, `session.SchemaVersion`, or `config.Config`. A
 step runs unchanged forever, and the live types move on. Session format v4 has
 frozen shapes and a validator in `session_v4.go`; config steps edit only the
 fields they own in the raw JSON object and write the rest back.

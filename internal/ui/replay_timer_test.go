@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hizkifw/kon/internal/agent"
-	"github.com/hizkifw/kon/internal/session"
+	"github.com/hizkifw/kon/core/agent"
+	"github.com/hizkifw/kon/core/session"
 )
 
 // TestReplayMatchesLiveAfterManualCompact round-trips a real session store

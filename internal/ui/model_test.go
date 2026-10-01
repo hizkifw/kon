@@ -14,16 +14,16 @@ import (
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
-	"github.com/hizkifw/kon/internal/agent"
+	"github.com/hizkifw/kon/core/agent"
+	"github.com/hizkifw/kon/core/session"
+	"github.com/hizkifw/kon/core/tokens"
+	"github.com/hizkifw/kon/core/typedid"
 	"github.com/hizkifw/kon/internal/app"
 	"github.com/hizkifw/kon/internal/catalog"
+	"github.com/hizkifw/kon/internal/codetools"
 	"github.com/hizkifw/kon/internal/config"
 	"github.com/hizkifw/kon/internal/history"
 	"github.com/hizkifw/kon/internal/login"
-	"github.com/hizkifw/kon/internal/session"
-	"github.com/hizkifw/kon/internal/tokens"
-	"github.com/hizkifw/kon/internal/tools"
-	"github.com/hizkifw/kon/internal/typedid"
 )
 
 type fakeRuntime struct {
@@ -53,7 +53,7 @@ type fakeRuntime struct {
 	compacts atomic.Int32
 	notices  chan string
 	jobs     int
-	jobList  []tools.Job
+	jobList  []codetools.Job
 	// subagentPath is the session file OpenSubagent opens, if any.
 	subagentPath string
 	killed       []int
@@ -88,7 +88,7 @@ func (f *fakeRuntime) RunningJobs() int { return f.jobs }
 func (f *fakeRuntime) SubagentUsage() session.Usage {
 	return session.Usage{Cost: f.subagentCost}
 }
-func (f *fakeRuntime) Jobs() []tools.Job { return f.jobList }
+func (f *fakeRuntime) Jobs() []codetools.Job { return f.jobList }
 func (f *fakeRuntime) KillJob(id int) error {
 	f.killed = append(f.killed, id)
 	return nil
@@ -151,8 +151,8 @@ func (f *fakeRuntime) SessionPreview(path string, maxTurns int) ([]session.Entry
 	return f.previewEntries, f.previewErr
 }
 func (f *fakeRuntime) ContextUsage() (tokens.Count, bool) { return f.contextTokens, f.contextKnown }
-func (f *fakeRuntime) DescribeTool(name string, args json.RawMessage, result string, failed bool, details json.RawMessage) tools.Display {
-	return tools.Describe(name, args, result, failed, details, "/tmp")
+func (f *fakeRuntime) DescribeTool(name string, args json.RawMessage, result string, failed bool, details json.RawMessage) codetools.Display {
+	return codetools.Describe(name, args, result, failed, details, "/tmp")
 }
 func (f *fakeRuntime) SwitchModel(name string) error {
 	for _, model := range f.models {
@@ -598,10 +598,10 @@ func TestReplayedToolOutcomeUsesPersistedErrorAndDetails(t *testing.T) {
 	model.applyHistory(entries)
 	blocks := model.transcript.blocks
 	shell, read := blocks[len(blocks)-2].display, blocks[len(blocks)-1].display
-	if shell.State != tools.StateFailed || shell.Note != "exit 3 · took 4ms" {
+	if shell.State != codetools.StateFailed || shell.Note != "exit 3 · took 4ms" {
 		t.Fatalf("replayed shell outcome = %#v", shell)
 	}
-	if read.State != tools.StateFailed {
+	if read.State != codetools.StateFailed {
 		t.Fatalf("replayed read outcome = %#v", read)
 	}
 }

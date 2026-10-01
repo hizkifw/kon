@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/x/ansi"
-	"github.com/hizkifw/kon/internal/tools"
+	"github.com/hizkifw/kon/internal/codetools"
 )
 
 // plain renders a transcript with ANSI escapes and trailing slab padding
@@ -22,13 +22,13 @@ func plain(s string) string {
 // toolCallBlock builds a running tool-call block with its owned display
 // resolved for cwd.
 func toolCallBlock(name, args, cwd string) block {
-	return block{kind: blockTool, name: name, args: args, display: tools.Describe(name, []byte(args), "", false, nil, cwd)}
+	return block{kind: blockTool, name: name, args: args, display: codetools.Describe(name, []byte(args), "", false, nil, cwd)}
 }
 
 // toolDoneBlock builds a finished tool-result block with its owned display
 // resolved for cwd.
 func toolDoneBlock(name, args, result string, failed bool, cwd string) block {
-	return block{kind: blockResult, name: name, args: args, display: tools.Describe(name, []byte(args), result, failed, nil, cwd)}
+	return block{kind: blockResult, name: name, args: args, display: codetools.Describe(name, []byte(args), result, failed, nil, cwd)}
 }
 
 func TestNormalizeTextTrimsAndCollapsesBlanks(t *testing.T) {
@@ -104,8 +104,8 @@ func TestRunningToolHasNoResultYet(t *testing.T) {
 func TestRunningShellStatusTicksQuietly(t *testing.T) {
 	var tr transcript
 	tr.add(toolCallBlock("shell", `{"command":"go build ./..."}`, "/tmp"))
-	tr.updateToolLive(tools.Display{
-		State: tools.StateRunning, Summary: "go build ./...",
+	tr.updateToolLive(codetools.Display{
+		State: codetools.StateRunning, Summary: "go build ./...",
 		Lines: []string{"compiling"}, Status: "2.3s / 30s",
 	})
 	raw := tr.render(80)
@@ -124,13 +124,13 @@ func TestRunningShellStatusTicksQuietly(t *testing.T) {
 
 // TestShellResultTrimsToTailAndExitCode checks the part of a trimmed result
 // that the transcript owns. The shell tool picks the tail and parses the exit
-// code (see internal/tools), so the display is built directly here; the
+// code (see internal/codetools), so the display is built directly here; the
 // transcript must draw the kept lines and then count the omitted ones.
 func TestShellResultTrimsToTailAndExitCode(t *testing.T) {
 	var tr transcript
 	tr.add(toolCallBlock("shell", `{"command":"./flaky"}`, "/tmp"))
-	tr.add(block{kind: blockResult, name: "shell", args: `{"command":"./flaky"}`, display: tools.Display{
-		State: tools.StateFailed, Summary: "./flaky", Note: "exit 3 · took 4.2s",
+	tr.add(block{kind: blockResult, name: "shell", args: `{"command":"./flaky"}`, display: codetools.Display{
+		State: codetools.StateFailed, Summary: "./flaky", Note: "exit 3 · took 4.2s",
 		Lines: []string{"line-18", "line-19"}, More: 18,
 	}})
 	got := plain(tr.render(80))

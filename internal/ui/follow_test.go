@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hizkifw/kon/core/session"
+	"github.com/hizkifw/kon/core/typedid"
 	"github.com/hizkifw/kon/internal/app"
 	"github.com/hizkifw/kon/internal/history"
-	"github.com/hizkifw/kon/internal/session"
-	"github.com/hizkifw/kon/internal/typedid"
 )
 
 // newFollowingModel opens a session another kon has open, with its writer

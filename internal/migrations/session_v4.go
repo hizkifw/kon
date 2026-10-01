@@ -8,11 +8,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hizkifw/kon/internal/typedid"
+	"github.com/hizkifw/kon/core/typedid"
 )
 
 // This file freezes session format v4 as the steps that produce it knew it.
-// Steps must not read internal/session: a later format bump would change what
+// Steps must not read core/session: a later format bump would change what
 // a historical step writes and accepts, and the step that converts v4 onward
 // expects exactly what these steps produced.
 

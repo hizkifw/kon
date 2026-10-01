@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hizkifw/kon/core/session"
+	"github.com/hizkifw/kon/core/typedid"
 	"github.com/hizkifw/kon/internal/app"
 	"github.com/hizkifw/kon/internal/history"
-	"github.com/hizkifw/kon/internal/session"
-	"github.com/hizkifw/kon/internal/typedid"
 )
 
 func modelChange(name, externalID string) session.Entry {

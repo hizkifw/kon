@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/hizkifw/kon/internal/agent"
-	"github.com/hizkifw/kon/internal/provider"
-	"github.com/hizkifw/kon/internal/session"
-	"github.com/hizkifw/kon/internal/tools"
+	"github.com/hizkifw/kon/core/agent"
+	"github.com/hizkifw/kon/core/provider"
+	"github.com/hizkifw/kon/core/session"
+	"github.com/hizkifw/kon/internal/codetools"
 )
 
 // ErrSideChatTools lets the frontend explain an attempted tool call without
@@ -144,5 +144,5 @@ func (r *Runtime) prepareSideChat(question string) (*provider.Client, []session.
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	return client, messages, tools.New(r.cwd, profile.Vision, nil).Definitions(), nil
+	return client, messages, codetools.Registry(nil).Definitions(), nil
 }

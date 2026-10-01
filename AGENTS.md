@@ -12,7 +12,7 @@ clever ones, and keep the public product surface narrow.
 ## Commands
 
 ```sh
-make fmt          # gofmt cmd internal
+make fmt          # gofmt cmd core internal
 make check        # formatting, vet, and shuffled unit tests — the pre-commit gate
 make test-race    # race detector; separate because it needs CGO and is slower
 make build        # build bin/kon
@@ -39,6 +39,11 @@ golang.org/x/net/html for parsing fetched pages).
 
 Each package owns one boundary. Do not reach across them.
 
+Packages under `core/` are the reusable half of kon and its public Go API: the
+loop, providers, sessions, and the tool contract. They never import `internal/`
+or `cmd/` (`core/boundary_test.go` enforces it), so another program can drive
+them with its own prompt and tools. Everything kon-specific lives in `internal/`.
+
 | Package | Owns | Must not own |
 | --- | --- | --- |
 | `cmd/kon` | startup wiring and CLI metadata | business logic |
@@ -46,19 +51,21 @@ Each package owns one boundary. Do not reach across them.
 | `internal/markdown` | Markdown to styled, wrapped lines, streaming, and selections cut back out as Markdown | colors, terminal output, or transcript state |
 | `internal/headless` | `kon run` output: streamed text or JSON events, one run per process | terminal state or session policy |
 | `internal/app` | live runner/store lifecycle and model switching | terminal presentation |
-| `internal/agent` | model/tool loop and compaction policy | terminal rendering |
-| `internal/provider` | provider `Model` backends and durable-message conversion | session policy |
-| `internal/provider/wire` | the wire-format table: names, default endpoints, and dialect facts | HTTP, backends, or service quirks |
+| `core/agent` | the model/tool loop, retry events, and compaction policy | prompts, concrete tools, or terminal rendering |
+| `core/tool` | the tool contract: `Tool`, `Registry`, and `Executor` | concrete tools or their presentation |
+| `core/provider` | provider `Model` backends and durable-message conversion | session policy |
+| `core/provider/wire` | the wire-format table: names, default endpoints, and dialect facts | HTTP, backends, or service quirks |
 | `internal/login` | `/login` choices per service and connection verification | wire backends or config writes |
 | `internal/catalog` | models.dev metadata: the bundled snapshot and its cached refresh | which provider APIs kon supports |
 | `internal/catalog/generate` | refreshing the bundled snapshot, run only by `go generate` | anything a normal build runs |
-| `internal/session` | domain messages and append-only context tree | provider requests |
+| `core/session` | domain messages and append-only context tree | provider requests |
 | `internal/migrate` | storage upgrade locking, version tracking, and the `Step` interface | the concrete steps |
 | `internal/migrations` | the concrete, ordered storage upgrade steps | locking or version tracking |
-| `internal/tools` | tool registry, bounded tool schemas and execution | agent orchestration |
+| `internal/codetools` | kon's coding tools: bounded schemas, execution, and transcript displays | agent orchestration |
+| `internal/prompt` | kon's system prompt | context-file discovery |
 | `internal/web` | `kon tool` web access: fetching pages as Markdown | tool schemas or agent state |
-| `internal/typedid` | identifier construction and parsing | storage or provider policy |
-| `internal/tokens` | the token count type and its compact display | usage policy or estimation |
+| `core/typedid` | identifier construction and parsing | storage or provider policy |
+| `core/tokens` | the token count type and its compact display | usage policy or estimation |
 | `internal/buildinfo` | build version and the outgoing User-Agent | configuration or network clients |
 | `internal/config` | paths, defaults, validation, credentials | runtime mutation |
 | `internal/contextfiles` | AGENTS.md/CLAUDE.md discovery up the directory tree | prompt assembly |
@@ -79,7 +86,7 @@ no terminal state; the UI owns no provider or session serialization.
   Do not rebuild the system prompt on a resumed session.
 - kon-owned IDs are immutable value objects with unexported storage. Add a
   prefix only for a new durable entity with its own identity: register it in
-  `internal/typedid`, use 20 unbiased base62 characters, add JSON rejection
+  `core/typedid`, use 20 unbiased base62 characters, add JSON rejection
   tests, and document it in `docs/development/session-format.md`.
 - Never validate the shape of an ID owned by a provider. Wrap it in a distinct
   named type (`ToolCallID`, `ModelID`), validate only whether it is semantically

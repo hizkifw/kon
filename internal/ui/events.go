@@ -3,11 +3,11 @@ package ui
 import (
 	"encoding/json"
 
-	"github.com/hizkifw/kon/internal/agent"
-	"github.com/hizkifw/kon/internal/session"
-	"github.com/hizkifw/kon/internal/tokens"
-	"github.com/hizkifw/kon/internal/tools"
-	"github.com/hizkifw/kon/internal/typedid"
+	"github.com/hizkifw/kon/core/agent"
+	"github.com/hizkifw/kon/core/session"
+	"github.com/hizkifw/kon/core/tokens"
+	"github.com/hizkifw/kon/core/typedid"
+	"github.com/hizkifw/kon/internal/codetools"
 )
 
 // maxResultChars bounds tool result text kept in the transcript. Display
@@ -34,7 +34,11 @@ func (m *Model) applyAgentEvent(event agent.Event) bool {
 		// The running tool's own display snapshot. Events arrive one at a time
 		// from the run channel, so the snapshot simply replaces the previous
 		// one for the call, which is still the transcript's last tool block.
-		m.transcript.updateToolLive(event.Display)
+		// kon's tools report a codetools.Display; anything else has nothing
+		// to paint.
+		if display, ok := event.Progress.(codetools.Display); ok {
+			m.transcript.updateToolLive(display)
+		}
 	case agent.EventToolDone:
 		m.jobs = m.runtime.RunningJobs()
 		m.transcript.add(m.toolResultBlock(event))
@@ -74,7 +78,7 @@ func (m *Model) setTurnVerb(verb string) {
 // any result exists.
 func (m *Model) toolBlock(name string, args string) block {
 	b := block{kind: blockTool, name: name, args: args}
-	b.display = tools.Describe(name, []byte(args), "", false, nil, m.cwd)
+	b.display = codetools.Describe(name, []byte(args), "", false, nil, m.cwd)
 	return b
 }
 
@@ -84,7 +88,7 @@ func (m *Model) toolBlock(name string, args string) block {
 // full text.
 func (m *Model) toolResultBlock(event agent.Event) block {
 	text := sanitize(event.Text)
-	display := tools.Describe(event.Tool, []byte(sanitize(event.Arguments)), text, event.IsError, event.Details, m.cwd)
+	display := codetools.Describe(event.Tool, []byte(sanitize(event.Arguments)), text, event.IsError, event.Details, m.cwd)
 	if len(text) > maxResultChars {
 		for i, line := range display.Lines {
 			if len(line) > maxResultChars {

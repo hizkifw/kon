@@ -11,9 +11,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/hizkifw/kon/internal/session"
-	"github.com/hizkifw/kon/internal/tools"
-	"github.com/hizkifw/kon/internal/typedid"
+	"github.com/hizkifw/kon/core/session"
+	"github.com/hizkifw/kon/core/typedid"
+	"github.com/hizkifw/kon/internal/codetools"
 )
 
 // jobScrollback is how many lines of a command's output its drawer keeps.
@@ -32,7 +32,7 @@ const jobsInterval = 500 * time.Millisecond
 // jobStatus says how a job stands, marked so it reads at a glance, with the
 // color to show it in: a clean exit in the success color, one the user or
 // kon stopped in the warning color, and a failure in the danger color.
-func jobStatus(job tools.Job) (string, color.Color) {
+func jobStatus(job codetools.Job) (string, color.Color) {
 	exit := job.Exit
 	switch {
 	case exit == "":
@@ -56,7 +56,7 @@ func jobStatus(job tools.Job) (string, color.Color) {
 }
 
 // jobKind distinguishes a subagent from a plain command in listings.
-func jobKind(job tools.Job) string {
+func jobKind(job codetools.Job) string {
 	if job.Session != "" {
 		return "subagent"
 	}
@@ -64,7 +64,7 @@ func jobKind(job tools.Job) string {
 }
 
 // jobTitle heads a job's drawer or preview.
-func jobTitle(job tools.Job) string {
+func jobTitle(job codetools.Job) string {
 	status, _ := jobStatus(job)
 	return jobKind(job) + " " + strconv.Itoa(job.ID) + " · " + status
 }
@@ -84,7 +84,7 @@ type jobsView struct {
 	// epoch tells this view's polls apart from those of one closed since.
 	epoch int
 	list  *drawer
-	jobs  []tools.Job
+	jobs  []codetools.Job
 	watch *jobWatch
 	// polling marks a read of the job files in flight; there is never more
 	// than one.
@@ -94,7 +94,7 @@ type jobsView struct {
 // jobWatch is one job's drawer. It shows a subagent's own conversation, once
 // its session can be read, and otherwise the command and its output.
 type jobWatch struct {
-	job        tools.Job
+	job        codetools.Job
 	drawer     *drawer
 	transcript transcript
 	reader     jobReader
@@ -138,7 +138,7 @@ type jobsTickMsg struct{ epoch int }
 
 type jobsPolledMsg struct {
 	epoch int
-	jobs  []tools.Job
+	jobs  []codetools.Job
 	// watch is the job drawer this read was for, nil when none was open.
 	watch *jobWatch
 	read  jobRead
@@ -206,7 +206,7 @@ func (v *jobsView) fillList() {
 }
 
 // selected is the highlighted job, or the zero job when there is none.
-func (v *jobsView) selected() tools.Job {
+func (v *jobsView) selected() codetools.Job {
 	if list := v.list.list; list.index < len(list.items) {
 		for _, job := range v.jobs {
 			if strconv.Itoa(job.ID) == list.items[list.index].Value {
@@ -214,7 +214,7 @@ func (v *jobsView) selected() tools.Job {
 			}
 		}
 	}
-	return tools.Job{}
+	return codetools.Job{}
 }
 
 func (v *jobsView) listActions(*Model) []drawerAction {
@@ -229,7 +229,7 @@ func (v *jobsView) listActions(*Model) []drawerAction {
 }
 
 // killAction offers to stop job while it runs.
-func killAction(job tools.Job) []drawerAction {
+func killAction(job codetools.Job) []drawerAction {
 	if job.Exit != "" {
 		return nil
 	}
@@ -246,7 +246,7 @@ func killAction(job tools.Job) []drawerAction {
 // openJob opens job's drawer over the list. It fills on the next read,
 // which starts now unless one is already in flight: that one's answer then
 // reads the job at once.
-func (m *Model) openJob(job tools.Job) tea.Cmd {
+func (m *Model) openJob(job codetools.Job) tea.Cmd {
 	v := m.jobsView
 	w := &jobWatch{job: job, transcript: transcript{cwd: m.cwd}}
 	w.drawer = &drawer{title: jobTitle(job), transcript: &w.transcript, onClose: func(m *Model) {
@@ -292,7 +292,7 @@ func (m *Model) pollJobs() tea.Cmd {
 
 // readJob reads what job gained since reader last read it: its subagent's
 // session once there is one to open, and its output until then.
-func readJob(runtime Runtime, job tools.Job, r jobReader) jobRead {
+func readJob(runtime Runtime, job codetools.Job, r jobReader) jobRead {
 	if r.view == nil && !r.tried && job.Session != "" {
 		r.tried = true
 		if id, err := typedid.ParseSessionID(job.Session); err == nil {

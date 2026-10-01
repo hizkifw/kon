@@ -15,6 +15,18 @@ app runtime ────── agent runner ───── provider layer
     └── session store ───── append-only JSONL
 ```
 
+## Core and CLI
+
+`core/` is everything that makes an agent run: the `agent.Runner` loop with
+compaction, provider backends with retries, the session store, and the
+`tool.Tool` contract. It knows nothing about kon's prompt, tools, or terminal.
+The CLI supplies those: `internal/prompt` builds the system prompt,
+`internal/codetools` registers read, write, edit, and shell, and `internal/app`
+puts them together in an `agent.Config`. A tool's live progress reaches the
+event stream as an opaque snapshot; kon's tools report a `codetools.Display`,
+which the UI paints. Another program, such as a chat bot, builds its own
+registry and prompt the same way; `core/agent/example_test.go` shows one.
+
 ## Runtime flow
 
 1. Resolve configuration and data roots. Acquire a storage lease, run any
@@ -199,7 +211,7 @@ as a role-colored slab: user and error messages carry distinct backgrounds,
 agent messages render on the default terminal background, thinking traces
 render in muted gray, and consecutive tool calls pair with their results and
 collapse into a single grouped slab so bursts of tool activity stay compact.
-Each tool owns its transcript presentation through the `tools.Displayer`
+Each tool owns its transcript presentation through the `codetools.Displayer`
 interface: it renders the request-line summary and the trimmed result body
 from the persisted arguments and content, so the transcript never parses tool
 output, and a resumed session replays the identical display. A long-running
@@ -267,7 +279,7 @@ are never rewritten by a catalog refresh. Normal startup does not load the
 catalog or contact models.dev.
 
 Two concepts are kept apart. A wire format (the config `type`) is how kon
-talks to a server; `internal/provider/wire` lists every format with its
+talks to a server; `core/provider/wire` lists every format with its
 protocol, default base URL, API path, auth headers, reasoning-effort encoding,
 default reasoning field, and whether model listing is optional. Config
 validation, both backends, and login discovery all read that one table. The
@@ -523,7 +535,7 @@ inspected. JSON, typed-ID generation, files, subprocesses, and release
 cross-compilation also use the Go standard library. Dependencies are pinned in
 `go.mod` and authenticated by `go.sum`.
 
-Owned identifiers are value objects from `internal/typedid`. Their unexported
+Owned identifiers are value objects from `core/typedid`. Their unexported
 representation prevents arbitrary construction outside that package. External
 provider IDs use distinct named-string wrappers: kon prevents category mistakes
 without applying rules to identifiers it does not own.

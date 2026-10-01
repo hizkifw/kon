@@ -14,13 +14,13 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/term"
 
+	"github.com/hizkifw/kon/core/session"
+	"github.com/hizkifw/kon/core/typedid"
 	"github.com/hizkifw/kon/internal/app"
 	"github.com/hizkifw/kon/internal/buildinfo"
+	"github.com/hizkifw/kon/internal/codetools"
 	"github.com/hizkifw/kon/internal/config"
 	"github.com/hizkifw/kon/internal/headless"
-	"github.com/hizkifw/kon/internal/session"
-	"github.com/hizkifw/kon/internal/tools"
-	"github.com/hizkifw/kon/internal/typedid"
 	"github.com/hizkifw/kon/internal/ui"
 )
 
@@ -168,7 +168,7 @@ func runRun(args []string) error {
 	if err != nil {
 		return usageError(err)
 	}
-	if depth := tools.Depth(); depth > maxSubagentDepth {
+	if depth := codetools.Depth(); depth > maxSubagentDepth {
 		return fmt.Errorf("subagents nested %d deep, past limit of %d; do task directly", depth, maxSubagentDepth)
 	}
 	prompt, err := parsed.prompt(os.Stdin, !isTerminal(os.Stdin))
@@ -191,7 +191,7 @@ func runRun(args []string) error {
 		runtime, err := app.Start(cfg, paths, cwd, buildinfo.Version(), app.Options{
 			Resume: parsed.resume, SessionID: parsed.resumeID, Model: parsed.model, Effort: parsed.effort,
 			// A subagent of an incognito session is incognito too.
-			Parent: parentSession(), Incognito: parsed.incognito || tools.Incognito(),
+			Parent: parentSession(), Incognito: parsed.incognito || codetools.Incognito(),
 		})
 		if err != nil {
 			return err

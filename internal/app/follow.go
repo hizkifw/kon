@@ -1,8 +1,8 @@
 package app
 
 import (
-	"github.com/hizkifw/kon/internal/session"
-	"github.com/hizkifw/kon/internal/typedid"
+	"github.com/hizkifw/kon/core/session"
+	"github.com/hizkifw/kon/core/typedid"
 )
 
 // openView opens a session another kon has open, to follow it read-only. The

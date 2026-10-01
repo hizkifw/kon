@@ -11,13 +11,13 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/hizkifw/kon/core/typedid"
 	"github.com/hizkifw/kon/internal/app"
 	"github.com/hizkifw/kon/internal/buildinfo"
 	"github.com/hizkifw/kon/internal/config"
 	"github.com/hizkifw/kon/internal/history"
 	"github.com/hizkifw/kon/internal/migrate"
 	"github.com/hizkifw/kon/internal/migrations"
-	"github.com/hizkifw/kon/internal/typedid"
 	"github.com/hizkifw/kon/internal/ui"
 )
 

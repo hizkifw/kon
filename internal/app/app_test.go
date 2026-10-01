@@ -13,13 +13,14 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/hizkifw/kon/internal/agent"
+	"github.com/hizkifw/kon/core/agent"
+	"github.com/hizkifw/kon/core/provider"
+	"github.com/hizkifw/kon/core/session"
+	"github.com/hizkifw/kon/core/tokens"
+	"github.com/hizkifw/kon/core/tool"
+	"github.com/hizkifw/kon/core/typedid"
+	"github.com/hizkifw/kon/internal/codetools"
 	"github.com/hizkifw/kon/internal/config"
-	"github.com/hizkifw/kon/internal/provider"
-	"github.com/hizkifw/kon/internal/session"
-	"github.com/hizkifw/kon/internal/tokens"
-	"github.com/hizkifw/kon/internal/tools"
-	"github.com/hizkifw/kon/internal/typedid"
 )
 
 type blockingProvider struct{ started chan struct{} }
@@ -658,7 +659,7 @@ func TestCloseCancelsAndWaitsForActiveRun(t *testing.T) {
 	provider := &blockingProvider{started: make(chan struct{})}
 	runtime := &Runtime{
 		active: profile, store: store, phase: PhaseReady,
-		runner: agent.New(profile.limits(config.Default().Compaction), provider, store, tools.New(t.TempDir(), false, nil)),
+		runner: agent.New(agent.Config{Limits: profile.limits(config.Default().Compaction), Provider: provider, Store: store, Tools: tool.NewExecutor(codetools.Registry(nil), t.TempDir(), false)}),
 	}
 	runDone := make(chan error, 1)
 	go func() { runDone <- runtime.Run(context.Background(), "work", nil, func(agent.Event) {}) }()
@@ -680,7 +681,7 @@ func TestCloseRefusesOperationsWhileTheRunWindsDown(t *testing.T) {
 	provider := &windingProvider{started: make(chan struct{}), cancelled: make(chan struct{}), release: make(chan struct{})}
 	runtime := &Runtime{
 		active: profile, store: store, phase: PhaseReady,
-		runner: agent.New(profile.limits(config.Default().Compaction), provider, store, tools.New(t.TempDir(), false, nil)),
+		runner: agent.New(agent.Config{Limits: profile.limits(config.Default().Compaction), Provider: provider, Store: store, Tools: tool.NewExecutor(codetools.Registry(nil), t.TempDir(), false)}),
 	}
 	runDone := make(chan error, 1)
 	go func() { runDone <- runtime.Run(context.Background(), "work", nil, func(agent.Event) {}) }()

@@ -13,15 +13,18 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/hizkifw/kon/internal/agent"
+	"github.com/hizkifw/kon/core/agent"
+	"github.com/hizkifw/kon/core/provider"
+	"github.com/hizkifw/kon/core/session"
+	"github.com/hizkifw/kon/core/tokens"
+	"github.com/hizkifw/kon/core/tool"
+	"github.com/hizkifw/kon/core/typedid"
+	"github.com/hizkifw/kon/internal/buildinfo"
 	"github.com/hizkifw/kon/internal/catalog"
+	"github.com/hizkifw/kon/internal/codetools"
 	"github.com/hizkifw/kon/internal/config"
 	"github.com/hizkifw/kon/internal/contextfiles"
-	"github.com/hizkifw/kon/internal/provider"
-	"github.com/hizkifw/kon/internal/session"
-	"github.com/hizkifw/kon/internal/tokens"
-	"github.com/hizkifw/kon/internal/tools"
-	"github.com/hizkifw/kon/internal/typedid"
+	"github.com/hizkifw/kon/internal/prompt"
 )
 
 var (
@@ -103,7 +106,7 @@ type Runtime struct {
 	// supervisor with its first runner and loses it, killing whatever still
 	// runs, when the store closes. notices carries their exit notices to the
 	// frontend.
-	jobs    map[*session.Store]*tools.Jobs
+	jobs    map[*session.Store]*codetools.Jobs
 	notices chan string
 	// subagents counts the usage of the live session's subagents, for the
 	// session it was made for.
@@ -142,7 +145,7 @@ type modelSpec struct {
 func (m modelSpec) providerSpec() provider.Spec {
 	return provider.Spec{
 		Name: m.Name, Format: m.WireFormat(), ModelID: m.ModelID,
-		BaseURL: m.BaseURL, APIKey: m.APIKey, Headers: m.Headers,
+		BaseURL: m.BaseURL, APIKey: m.APIKey, Headers: m.Headers, UserAgent: buildinfo.UserAgent(),
 		Vision: m.Vision, Reasoning: m.Reasoning, ReasoningEffort: m.effort,
 		Pricing: provider.Pricing(m.Cost),
 	}
@@ -207,7 +210,7 @@ func Start(cfg config.Config, paths config.Paths, cwd, version string, opts Opti
 		name = opts.Model
 	}
 	r := &Runtime{config: cfg, paths: paths, cwd: cwd, providerModels: loadProviderModels(paths.ProviderModels), pinned: opts.Model != "", effort: opts.Effort,
-		incognito: opts.Incognito, jobs: map[*session.Store]*tools.Jobs{}, notices: make(chan string, 64)}
+		incognito: opts.Incognito, jobs: map[*session.Store]*codetools.Jobs{}, notices: make(chan string, 64)}
 	r.createSession = func() (*session.Store, error) {
 		prompt, err := r.systemPrompt()
 		if err != nil {
@@ -281,20 +284,25 @@ func (r *Runtime) buildRunner(profile modelSpec, store *session.Store) (*agent.R
 	if err != nil {
 		return nil, err
 	}
-	return agent.New(profile.limits(r.config.Compaction), client, store, tools.New(r.cwd, profile.Vision, r.jobsFor(store))), nil
+	return agent.New(agent.Config{
+		Limits:   profile.limits(r.config.Compaction),
+		Provider: client,
+		Store:    store,
+		Tools:    tool.NewExecutor(codetools.Registry(r.jobsFor(store)), r.cwd, profile.Vision),
+	}), nil
 }
 
 // jobsFor returns the store's job supervisor, starting it on first use. Every
 // runner built for a store shares it, so a model switch keeps its jobs.
-func (r *Runtime) jobsFor(store *session.Store) *tools.Jobs {
+func (r *Runtime) jobsFor(store *session.Store) *codetools.Jobs {
 	if jobs, ok := r.jobs[store]; ok {
 		return jobs
 	}
 	if r.jobs == nil {
-		r.jobs = map[*session.Store]*tools.Jobs{}
+		r.jobs = map[*session.Store]*codetools.Jobs{}
 	}
 	notices := r.notices
-	jobs := tools.NewJobs(store.JobsDir(), store.ID().String(), r.incognito, r.konDir(), func(notice string) {
+	jobs := codetools.NewJobs(store.JobsDir(), store.ID().String(), r.incognito, r.konDir(), func(notice string) {
 		// A frontend that is not listening, like kon run, must not stall the
 		// job's goroutine; the job's files still record how it ended.
 		select {
@@ -321,7 +329,7 @@ func (r *Runtime) konDir() string {
 		executable = resolved
 	}
 	if r.paths.DataDir != "" {
-		if dir, err := tools.KonDir(r.paths.DataDir, executable); err == nil {
+		if dir, err := codetools.KonDir(r.paths.DataDir, executable); err == nil {
 			return dir
 		}
 	}
@@ -343,7 +351,7 @@ func (r *Runtime) closeStore(store *session.Store) error {
 func (r *Runtime) Notices() <-chan string { return r.notices }
 
 // Jobs lists the live session's background jobs, newest first.
-func (r *Runtime) Jobs() []tools.Job {
+func (r *Runtime) Jobs() []codetools.Job {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.store == nil {
@@ -665,8 +673,8 @@ func (r *Runtime) SessionPreview(path string, maxTurns int) ([]session.Entry, er
 // DescribeTool resolves the transcript display for a persisted tool call
 // through the tool that owns it, so a replayed session shows the same
 // presentation the call had live.
-func (r *Runtime) DescribeTool(name string, args json.RawMessage, result string, failed bool, details json.RawMessage) tools.Display {
-	return tools.Describe(name, args, result, failed, details, r.cwd)
+func (r *Runtime) DescribeTool(name string, args json.RawMessage, result string, failed bool, details json.RawMessage) codetools.Display {
+	return codetools.Describe(name, args, result, failed, details, r.cwd)
 }
 
 // ContextUsage reports the current context size in tokens and whether that value
@@ -775,7 +783,7 @@ func (r *Runtime) systemPrompt() (string, error) {
 			return hasGlobal && file.Path == global.Path
 		})...)
 	}
-	return agent.SystemPrompt(r.cwd, files), nil
+	return prompt.System(r.cwd, files), nil
 }
 
 // prepareSession creates a new session for profile. A model that is not ready

@@ -5,8 +5,8 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/hizkifw/kon/core/session"
 	"github.com/hizkifw/kon/internal/app"
-	"github.com/hizkifw/kon/internal/session"
 )
 
 // followInterval is how often a followed session is read for what its writer
