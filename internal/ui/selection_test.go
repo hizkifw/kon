@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/hizkifw/kon/internal/tui"
 )
 
 // The commands these tests run only work out a selection's text. The one that
@@ -38,7 +39,7 @@ func cellOf(t *testing.T, m Model, text string) (x, y int) {
 	view, area := m.surface()
 	for i, line := range m.activeTranscript().lines {
 		if col := strings.Index(ansi.Strip(line), text); col >= 0 {
-			return area.x + col, area.y + i - view.YOffset()
+			return area.X + col, area.Y + i - view.YOffset()
 		}
 	}
 	t.Fatalf("%q is not in the transcript", text)
@@ -278,7 +279,7 @@ func TestWheelWhileDraggingGrowsTheSelection(t *testing.T) {
 	m, _ = move(m, 5, y)
 	before := m.transcript.selection.head.from.line
 	m, _ = update(m, tea.MouseWheelMsg{X: 5, Y: y, Button: tea.MouseWheelUp})
-	if got, want := m.transcript.selection.head.from.line, before-m.viewport.mouseDelta; got != want {
+	if got, want := m.transcript.selection.head.from.line, before-tui.WheelStep; got != want {
 		t.Fatalf("head on line %d after a wheel up, want %d", got, want)
 	}
 }

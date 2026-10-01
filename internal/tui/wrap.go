@@ -1,4 +1,4 @@
-package ui
+package tui
 
 import (
 	"strings"
@@ -8,7 +8,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// plainWrapper word-wraps plain (ANSI-free) text the way lipgloss.Wrap does with
+// Wrapper word-wraps plain (ANSI-free) text the way lipgloss.Wrap does with
 // no breakpoints, but streams: Write can be called repeatedly with deltas and
 // only the current trailing line is ever revised. That makes wrapping a growing
 // live message linear in the deltas rather than O(message) per frame.
@@ -16,7 +16,7 @@ import (
 // The algorithm mirrors ansi.wrap's greedy behaviour: words are kept whole,
 // over-long words are hard-wrapped, runs of spaces are held back so they are not
 // emitted before a word that might still arrive, and a hyphen is a breakpoint.
-type plainWrapper struct {
+type Wrapper struct {
 	limit int
 
 	lines []string // finished lines, never revised
@@ -29,14 +29,14 @@ type plainWrapper struct {
 	spaceWidth int
 }
 
-func newPlainWrapper(limit int) *plainWrapper {
+func NewWrapper(limit int) *Wrapper {
 	if limit < 1 {
 		limit = 1
 	}
-	return &plainWrapper{limit: limit}
+	return &Wrapper{limit: limit}
 }
 
-func (w *plainWrapper) addSpace() {
+func (w *Wrapper) addSpace() {
 	if len(w.space) == 0 {
 		return
 	}
@@ -46,7 +46,7 @@ func (w *plainWrapper) addSpace() {
 	w.spaceWidth = 0
 }
 
-func (w *plainWrapper) addWord() {
+func (w *Wrapper) addWord() {
 	if len(w.word) == 0 {
 		return
 	}
@@ -57,7 +57,7 @@ func (w *plainWrapper) addWord() {
 	w.wordLen = 0
 }
 
-func (w *plainWrapper) addNewline() {
+func (w *Wrapper) addNewline() {
 	w.lines = append(w.lines, string(w.cur))
 	w.cur = w.cur[:0]
 	w.curWidth = 0
@@ -65,13 +65,13 @@ func (w *plainWrapper) addNewline() {
 	w.spaceWidth = 0
 }
 
-func (w *plainWrapper) hardwrapIfNeeded() {
+func (w *Wrapper) hardwrapIfNeeded() {
 	if w.wordLen == w.limit {
 		w.addWord()
 	}
 }
 
-func (w *plainWrapper) writeASCIIWordByte(b byte) {
+func (w *Wrapper) writeASCIIWordByte(b byte) {
 	if w.curWidth == w.limit {
 		w.addNewline()
 	}
@@ -85,7 +85,7 @@ func (w *plainWrapper) writeASCIIWordByte(b byte) {
 
 // writeASCIIWord appends a run of ASCII word bytes, using a bulk fast path when
 // the run clearly fits without a wrap or hard-wrap boundary.
-func (w *plainWrapper) writeASCIIWord(run string) {
+func (w *Wrapper) writeASCIIWord(run string) {
 	if w.wordLen+len(run) <= w.limit && w.curWidth+w.wordLen+w.spaceWidth+len(run) <= w.limit {
 		w.word = append(w.word, run...)
 		w.wordLen += len(run)
@@ -97,13 +97,13 @@ func (w *plainWrapper) writeASCIIWord(run string) {
 	}
 }
 
-func (w *plainWrapper) writeSpace(b byte) {
+func (w *Wrapper) writeSpace(b byte) {
 	w.addWord()
 	w.space = append(w.space, b)
 	w.spaceWidth++
 }
 
-func (w *plainWrapper) writeHyphen() {
+func (w *Wrapper) writeHyphen() {
 	w.addSpace()
 	if w.curWidth+w.wordLen >= w.limit {
 		w.word = append(w.word, '-')
@@ -115,7 +115,7 @@ func (w *plainWrapper) writeHyphen() {
 	w.curWidth++
 }
 
-func (w *plainWrapper) writeNewline() {
+func (w *Wrapper) writeNewline() {
 	if w.wordLen == 0 {
 		if w.curWidth+w.spaceWidth > w.limit {
 			w.curWidth = 0
@@ -129,7 +129,7 @@ func (w *plainWrapper) writeNewline() {
 	w.addNewline()
 }
 
-func (w *plainWrapper) writeCluster(cluster string, width int, isSpace bool) {
+func (w *Wrapper) writeCluster(cluster string, width int, isSpace bool) {
 	if isSpace {
 		w.addWord()
 		w.space = append(w.space, cluster...)
@@ -148,7 +148,7 @@ func (w *plainWrapper) writeCluster(cluster string, width int, isSpace bool) {
 }
 
 // Write feeds text into the wrapper.
-func (w *plainWrapper) Write(s string) {
+func (w *Wrapper) Write(s string) {
 	i := 0
 	for i < len(s) {
 		b := s[i]
@@ -194,7 +194,7 @@ func isASCIIWordByte(b byte) bool {
 }
 
 // Lines finishes wrapping and returns the display lines.
-func (w *plainWrapper) Lines() []string {
+func (w *Wrapper) Lines() []string {
 	if w.wordLen == 0 {
 		if w.curWidth+w.spaceWidth > w.limit {
 			w.curWidth = 0
@@ -211,13 +211,13 @@ func (w *plainWrapper) Lines() []string {
 
 // Finalized returns the lines that can no longer change as more text is written.
 // The returned slice is append-only across Write calls.
-func (w *plainWrapper) Finalized() []string {
+func (w *Wrapper) Finalized() []string {
 	return w.lines
 }
 
 // Current returns the still-growing line, including the pending word and spaces
 // that have not yet been committed to it.
-func (w *plainWrapper) Current() string {
+func (w *Wrapper) Current() string {
 	if len(w.space) == 0 && len(w.word) == 0 {
 		return string(w.cur)
 	}
@@ -228,15 +228,15 @@ func (w *plainWrapper) Current() string {
 	return string(b)
 }
 
-// wrapPlain wraps plain text to limit columns.
+// WrapPlain wraps plain text to limit columns.
 // tabWidth is how many columns apart tab stops are, as in markdown code.
 const tabWidth = 4
 
-// expandTabs turns each tab into spaces up to the next tab stop, counting
+// ExpandTabs turns each tab into spaces up to the next tab stop, counting
 // columns from the start of its line. lipgloss paints a tab as spaces but
 // measures it as nothing, so text measured for a slab has its tabs expanded
 // first, or a tabbed line runs past the slab's edge.
-func expandTabs(s string) string {
+func ExpandTabs(s string) string {
 	if !strings.Contains(s, "\t") {
 		return s
 	}
@@ -263,23 +263,22 @@ func expandTabs(s string) string {
 	return b.String()
 }
 
-func wrapPlain(s string, limit int) []string {
-	w := newPlainWrapper(limit)
+func WrapPlain(s string, limit int) []string {
+	w := NewWrapper(limit)
 	w.Write(s)
 	return w.Lines()
 }
 
-// ansiStripper removes ANSI escape sequences (CSI, OSC, two-byte escapes) and
+// Stripper removes ANSI escape sequences (CSI, OSC, two-byte escapes) and
 // C0 control bytes other than \n, \r, and \t from a stream of deltas.
-// plainWrapper parses those bytes as printable word text and would split an
-// escape mid-sequence, so its input must be plain text;
-// transcript.appendStream and transcript.appendThinking feed every delta
-// through one of these first.
+// Wrapper parses those bytes as printable word text and would split an
+// escape mid-sequence, so a stream bound for one goes through a Stripper
+// first.
 //
 // Sequences are dropped by state rather than by buffering, so one that is
 // split across deltas is still removed whole: the machine stays in its
 // sequence state, emitting nothing, until a terminating byte arrives.
-type ansiStripper struct {
+type Stripper struct {
 	state uint8
 }
 
@@ -291,10 +290,10 @@ const (
 	stripOSCESC        // inside OSC; saw the ESC of an ST terminator
 )
 
-// strip returns text with escapes and control bytes removed. The result may be
+// Strip returns text with escapes and control bytes removed. The result may be
 // shorter than expected when text ends inside a sequence; the rest of that
 // sequence is dropped when it arrives in a later delta.
-func (s *ansiStripper) strip(text string) string {
+func (s *Stripper) Strip(text string) string {
 	if s.state == stripGround {
 		i := 0
 		for i < len(text) {

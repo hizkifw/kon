@@ -7,6 +7,18 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
+// spending is what kon has spent in US dollars, as the status line shows it.
+type spending struct {
+	// own is what the live session's own responses have cost, side what
+	// /btw answers have, and subagents what its subagents have, as of the
+	// last read of their sessions.
+	own, side, subagents float64
+	// polling marks a read of the subagents in flight, and epoch counts
+	// sessions opened so a read for an earlier one is dropped.
+	polling bool
+	epoch   int
+}
+
 // spendInterval is how often subagent sessions are read again while a
 // subagent may be working.
 const spendInterval = time.Second
@@ -28,10 +40,10 @@ type spendMsg struct {
 // it with its first event; a subagent can only start from a tool call, which
 // has one.
 func (m *Model) pollSpend() tea.Cmd {
-	if m.spendPolling || (!m.busy() && m.jobs == 0 && m.follow == nil) {
+	if m.spend.polling || (!m.busy() && m.jobs.running == 0 && m.follow.replay == nil) {
 		return nil
 	}
-	m.spendPolling = true
+	m.spend.polling = true
 	return tea.Tick(spendInterval, m.readSpend(true))
 }
 
@@ -45,7 +57,7 @@ func (m *Model) loadSpend() tea.Cmd {
 // readSpend reads subagent spend for the session shown now. It captures the
 // runtime rather than the model, so it can run on another goroutine.
 func (m *Model) readSpend(polled bool) func(time.Time) tea.Msg {
-	runtime, epoch := m.runtime, m.spendEpoch
+	runtime, epoch := m.runtime, m.spend.epoch
 	return func(time.Time) tea.Msg {
 		return spendMsg{cost: runtime.SubagentUsage().Cost, epoch: epoch, polled: polled}
 	}
@@ -54,20 +66,20 @@ func (m *Model) readSpend(polled bool) func(time.Time) tea.Msg {
 // applySpend adopts a read of subagent spend and schedules the next one.
 func (m *Model) applySpend(msg spendMsg) tea.Cmd {
 	if msg.polled {
-		m.spendPolling = false
+		m.spend.polling = false
 	}
-	if msg.epoch == m.spendEpoch {
-		m.subagentSpent = msg.cost
+	if msg.epoch == m.spend.epoch {
+		m.spend.subagents = msg.cost
 	}
-	m.jobs = m.runtime.RunningJobs()
+	m.jobs.running = m.runtime.RunningJobs()
 	return m.pollSpend()
 }
 
 // resetSpend starts counting subagent spend again for a session just opened.
 func (m *Model) resetSpend() tea.Cmd {
-	m.sideSpent = 0
-	m.spendEpoch++
-	m.subagentSpent = 0
+	m.spend.side = 0
+	m.spend.epoch++
+	m.spend.subagents = 0
 	return m.loadSpend()
 }
 

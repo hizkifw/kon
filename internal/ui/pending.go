@@ -12,6 +12,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/hizkifw/kon/core/agent"
+	"github.com/hizkifw/kon/internal/tui"
 )
 
 // maxPendingRows caps the strip of pending messages above the status line; the
@@ -114,7 +115,7 @@ func waitNotice(notices <-chan string) tea.Cmd {
 // is in flight, or by starting a run when idle, so a job finishing after the
 // agent's turn ended still gets its attention.
 func (m Model) deliverNotice(text string) (tea.Model, tea.Cmd) {
-	m.jobs = m.runtime.RunningJobs()
+	m.jobs.running = m.runtime.RunningJobs()
 	// A subagent writes its last response before its job exits.
 	read := m.loadSpend()
 	if m.busy() || !m.canSend() {
@@ -155,7 +156,7 @@ func (m Model) pendingRows() []string {
 func (m Model) pendingView() string {
 	rows := m.pendingRows()
 	for i, row := range rows {
-		rows[i] = fitLine(row, m.width)
+		rows[i] = tui.Fit(row, m.width)
 	}
 	return strings.Join(rows, "\n")
 }
@@ -163,7 +164,7 @@ func (m Model) pendingView() string {
 func (m Model) pendingHeight() int { return min(len(m.steering)+len(m.queued), maxPendingRows) }
 
 // oneLine flattens a message to a single line for the strip and the picker.
-func oneLine(text string) string { return strings.Join(strings.Fields(sanitize(text)), " ") }
+func oneLine(text string) string { return strings.Join(strings.Fields(tui.Sanitize(text)), " ") }
 
 // placeholder names what Enter and Tab do in the current state, where the
 // prompt is empty and so has room to say it.

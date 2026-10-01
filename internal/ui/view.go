@@ -10,6 +10,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/hizkifw/kon/internal/app"
+	"github.com/hizkifw/kon/internal/tui"
 )
 
 // maxInputLines caps how tall the prompt input grows, in visual rows
@@ -32,7 +33,7 @@ func (m *Model) resize() {
 	m.input.SetHeight(inputHeight)
 	m.viewport.SetWidth(max(1, m.width))
 	m.viewport.SetHeight(max(1, m.height-inputHeight-2-panels))
-	m.layoutDrawers()
+	m.drawers.Resize(m.width, m.height)
 }
 
 // refreshTranscript updates the viewport contents. When toBottom is set, the
@@ -46,7 +47,7 @@ func (m *Model) refreshTranscript(toBottom bool) {
 	if follow {
 		m.viewport.GotoBottom()
 	}
-	m.refreshDrawers()
+	m.drawers.Refresh()
 }
 
 // activeTranscript is the transcript the mouse works on: the top drawer's when
@@ -54,7 +55,8 @@ func (m *Model) refreshTranscript(toBottom bool) {
 // shows.
 func (m *Model) activeTranscript() *transcript {
 	if d := m.topDrawer(); d != nil {
-		return d.transcript
+		t, _ := d.Content.(*transcript)
+		return t
 	}
 	return m.mainTranscript()
 }
@@ -62,8 +64,8 @@ func (m *Model) activeTranscript() *transcript {
 // mainTranscript is the transcript the main viewport shows: a highlighted
 // popup row's preview when one is active, otherwise the live conversation.
 func (m *Model) mainTranscript() *transcript {
-	if m.preview != nil {
-		return m.preview
+	if m.preview.transcript != nil {
+		return m.preview.transcript
 	}
 	return &m.transcript
 }
@@ -82,20 +84,20 @@ func (m Model) View() tea.View {
 	ctx := "ctx ?"
 	if m.contextTokens >= 0 {
 		prefix := ""
-		if m.contextApprox || m.streamedContext > 0 {
+		if m.contextApprox || m.streamed.context > 0 {
 			prefix = "~"
 		}
-		ctx = "ctx " + prefix + (m.contextTokens + m.streamedContext).String()
+		ctx = "ctx " + prefix + (m.contextTokens + m.streamed.context).String()
 	}
 	if m.active.ContextWindow > 0 {
 		ctx += "/" + m.active.ContextWindow.String()
 	}
 	status := " " + abbreviateHome(m.cwd) + " · " + ctx
-	if m.jobs > 0 {
-		status += fmt.Sprintf(" · ⚙ %d", m.jobs)
+	if m.jobs.running > 0 {
+		status += fmt.Sprintf(" · ⚙ %d", m.jobs.running)
 	}
-	streaming := float64(m.streamed) * m.active.OutputPrice / 1e6
-	if spent := m.spent + m.subagentSpent + m.sideSpent + streaming; spent > 0 {
+	streaming := float64(m.streamed.all) * m.active.OutputPrice / 1e6
+	if spent := m.spend.own + m.spend.subagents + m.spend.side + streaming; spent > 0 {
 		status += " · " + formatCost(spent)
 	}
 	// The transcript shows what a turn is doing, so the status line carries
@@ -104,15 +106,15 @@ func (m Model) View() tea.View {
 	if text := m.statusText(); text != "" {
 		status += " · " + text
 	}
-	line := statusStyle.Render(fitLine(status, m.width))
+	line := statusStyle.Render(tui.Fit(status, m.width))
 	if t := m.messageTone(); t != toneInfo && m.search == nil {
-		line = statusStyle.Render(toneLine(fitLine(status, m.width), len(status)-len(oneLine(m.message)), t))
+		line = statusStyle.Render(toneLine(tui.Fit(status, m.width), len(status)-len(oneLine(m.message)), t))
 	}
 	transcript := m.viewport.View()
 	if t := m.mainTranscript(); t.selection != nil {
 		transcript = m.viewport.ViewWith(func(i int, line string) string { return t.highlight(i, line, m.width) })
 	}
-	sections := []string{headerStyle.Render(fitLine(header, m.width)), transcript}
+	sections := []string{headerStyle.Render(tui.Fit(header, m.width)), transcript}
 	if pending := m.pendingView(); pending != "" {
 		sections = append(sections, pending)
 	}
@@ -133,11 +135,11 @@ func (m Model) View() tea.View {
 	}
 	sections = append(sections, inputView(input, m.width))
 	content := strings.Join(sections, "\n")
-	if len(m.drawers) > 0 {
-		content = strings.Join(m.paintDrawers(strings.Split(content, "\n")), "\n")
+	if m.drawers.Len() > 0 {
+		content = strings.Join(m.drawers.Paint(&m, strings.Split(content, "\n")), "\n")
 	}
 	view := tea.NewView(content)
-	if m.terminalFocused && len(m.drawers) == 0 {
+	if m.terminalFocused && m.drawers.Len() == 0 {
 		view.Cursor = m.input.Cursor()
 		if m.login != nil {
 			view.Cursor = m.login.input.Cursor()
@@ -230,59 +232,9 @@ func toneLine(line string, at int, t tone) string {
 	return faint.Render(line[:at]) + toned.Render(line[at:])
 }
 
-func fitLine(value string, width int) string {
-	if width <= 0 || lipgloss.Width(value) <= width {
-		return value
-	}
-	if width == 1 {
-		return "…"
-	}
-	var out strings.Builder
-	used := 0
-	for _, r := range value {
-		runeWidth := lipgloss.Width(string(r))
-		if used+runeWidth > width-1 {
-			break
-		}
-		out.WriteRune(r)
-		used += runeWidth
-	}
-	out.WriteRune('…')
-	return out.String()
-}
-
 func abbreviateHome(path string) string {
 	if home, err := os.UserHomeDir(); err == nil && (path == home || strings.HasPrefix(path, home+string(os.PathSeparator))) {
 		return "~" + strings.TrimPrefix(path, home)
 	}
 	return path
-}
-
-// sanitize removes escape sequences and control characters other than newline
-// and tab from text bound for the screen. It shares ansiStripper's state
-// machine so an OSC (a window title, a hyperlink) is dropped whole rather than
-// leaving its payload behind as text once the ESC is gone.
-func sanitize(s string) string {
-	var strip ansiStripper
-	return dropC1(strings.ReplaceAll(strip.strip(s), "\r", ""))
-}
-
-// dropC1 removes C1 control characters (U+0080-U+009F), which some terminals
-// act on like the ESC sequences they abbreviate: U+009B is CSI. In UTF-8 each
-// is 0xC2 followed by 0x80-0x9F, and 0xC2 is only ever a lead byte, so a byte
-// scan cannot split another character.
-func dropC1(s string) string {
-	if strings.IndexByte(s, 0xc2) < 0 {
-		return s
-	}
-	var out strings.Builder
-	out.Grow(len(s))
-	for i := 0; i < len(s); i++ {
-		if s[i] == 0xc2 && i+1 < len(s) && s[i+1] >= 0x80 && s[i+1] <= 0x9f {
-			i++
-			continue
-		}
-		out.WriteByte(s[i])
-	}
-	return out.String()
 }

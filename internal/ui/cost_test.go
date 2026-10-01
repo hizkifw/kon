@@ -129,7 +129,7 @@ func TestSpendPollRunsOnlyWhileSubagentsMaySpend(t *testing.T) {
 		t.Fatal("an idle session without jobs polls the ledger")
 	}
 	m.runtime.(*fakeRuntime).jobs = 1
-	m.jobs = 1
+	m.jobs.running = 1
 	if cmd := m.pollSpend(); cmd == nil {
 		t.Fatal("a running job is not polled")
 	}
@@ -143,7 +143,7 @@ func TestSpendPollRunsOnlyWhileSubagentsMaySpend(t *testing.T) {
 	}
 	m.runtime.(*fakeRuntime).jobs = 0
 	updated, cmd = m.Update(m.readSpend(true)(time.Now()))
-	if m = updated.(Model); cmd != nil || m.spendPolling {
+	if m = updated.(Model); cmd != nil || m.spend.polling {
 		t.Fatal("the poll kept going after the last job exited")
 	}
 }
@@ -159,8 +159,8 @@ func TestFollowerKeepsReadingSubagentSpend(t *testing.T) {
 	}
 	runtime.subagentCost = 0.75
 	updated, cmd = m.Update(m.readSpend(true)(time.Now()))
-	if m = updated.(Model); cmd == nil || m.subagentSpent != 0.75 {
-		t.Fatalf("subagent spend = %v, poll continues = %v", m.subagentSpent, cmd != nil)
+	if m = updated.(Model); cmd == nil || m.spend.subagents != 0.75 {
+		t.Fatalf("subagent spend = %v, poll continues = %v", m.spend.subagents, cmd != nil)
 	}
 }
 
@@ -173,8 +173,8 @@ func TestSpendReadForAnEarlierSessionIsDropped(t *testing.T) {
 	updated, _ := m.newSession()
 	m = updated.(Model)
 	updated, _ = m.Update(stale)
-	if m = updated.(Model); m.subagentSpent != 0 {
-		t.Fatalf("subagent spend = %v after a read for the previous session", m.subagentSpent)
+	if m = updated.(Model); m.spend.subagents != 0 {
+		t.Fatalf("subagent spend = %v after a read for the previous session", m.spend.subagents)
 	}
 }
 

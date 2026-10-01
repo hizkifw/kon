@@ -9,6 +9,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/hizkifw/kon/internal/markdown"
+	"github.com/hizkifw/kon/internal/tui"
 )
 
 // Dragging over the transcript selects it, and releasing the button copies
@@ -99,11 +100,11 @@ var selectedStyle = lipgloss.NewStyle().Reverse(true)
 
 // surface is the scrolling view the mouse works on and where it sits on
 // screen: the top drawer's when one is open, otherwise the main transcript's.
-func (m *Model) surface() (*scrollView, rect) {
+func (m *Model) surface() (*tui.Scroll, tui.Rect) {
 	if d := m.topDrawer(); d != nil {
-		return &d.view, drawerBody(drawerRect(m.width, m.height, len(m.drawers)-1))
+		return d.View(), m.drawers.Body(m.drawers.Len() - 1)
 	}
-	return &m.viewport, rect{0, transcriptTop, m.width, m.viewport.Height()}
+	return &m.viewport, tui.Rect{Y: transcriptTop, W: m.width, H: m.viewport.Height()}
 }
 
 // pointAt returns the transcript cell under screen cell (x, y), held to the
@@ -111,28 +112,28 @@ func (m *Model) surface() (*scrollView, rect) {
 // or the bottom (positive) of the transcript.
 func (m Model) pointAt(x, y int) (point, int) {
 	view, area := m.surface()
-	row, edge := y-area.y, 0
+	row, edge := y-area.Y, 0
 	if row < 0 {
 		row, edge = 0, row
 	} else if last := view.Height() - 1; row > last {
 		row, edge = last, row-last
 	}
 	line := view.YOffset() + row
-	if last := len(view.lines) - 1; line > last {
+	if last := view.LineCount() - 1; line > last {
 		// Below the last line, as on the blank row under it: the selection
 		// runs to that line's end.
-		return point{last, area.w}, edge
+		return point{last, area.W}, edge
 	}
-	return point{line, max(0, x-area.x)}, edge
+	return point{line, max(0, x-area.X)}, edge
 }
 
 // pressMouse records a left press on the transcript. A single press selects
 // nothing until the pointer moves; a double click selects the word pressed
 // on and a triple click the paragraph, straight away.
 func (m Model) pressMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
-	if len(m.drawers) > 0 {
+	if m.drawers.Len() > 0 {
 		// The dimmed area around the top drawer only takes a click to close it.
-		if r := drawerRect(m.width, m.height, len(m.drawers)-1); !r.contains(msg.X, msg.Y) {
+		if r := m.drawers.Rect(m.drawers.Len() - 1); !r.Contains(msg.X, msg.Y) {
 			m.closeDrawer()
 			return m, nil
 		}
@@ -142,13 +143,13 @@ func (m Model) pressMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		// A list has no text to select.
-		if m.topDrawer().list != nil {
+		if m.topDrawer().List != nil {
 			return m, nil
 		}
 	}
 	m.activeTranscript().selection = nil
 	view, area := m.surface()
-	if msg.Button != tea.MouseLeft || len(m.drawers) == 0 && m.preview != nil || !area.contains(msg.X, msg.Y) || len(view.lines) == 0 {
+	if msg.Button != tea.MouseLeft || m.drawers.Len() == 0 && m.preview.transcript != nil || !area.Contains(msg.X, msg.Y) || view.LineCount() == 0 {
 		m.click = click{}
 		return m, nil
 	}
@@ -160,7 +161,7 @@ func (m Model) pressMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	}
 	m.click = click{at: p, when: now, count: count, down: true}
 	if u := unit(count - 1); u != byCell {
-		if r, ok := m.activeTranscript().unitAt(p, u, area.w); ok {
+		if r, ok := m.activeTranscript().unitAt(p, u, area.W); ok {
 			m.activeTranscript().selection = &selection{unit: u, anchor: r, head: r}
 		}
 	}
@@ -201,7 +202,7 @@ func (m Model) dragMouse(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 func (m *Model) moveHead(p point) {
 	sel := m.activeTranscript().selection
 	_, area := m.surface()
-	r, ok := m.activeTranscript().unitAt(p, sel.unit, area.w)
+	r, ok := m.activeTranscript().unitAt(p, sel.unit, area.W)
 	if !ok {
 		r = cells{p, p}
 	}
@@ -232,11 +233,11 @@ func (m Model) scrollSelection(msg selectScrollMsg) (tea.Model, tea.Cmd) {
 	}
 	view, area := m.surface()
 	view.SetYOffset(view.YOffset() + max(-maxSelectScroll, min(sel.edge, maxSelectScroll)))
-	row := area.y
+	row := area.Y
 	if sel.edge > 0 {
 		row += view.Height() - 1
 	}
-	p, _ := m.pointAt(area.x+sel.head.to.col, row)
+	p, _ := m.pointAt(area.X+sel.head.to.col, row)
 	m.moveHead(p)
 	return m, selectScrollTick(msg.epoch)
 }
@@ -256,7 +257,7 @@ func (m Model) releaseMouse(tea.MouseReleaseMsg) (tea.Model, tea.Cmd) {
 	}
 	start, end := sel.span()
 	_, area := m.surface()
-	parts := m.activeTranscript().selectedParts(start, end, area.w)
+	parts := m.activeTranscript().selectedParts(start, end, area.W)
 	if len(parts) == 0 {
 		return m, m.flash(toneInfo, "nothing to copy in the selection")
 	}

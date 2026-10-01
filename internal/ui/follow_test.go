@@ -35,8 +35,8 @@ func transcriptText(m Model) string { return plain(strings.Join(m.transcript.lin
 
 func TestFollowingSessionOpensReadOnlyWithItsTurnRunning(t *testing.T) {
 	m, _ := newFollowingModel(t)
-	if m.follow == nil || m.mode() != "read-only: open in another session · working" {
-		t.Fatalf("follow = %v, mode = %q", m.follow, m.mode())
+	if m.follow.replay == nil || m.mode() != "read-only: open in another session · working" {
+		t.Fatalf("follow = %v, mode = %q", m.follow.replay, m.mode())
 	}
 	if got := transcriptText(m); !strings.Contains(got, "fix it") || strings.Contains(got, "Stopped abruptly") {
 		t.Fatalf("a running turn was replayed as stopped:\n%s", got)
@@ -52,7 +52,7 @@ func TestFollowingSessionOpensReadOnlyWithItsTurnRunning(t *testing.T) {
 
 func TestFollowAppendsWhatTheWriterWrote(t *testing.T) {
 	m, runtime := newFollowingModel(t)
-	updated, cmd := m.Update(followedMsg{epoch: m.followEpoch, followed: app.Followed{
+	updated, cmd := m.Update(followedMsg{epoch: m.follow.epoch, followed: app.Followed{
 		Session: runtime.id,
 		Entries: []session.Entry{replayMessage(session.RoleAssistant, "fixed"), turnEnd(3 * time.Second)},
 	}})
@@ -66,7 +66,7 @@ func TestFollowAppendsWhatTheWriterWrote(t *testing.T) {
 	if m.mode() != "read-only: open in another session" {
 		t.Fatalf("mode = %q", m.mode())
 	}
-	updated, _ = m.Update(followedMsg{epoch: m.followEpoch, followed: app.Followed{Session: runtime.id, Free: true}})
+	updated, _ = m.Update(followedMsg{epoch: m.follow.epoch, followed: app.Followed{Session: runtime.id, Free: true}})
 	if mode := updated.(Model).mode(); mode != "read-only: session is free, send a prompt to continue here" {
 		t.Fatalf("mode once free = %q", mode)
 	}
@@ -75,7 +75,7 @@ func TestFollowAppendsWhatTheWriterWrote(t *testing.T) {
 func TestFollowDropsAStaleRead(t *testing.T) {
 	m, runtime := newFollowingModel(t)
 	before := transcriptText(m)
-	stale := followedMsg{epoch: m.followEpoch - 1, followed: app.Followed{Session: runtime.id, Entries: []session.Entry{replayMessage(session.RoleAssistant, "stale")}}}
+	stale := followedMsg{epoch: m.follow.epoch - 1, followed: app.Followed{Session: runtime.id, Entries: []session.Entry{replayMessage(session.RoleAssistant, "stale")}}}
 	updated, cmd := m.Update(stale)
 	if cmd != nil || transcriptText(updated.(Model)) != before {
 		t.Fatal("a read from an ended follow was applied")
@@ -88,14 +88,14 @@ func TestPromptWhileHeldStaysReadOnly(t *testing.T) {
 	m.input.SetValue("my turn")
 	updated, _ := m.submit()
 	m = updated.(Model)
-	if m.message != "read-only: still open in another session" || m.follow == nil || m.busy() || runtime.runs.Load() != 0 {
-		t.Fatalf("status = %q, following = %v, busy = %v", m.message, m.follow != nil, m.busy())
+	if m.message != "read-only: still open in another session" || m.follow.replay == nil || m.busy() || runtime.runs.Load() != 0 {
+		t.Fatalf("status = %q, following = %v, busy = %v", m.message, m.follow.replay != nil, m.busy())
 	}
 	if m.input.Value() != "my turn" {
 		t.Fatal("a refused prompt was cleared from the input")
 	}
 	// The refusal stays up until the follow state has something new to say.
-	updated, _ = m.Update(followedMsg{epoch: m.followEpoch, followed: app.Followed{Session: runtime.id}})
+	updated, _ = m.Update(followedMsg{epoch: m.follow.epoch, followed: app.Followed{Session: runtime.id}})
 	if status := updated.(Model).message; status != "read-only: still open in another session" {
 		t.Fatalf("status after an idle read = %q", status)
 	}
@@ -107,8 +107,8 @@ func TestPromptTakesOverAFreeSession(t *testing.T) {
 	m.input.SetValue("my turn")
 	updated, _ := m.submit()
 	m = updated.(Model)
-	if m.follow != nil || !m.busy() {
-		t.Fatalf("following = %v, busy = %v after taking over", m.follow != nil, m.busy())
+	if m.follow.replay != nil || !m.busy() {
+		t.Fatalf("following = %v, busy = %v after taking over", m.follow.replay != nil, m.busy())
 	}
 	got := transcriptText(m)
 	// The writer's unfinished turn is closed before this kon's prompt.

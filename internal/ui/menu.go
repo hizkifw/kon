@@ -1,10 +1,10 @@
 package ui
 
 import (
-	"image/color"
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/hizkifw/kon/internal/tui"
 )
 
 // maxMenuRows caps how many popup rows are shown at once.
@@ -20,13 +20,6 @@ type menuItem struct {
 	// without committing. It is built lazily on highlight, never for every
 	// candidate. Nil means no preview.
 	Preview func() *transcript
-	// Heading marks a row of a drawer's list that names the section below
-	// it rather than something to pick; it is never highlighted.
-	Heading bool
-	// Badge is a short status a drawer's list shows between the label and
-	// the description, in BadgeColor, or the text color when that is nil.
-	Badge      string
-	BadgeColor color.Color
 }
 
 // menu is a generic selectable popup rendered above the prompt. It owns only
@@ -83,11 +76,11 @@ func (m menu) height() int {
 func (m menu) render(width int) string {
 	if !m.open() {
 		if m.note != "" {
-			return lipgloss.NewStyle().Foreground(colorFaint).Render(fitLine(" "+m.note, width))
+			return lipgloss.NewStyle().Foreground(colorFaint).Render(tui.Fit(" "+m.note, width))
 		}
 		return ""
 	}
-	selected := lipgloss.NewStyle().Foreground(lipgloss.Color("#DADADA")).Background(lipgloss.Color("#333333"))
+	selected := selectedRowStyle
 	description := lipgloss.NewStyle().Foreground(colorFaint)
 	// Keep the selected row visible when the list is longer than the window.
 	start := 0
@@ -115,12 +108,12 @@ func (m menu) render(width int) string {
 			line += "  " + description.Render(item.Description)
 		}
 		if i == m.index {
-			line = selected.Render(fitLine(line, width))
+			line = selected.Render(tui.Fit(line, width))
 		}
-		lines = append(lines, fitLine(line, width))
+		lines = append(lines, tui.Fit(line, width))
 	}
 	if footer {
-		lines = append(lines, description.Render(fitLine(" "+m.note, width)))
+		lines = append(lines, description.Render(tui.Fit(" "+m.note, width)))
 	}
 	return strings.Join(lines, "\n")
 }

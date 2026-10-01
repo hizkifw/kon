@@ -14,7 +14,19 @@ import (
 	"github.com/hizkifw/kon/core/session"
 	"github.com/hizkifw/kon/core/typedid"
 	"github.com/hizkifw/kon/internal/codetools"
+	"github.com/hizkifw/kon/internal/tui"
 )
+
+// jobsState is the session's background jobs as the UI knows them.
+type jobsState struct {
+	// running is how many are running, as of the last event that could have
+	// changed it.
+	running int
+	// view is the /jobs drawers while they are open, and epoch counts their
+	// reads' chains, so one from drawers since closed stops.
+	view  *jobsView
+	epoch int
+}
 
 // jobScrollback is how many lines of a command's output its drawer keeps.
 // Every change rewraps them all, so the cap bounds that work; the output
@@ -156,11 +168,11 @@ func (m Model) openJobs() (tea.Model, tea.Cmd) {
 		m.message = "no background jobs"
 		return m, nil
 	}
-	m.jobsEpoch++
-	v := &jobsView{epoch: m.jobsEpoch, jobs: jobs}
-	v.list = &drawer{title: "jobs", list: &menu{}, actions: v.listActions, onClose: func(m *Model) { m.jobsView = nil }}
+	m.jobs.epoch++
+	v := &jobsView{epoch: m.jobs.epoch, jobs: jobs}
+	v.list = &drawer{Title: "jobs", List: &tui.List{}, Actions: v.listActions, OnClose: func(m *Model) { m.jobs.view = nil }}
 	v.fillList()
-	m.jobsView = v
+	m.jobs.view = v
 	m.openDrawer(v.list)
 	return m, jobsTick(v.epoch)
 }
@@ -175,7 +187,7 @@ func (v *jobsView) fillList() {
 		status, _ := jobStatus(job)
 		statusWidth = max(statusWidth, ansi.StringWidth(status))
 	}
-	var items []menuItem
+	var items []tui.Item
 	index := -1
 	section := func(heading string, running bool) {
 		first := true
@@ -184,14 +196,14 @@ func (v *jobsView) fillList() {
 				continue
 			}
 			if first {
-				items = append(items, menuItem{Label: heading, Heading: true})
+				items = append(items, tui.Item{Label: heading, Heading: true})
 				first = false
 			}
 			status, tint := jobStatus(job)
 			if job.ID == selected.ID || index < 0 {
 				index = len(items)
 			}
-			items = append(items, menuItem{
+			items = append(items, tui.Item{
 				Value:       strconv.Itoa(job.ID),
 				Label:       fmt.Sprintf("%*d  %-8s", idWidth, job.ID, jobKind(job)),
 				Badge:       status + strings.Repeat(" ", statusWidth-ansi.StringWidth(status)),
@@ -202,14 +214,14 @@ func (v *jobsView) fillList() {
 	}
 	section("running", true)
 	section("finished", false)
-	v.list.list.items, v.list.list.index = items, index
+	v.list.List.Items, v.list.List.Index = items, index
 }
 
 // selected is the highlighted job, or the zero job when there is none.
 func (v *jobsView) selected() codetools.Job {
-	if list := v.list.list; list.index < len(list.items) {
+	if item, ok := v.list.List.Selected(); ok {
 		for _, job := range v.jobs {
-			if strconv.Itoa(job.ID) == list.items[list.index].Value {
+			if strconv.Itoa(job.ID) == item.Value {
 				return job
 			}
 		}
@@ -222,7 +234,7 @@ func (v *jobsView) listActions(*Model) []drawerAction {
 	if job.ID == 0 {
 		return nil
 	}
-	actions := []drawerAction{{key: "enter", hint: "⏎", label: "open", run: func(m *Model) tea.Cmd {
+	actions := []drawerAction{{Key: "enter", Hint: "⏎", Label: "open", Run: func(m *Model) tea.Cmd {
 		return m.openJob(job)
 	}}}
 	return append(actions, killAction(job)...)
@@ -234,9 +246,9 @@ func killAction(job codetools.Job) []drawerAction {
 		return nil
 	}
 	return []drawerAction{{
-		key: "K", hint: "⇧K", label: "kill",
-		confirm: "press ⇧K again to stop " + jobKind(job) + " " + strconv.Itoa(job.ID),
-		run: func(m *Model) tea.Cmd {
+		Key: "K", Hint: "⇧K", Label: "kill",
+		Confirm: "press ⇧K again to stop " + jobKind(job) + " " + strconv.Itoa(job.ID),
+		Run: func(m *Model) tea.Cmd {
 			m.stopJob(job.ID)
 			return nil
 		},
@@ -247,14 +259,14 @@ func killAction(job codetools.Job) []drawerAction {
 // which starts now unless one is already in flight: that one's answer then
 // reads the job at once.
 func (m *Model) openJob(job codetools.Job) tea.Cmd {
-	v := m.jobsView
+	v := m.jobs.view
 	w := &jobWatch{job: job, transcript: transcript{cwd: m.cwd}}
-	w.drawer = &drawer{title: jobTitle(job), transcript: &w.transcript, onClose: func(m *Model) {
-		if m.jobsView != nil {
-			m.jobsView.watch = nil
+	w.drawer = &drawer{Title: jobTitle(job), Content: &w.transcript, OnClose: func(m *Model) {
+		if m.jobs.view != nil {
+			m.jobs.view.watch = nil
 		}
 	}}
-	w.drawer.actions = func(*Model) []drawerAction { return killAction(w.job) }
+	w.drawer.Actions = func(*Model) []drawerAction { return killAction(w.job) }
 	w.showOutput()
 	v.watch = w
 	m.openDrawer(w.drawer)
@@ -262,14 +274,14 @@ func (m *Model) openJob(job codetools.Job) tea.Cmd {
 		return nil
 	}
 	// The tick already scheduled carries the old epoch and is dropped.
-	m.jobsEpoch++
-	v.epoch = m.jobsEpoch
+	m.jobs.epoch++
+	v.epoch = m.jobs.epoch
 	return m.pollJobs()
 }
 
 // pollJobs reads the job files off the update loop.
 func (m *Model) pollJobs() tea.Cmd {
-	v := m.jobsView
+	v := m.jobs.view
 	v.polling = true
 	runtime, epoch, w := m.runtime, v.epoch, v.watch
 	var reader jobReader
@@ -315,7 +327,7 @@ func readJob(runtime Runtime, job codetools.Job, r jobReader) jobRead {
 
 // tickJobs starts the next read, unless the drawers have closed since.
 func (m Model) tickJobs(msg jobsTickMsg) (tea.Model, tea.Cmd) {
-	if m.jobsView == nil || msg.epoch != m.jobsView.epoch {
+	if m.jobs.view == nil || msg.epoch != m.jobs.view.epoch {
 		return m, nil
 	}
 	return m, m.pollJobs()
@@ -323,7 +335,7 @@ func (m Model) tickJobs(msg jobsTickMsg) (tea.Model, tea.Cmd) {
 
 // applyJobsPolled shows what a read found and schedules the next one.
 func (m Model) applyJobsPolled(msg jobsPolledMsg) (tea.Model, tea.Cmd) {
-	v := m.jobsView
+	v := m.jobs.view
 	if v == nil || msg.epoch != v.epoch {
 		return m, nil
 	}
@@ -338,10 +350,10 @@ func (m Model) applyJobsPolled(msg jobsPolledMsg) (tea.Model, tea.Cmd) {
 				w.job = job
 			}
 		}
-		w.drawer.title = jobTitle(w.job)
+		w.drawer.Title = jobTitle(w.job)
 		m.applyJobRead(w, msg.read)
 	}
-	m.refreshDrawers()
+	m.drawers.Refresh()
 	// A job opened while this read was in flight is read at once.
 	if w := v.watch; w != nil && !w.read {
 		return m, m.pollJobs()
@@ -364,7 +376,7 @@ func (m *Model) applyJobRead(w *jobWatch, read jobRead) {
 		w.showOutput()
 	}
 	if read.err != nil {
-		w.transcript.add(block{kind: blockError, text: sanitize(read.err.Error())})
+		w.transcript.add(block{kind: blockError, text: tui.Sanitize(read.err.Error())})
 	}
 }
 
@@ -395,7 +407,7 @@ func (w *jobWatch) appendOutput(data []byte, skipped bool) {
 func terminalLine(line []byte) string {
 	s := strings.TrimSuffix(string(line), "\r")
 	s = s[strings.LastIndexByte(s, '\r')+1:]
-	return expandTabs(sanitize(s))
+	return tui.ExpandTabs(tui.Sanitize(s))
 }
 
 // showOutput rebuilds the drawer from the command and its kept output.

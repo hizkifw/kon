@@ -272,7 +272,7 @@ func TestUnmatchedMentionDoesNotClaimQueueOrInterrupt(t *testing.T) {
 				// already arms the interrupt, and the second fires it.
 				updated, _, _ = m.handleKey(key)
 				m = updated.(Model)
-				if ctx.Err() != context.Canceled || m.interruptPresses != 1 {
+				if ctx.Err() != context.Canceled || m.interrupt.presses != 1 {
 					t.Fatal("Esc did not interrupt on the second press")
 				}
 			}

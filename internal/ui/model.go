@@ -20,6 +20,7 @@ import (
 	"github.com/hizkifw/kon/internal/config"
 	"github.com/hizkifw/kon/internal/history"
 	"github.com/hizkifw/kon/internal/sessions"
+	"github.com/hizkifw/kon/internal/tui"
 )
 
 const streamFrameInterval = 50 * time.Millisecond
@@ -91,7 +92,7 @@ type Model struct {
 	// every exit path, including a signal that bypasses Update, releases them.
 	ctx             context.Context
 	width, height   int
-	viewport        scrollView
+	viewport        tui.Scroll
 	input           textarea.Model
 	transcript      transcript
 	history         promptHistory
@@ -118,21 +119,13 @@ type Model struct {
 	// runEpoch counts started runs, main and side alike; see run.epoch.
 	runEpoch int
 	// drawers is the stack of surfaces painted over the screen, top last.
-	drawers   []*drawer
+	drawers   tui.Stack[*Model]
 	side      *sideChat
-	sideSpent float64
-	// jobsView is the /jobs drawers while they are open, and jobsEpoch
-	// counts their reads' chains, so one from drawers since closed stops.
-	jobsView  *jobsView
-	jobsEpoch int
-	// interruptPresses counts Esc presses that interrupted the run in
-	// flight, so the harness can escalate: the first cancels the run
-	// (interrupting a running command), the second kills it.
-	interruptPresses int
-	// interruptEpoch is the notice epoch of the warning a first Esc showed
-	// before interrupting (see interruptArmed); 0 when none was shown.
-	interruptEpoch int
-	flushPending   bool
+	jobs      jobsState
+	interrupt interrupts
+	// flushPending marks a repaint already scheduled for streamed text, so
+	// the chunks that arrive before it share that one frame (scheduleFlush).
+	flushPending bool
 	// inbox carries steering (Enter while a run is in flight) to the runner,
 	// which drains it before its next request. steering mirrors what it held
 	// when last synced, so the pending strip and the layout agree within a
@@ -141,43 +134,17 @@ type Model struct {
 	steering []string
 	// queued holds prompts (Tab while a run is in flight) that each start
 	// their own run once the one before finishes cleanly.
-	queued []string
-	// jobs is the number of background jobs running, as of the last event
-	// that could have changed it.
-	jobs int
-	// spent is what the live session's own responses have cost, in US
-	// dollars, and subagentSpent what its subagents have, as of the last read
-	// of their sessions. spendPolling marks a poll in flight, and spendEpoch
-	// counts sessions opened so a read for an earlier one is dropped.
-	spent         float64
-	subagentSpent float64
-	// streamed counts the stream chunks received since the last usage report,
-	// each taken as one token, so the status bar moves while a response
-	// streams. A chunk usually holds more than one token, so the estimate
-	// undercounts until the report replaces it. streamedContext counts only
-	// the chunks that extend the context: a compaction summary replaces the
-	// context rather than adding to it.
-	streamed        tokens.Count
-	streamedContext tokens.Count
-	spendPolling    bool
-	spendEpoch      int
+	queued   []string
+	spend    spending
+	streamed streamCount
 	// selectEpoch counts drags past the transcript's edge, so a scroll tick
 	// from one that ended stops instead of scrolling on.
 	selectEpoch int
 	// click is the last press on the transcript, to tell double and triple
 	// clicks apart and to start a drag from.
-	click click
-	// flashed is the last passing notice shown as the message. flashEpoch
-	// counts notices, so each clears only itself.
-	flashed    string
-	flashEpoch int
-	// killRing holds the last line segment removed by a kill key (Ctrl+U,
-	// Ctrl+K, Ctrl+W) so Ctrl+Y can yank it back, mirroring the shell's kill
-	// and yank commands.
-	killRing string
-	// killPending marks that the key being processed is a kill command, so the
-	// removed text is captured once the textarea has applied the deletion.
-	killPending bool
+	click   click
+	flashed flashState
+	kill    killRing
 	// search is the active reverse history search (Ctrl+R), nil when idle.
 	// lastSearch is the query it last ended with, which Ctrl+R on an empty
 	// query searches for again.
@@ -190,21 +157,31 @@ type Model struct {
 	menuSource    menuSource
 	mentions      fileMentions
 	login         *loginFlow
-	// preview is a scratch transcript shown in place of the live one while a
-	// popup row that carries a Preview is highlighted, so a picker can be
-	// browsed without committing. previewKey is that row's value; previewReturn
-	// remembers where the live transcript was scrolled so cancelling restores
+	preview       previewState
+	follow        following
+}
+
+// killRing holds the last line segment removed by a kill key (Ctrl+U, Ctrl+K,
+// Ctrl+W) so Ctrl+Y can yank it back, mirroring the shell's kill and yank
+// commands.
+type killRing struct {
+	text string
+	// pending marks that the key being processed is a kill command, so the
+	// removed text is captured once the textarea has applied the deletion.
+	pending bool
+}
+
+// previewState is a scratch transcript shown in place of the live one while a
+// popup row that carries a Preview is highlighted, so a picker can be browsed
+// without committing.
+type previewState struct {
+	// transcript is the preview shown, nil when none is, and key the value
+	// of the row it is for.
+	transcript *transcript
+	key        string
+	// back is where the live transcript was scrolled, so cancelling restores
 	// the reader's place.
-	preview       *transcript
-	previewKey    string
-	previewReturn previewReturn
-	// follow carries replay across batches while the session is open in
-	// another kon and shown read-only, nil otherwise. followEpoch drops ticks
-	// from a follow that has ended, and followMode says what the follow is
-	// doing, for the status line.
-	follow      *replayState
-	followEpoch int
-	followMode  string
+	back previewReturn
 }
 
 // previewReturn snapshots the live transcript's scroll position so closing a
@@ -236,7 +213,7 @@ func New(ctx context.Context, cwd, configPath string, runtime Runtime, historySt
 	// transcript.linesFor), so the scroll view needs no soft wrap or per-line
 	// width measurement. Keyboard scrolling is handled in handleKey; the view
 	// only consumes the mouse wheel.
-	vp := newScrollView()
+	vp := tui.NewScroll()
 	state := runtime.State()
 	mark := welcomeBanner
 	if runtime.Incognito() {
@@ -248,6 +225,7 @@ func New(ctx context.Context, cwd, configPath string, runtime Runtime, historySt
 		active: state.Active, cwd: cwd, configPath: configPath,
 		transcript: transcript{cwd: cwd, banner: mark},
 		configured: state.Ready() || state.Following(), contextTokens: -1, terminalFocused: true,
+		drawers: tui.Stack[*Model]{Theme: drawerTheme()},
 	}
 	// A resumed session opens with its conversation already in the transcript.
 	// The viewport has no size until the first resize, so defer the scroll to
@@ -280,8 +258,8 @@ func (m Model) Init() tea.Cmd {
 		runtime.LoadCatalog()
 		return catalogLoadedMsg{}
 	}), tea.Tick(catalogDelay, m.readSpend(false)), waitNotice(runtime.Notices())}
-	if m.follow != nil {
-		commands = append(commands, followTick(m.followEpoch))
+	if m.follow.replay != nil {
+		commands = append(commands, followTick(m.follow.epoch))
 	}
 	return tea.Batch(commands...)
 }
@@ -325,7 +303,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case flashDoneMsg:
 		return m.flashDone(msg)
 	case tea.PasteMsg:
-		if len(m.drawers) > 0 {
+		if m.drawers.Len() > 0 {
 			return m, nil
 		}
 		if m.search != nil {
@@ -340,7 +318,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshTranscript(true)
 		return m, nil
 	case followTickMsg:
-		if m.follow == nil || msg.epoch != m.followEpoch {
+		if m.follow.replay == nil || msg.epoch != m.follow.epoch {
 			return m, nil
 		}
 		return m, m.pollFollowed(msg.epoch)
@@ -358,7 +336,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.retitleModelChanges()
 		return m, nil
 	case tea.KeyPressMsg:
-		if len(m.drawers) > 0 {
+		if m.drawers.Len() > 0 {
 			return m.drawerKey(msg.String())
 		}
 		if m.login != nil {
@@ -386,8 +364,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	before := m.input.Value()
 	cursor := m.cursorOffset()
-	pending := m.killPending
-	m.killPending = false
+	pending := m.kill.pending
+	m.kill.pending = false
 	m.input, cmd = m.input.Update(msg)
 	commands = append(commands, cmd)
 	m.viewport.Update(msg)
@@ -395,7 +373,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// A kill key ran; record what it removed so Ctrl+Y can yank it. An
 		// empty kill leaves the ring untouched, so yank keeps the prior text.
 		if removed := removedSpan(before, m.input.Value(), cursor); removed != "" {
-			m.killRing = removed
+			m.kill.text = removed
 		}
 	}
 	if m.input.Value() != before || m.cursorOffset() != cursor {
@@ -491,10 +469,10 @@ func (m Model) handleKey(key string) (tea.Model, tea.Cmd, bool) {
 		// Kill commands: Ctrl+U to line start, Ctrl+K to line end, Ctrl+W by
 		// word, all mirroring the shell. The textarea performs the deletion, so
 		// mark the key and let Update record exactly what it removed.
-		m.killPending = true
+		m.kill.pending = true
 		return m, nil, false
 	case "ctrl+y":
-		m.input.InsertString(m.killRing)
+		m.input.InsertString(m.kill.text)
 		cmd := m.refreshInput()
 		return m, cmd, true
 	case "ctrl+r":
@@ -558,25 +536,25 @@ func (m Model) handleKey(key string) (tea.Model, tea.Cmd, bool) {
 			// warning is up cancels the run, which interrupts a running tool
 			// so it can stop cleanly. A press after that escalates to a kill
 			// for a tool that ignored the interrupt.
-			if m.interruptPresses == 0 && !m.interruptArmed() {
+			if m.interrupt.presses == 0 && !m.interruptArmed() {
 				text := "press Esc again to interrupt"
 				if len(m.steering) > 0 {
 					text = "press Esc again to interrupt and send your steer"
 				}
 				cmd := m.flash(toneWarn, text)
-				m.interruptEpoch = m.flashEpoch
+				m.interrupt.epoch = m.flashed.epoch
 				return m, cmd, true
 			}
-			m.interruptPresses++
+			m.interrupt.presses++
 			m.turn.cancel()
-			if m.interruptPresses == 1 {
+			if m.interrupt.presses == 1 {
 				m.say(toneDanger, "interrupted · press Esc again to kill the command")
 				if len(m.steering) > 0 {
 					m.say(toneDanger, "interrupted · sending your steer now…")
 				}
 				return m, nil, true
 			}
-			if m.runtime.Interrupt(m.interruptPresses) {
+			if m.runtime.Interrupt(m.interrupt.presses) {
 				m.say(toneDanger, "killed the command")
 			} else {
 				m.say(toneWarn, "no command to kill; waiting for the run to cancel")
@@ -675,16 +653,16 @@ func (m *Model) syncPreview() {
 		m.closePreview()
 		return
 	}
-	if m.preview != nil && m.previewKey == selected.Value {
+	if m.preview.transcript != nil && m.preview.key == selected.Value {
 		return
 	}
-	if m.preview == nil {
-		m.previewReturn = previewReturn{offset: m.viewport.YOffset(), atBottom: m.viewport.AtBottom()}
+	if m.preview.transcript == nil {
+		m.preview.back = previewReturn{offset: m.viewport.YOffset(), atBottom: m.viewport.AtBottom()}
 	}
-	m.previewKey = selected.Value
-	m.preview = selected.Preview()
-	if m.preview == nil {
-		m.previewKey = ""
+	m.preview.key = selected.Value
+	m.preview.transcript = selected.Preview()
+	if m.preview.transcript == nil {
+		m.preview.key = ""
 		m.restorePreviewScroll()
 		return
 	}
@@ -696,10 +674,10 @@ func (m *Model) syncPreview() {
 // closePreview drops any active preview and restores the live transcript at the
 // scroll position the reader had before previewing began.
 func (m *Model) closePreview() {
-	if m.preview == nil {
+	if m.preview.transcript == nil {
 		return
 	}
-	m.preview, m.previewKey = nil, ""
+	m.preview.transcript, m.preview.key = nil, ""
 	m.restorePreviewScroll()
 }
 
@@ -708,11 +686,11 @@ func (m *Model) closePreview() {
 func (m *Model) restorePreviewScroll() {
 	m.resize()
 	m.refreshTranscript(false)
-	if m.previewReturn.atBottom {
+	if m.preview.back.atBottom {
 		m.viewport.GotoBottom()
 		return
 	}
-	m.viewport.SetYOffset(m.previewReturn.offset)
+	m.viewport.SetYOffset(m.preview.back.offset)
 }
 
 // completeMenu fills the prompt with the highlighted popup entry and refreshes
@@ -813,7 +791,7 @@ func (m *Model) canSend() bool {
 // send starts a run for text, which the caller has already recorded in the
 // prompt history and taken out of the input.
 func (m Model) send(text string) (tea.Model, tea.Cmd) {
-	m.transcript.add(block{kind: blockUser, text: sanitize(text)})
+	m.transcript.add(block{kind: blockUser, text: tui.Sanitize(text)})
 	m.resize()
 	runtime, inbox := m.runtime, m.inbox
 	cmd := m.startTurn("Working", func(ctx context.Context, emit func(agent.Event)) error {
@@ -828,7 +806,7 @@ func (m Model) send(text string) (tea.Model, tea.Cmd) {
 // startTurn marks the model busy with fn, a prompt's run or a /compact, and
 // shows its marker at once rather than a second later.
 func (m *Model) startTurn(verb string, fn func(context.Context, func(agent.Event)) error) tea.Cmd {
-	m.message, m.interruptPresses = "", 0
+	m.message, m.interrupt.presses = "", 0
 	r, cmd := m.startRun(verb, fn)
 	m.turn = r
 	r.paint(&m.transcript, r.start)
@@ -852,11 +830,11 @@ func (m Model) applyTurnEvent(event agent.Event) (tea.Model, tea.Cmd) {
 
 func (m Model) finishTurn(err error) (tea.Model, tea.Cmd) {
 	turn := m.turn
-	m.turn, m.interruptPresses, m.interruptEpoch = nil, 0, 0
+	m.turn, m.interrupt.presses, m.interrupt.epoch = nil, 0, 0
 	// A response cut off before its usage report leaves an estimate that
 	// nothing will replace, and the session never records it.
-	m.streamed, m.streamedContext = 0, 0
-	m.jobs = m.runtime.RunningJobs()
+	m.streamed.all, m.streamed.context = 0, 0
+	m.jobs.running = m.runtime.RunningJobs()
 	m.syncRuntimeState()
 	// An interrupted stream never received its done event, so finalize the
 	// live stream here to freeze the partial answer and reasoning that were

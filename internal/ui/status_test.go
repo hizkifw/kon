@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/hizkifw/kon/internal/tui"
 )
 
 // done delivers the end of the notice with the given epoch.
@@ -39,7 +40,7 @@ func TestCopyNoticePassesAndTheModeStays(t *testing.T) {
 	if cmd == nil || m.statusText() != "needs configuration · copied selection" {
 		t.Fatalf("status line %q after a copy", m.statusText())
 	}
-	if m = done(m, m.flashEpoch); m.statusText() != "needs configuration" {
+	if m = done(m, m.flashed.epoch); m.statusText() != "needs configuration" {
 		t.Fatalf("status line %q once the notice is done", m.statusText())
 	}
 }
@@ -47,12 +48,12 @@ func TestCopyNoticePassesAndTheModeStays(t *testing.T) {
 func TestNoticeClearsOnlyItself(t *testing.T) {
 	m := newTestModel(t)
 	m.flash(toneInfo, "first")
-	first := m.flashEpoch
+	first := m.flashed.epoch
 	m.flash(toneInfo, "second")
 	if m = done(m, first); m.message != "second" {
 		t.Fatalf("the first notice's time took down the second: %q", m.message)
 	}
-	if m = done(m, m.flashEpoch); m.message != "" {
+	if m = done(m, m.flashed.epoch); m.message != "" {
 		t.Fatalf("message %q once both are done", m.message)
 	}
 }
@@ -61,7 +62,7 @@ func TestNoticeLeavesALaterMessage(t *testing.T) {
 	m := newTestModel(t)
 	m.flash(toneSuccess, "copied selection")
 	m.message = "interrupted"
-	if m = done(m, m.flashEpoch); m.message != "interrupted" {
+	if m = done(m, m.flashed.epoch); m.message != "interrupted" {
 		t.Fatalf("the notice's time cleared a later message: %q", m.message)
 	}
 }
@@ -71,10 +72,10 @@ func TestCopyCommandNoticePasses(t *testing.T) {
 	m.input.SetValue("/copy")
 	updated, _ := m.submit()
 	m = updated.(Model)
-	if m.message == "" || m.message != m.flashed {
+	if m.message == "" || m.message != m.flashed.text {
 		t.Fatalf("/copy set %q without a notice", m.message)
 	}
-	if m = done(m, m.flashEpoch); m.message != "" {
+	if m = done(m, m.flashed.epoch); m.message != "" {
 		t.Fatalf("message %q once the notice is done", m.message)
 	}
 }
@@ -139,7 +140,7 @@ func TestToneColorsOnlyTheMessage(t *testing.T) {
 	if !strings.Contains(ansi.Strip(row), "…") {
 		t.Fatalf("status row was not cut short: %q", ansi.Strip(row))
 	}
-	fitted := fitLine("~/w · ctx ? · interrupted · press Esc", 20)
+	fitted := tui.Fit("~/w · ctx ? · interrupted · press Esc", 20)
 	at := len("~/w · ctx ? · ")
 	if got := toneLine(fitted, at, toneDanger); ansi.Strip(got) != fitted || got == fitted {
 		t.Fatalf("toned line %q", got)

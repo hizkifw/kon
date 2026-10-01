@@ -13,6 +13,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/hizkifw/kon/internal/markdown"
+	"github.com/hizkifw/kon/internal/tui"
 )
 
 // TestMarkdownAssistantRendersStructure checks that an assistant message
@@ -43,8 +44,8 @@ func TestMarkdownAssistantRendersStructure(t *testing.T) {
 func TestMarkdownCharacterReferencesCannotEmitEscapes(t *testing.T) {
 	text := "clear &#x1b;[2J title &#27;]0;pwned&#7; csi &#x9b;2J"
 	var streamed, settled transcript
-	streamed.appendStream(sanitize(text))
-	settled.add(block{kind: blockAssistant, text: sanitize(text)})
+	streamed.appendStream(tui.Sanitize(text))
+	settled.add(block{kind: blockAssistant, text: tui.Sanitize(text)})
 	for name, tr := range map[string]*transcript{"streamed": &streamed, "settled": &settled} {
 		out := strings.Join(tr.linesFor(60), "\n")
 		for _, escape := range []string{"\x1b[2J", "\x1b]0;", "\x07", "\u009b"} {

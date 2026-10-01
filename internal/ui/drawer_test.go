@@ -15,7 +15,7 @@ func testDrawer(m *Model, title string, lines ...string) *drawer {
 	for _, line := range lines {
 		t.add(block{kind: blockAssistant, text: line})
 	}
-	d := &drawer{title: title, transcript: t}
+	d := &drawer{Title: title, Content: t}
 	m.openDrawer(d)
 	return d
 }
@@ -57,37 +57,37 @@ func TestDrawersStackAndCloseFromTheTop(t *testing.T) {
 	var closed []string
 	for _, title := range []string{"lower", "upper"} {
 		d := testDrawer(&m, title)
-		d.onClose = func(*Model) { closed = append(closed, title) }
+		d.OnClose = func(*Model) { closed = append(closed, title) }
 	}
-	lower := drawerRect(m.width, m.height, 0)
-	upper := drawerRect(m.width, m.height, 1)
-	if upper.w >= lower.w || upper.x <= lower.x || upper.x+upper.w != lower.x+lower.w {
+	lower := m.drawers.Rect(0)
+	upper := m.drawers.Rect(1)
+	if upper.W >= lower.W || upper.X <= lower.X || upper.X+upper.W != lower.X+lower.W {
 		t.Fatalf("upper %+v does not nest inside lower %+v", upper, lower)
 	}
 	if got := plain(m.View().Content); !strings.Contains(got, "lower") || !strings.Contains(got, "upper") {
 		t.Fatalf("the lower drawer's edge is hidden:\n%s", got)
 	}
 	m, _ = update(m, tea.KeyPressMsg{Code: tea.KeyEscape})
-	if len(m.drawers) != 1 || m.topDrawer().title != "lower" || len(closed) != 1 || closed[0] != "upper" {
-		t.Fatalf("Esc closed %v, leaving %d drawers", closed, len(m.drawers))
+	if m.drawers.Len() != 1 || m.topDrawer().Title != "lower" || len(closed) != 1 || closed[0] != "upper" {
+		t.Fatalf("Esc closed %v, leaving %d drawers", closed, m.drawers.Len())
 	}
 }
 
 func TestClickOutsideTheDrawerClosesIt(t *testing.T) {
 	m := sizedModel(t, 80, 24)
 	testDrawer(&m, "stats", "drawer text")
-	r := drawerRect(m.width, m.height, 0)
+	r := m.drawers.Rect(0)
 	// The title row is inside the drawer and does nothing.
-	m = pressAt(m, r.x+2, r.y)
-	if len(m.drawers) != 1 {
+	m = pressAt(m, r.X+2, r.Y)
+	if m.drawers.Len() != 1 {
 		t.Fatal("a click on the title closed the drawer")
 	}
-	m = pressAt(m, r.x-1, 5)
-	if len(m.drawers) != 0 {
+	m = pressAt(m, r.X-1, 5)
+	if m.drawers.Len() != 0 {
 		t.Fatal("a click on the dimmed area left the drawer open")
 	}
 	// The click that closed the drawer does not start a selection underneath.
-	if _, cmd := release(m, r.x-1, 5); cmd != nil {
+	if _, cmd := release(m, r.X-1, 5); cmd != nil {
 		t.Fatal("the closing click copied a selection")
 	}
 }
@@ -103,13 +103,13 @@ func TestDrawerTakesTheWheelAndKeys(t *testing.T) {
 		lines[i] = "side " + strconv.Itoa(i)
 	}
 	d := testDrawer(&m, "stats", lines...)
-	mainOffset, drawerOffset := m.viewport.YOffset(), d.view.YOffset()
+	mainOffset, drawerOffset := m.viewport.YOffset(), d.View().YOffset()
 	m, _ = update(m, tea.MouseWheelMsg{X: 5, Y: 5, Button: tea.MouseWheelUp})
-	if m.viewport.YOffset() != mainOffset || d.view.YOffset() >= drawerOffset {
-		t.Fatalf("wheel moved main %d→%d, drawer %d→%d", mainOffset, m.viewport.YOffset(), drawerOffset, d.view.YOffset())
+	if m.viewport.YOffset() != mainOffset || d.View().YOffset() >= drawerOffset {
+		t.Fatalf("wheel moved main %d→%d, drawer %d→%d", mainOffset, m.viewport.YOffset(), drawerOffset, d.View().YOffset())
 	}
 	m, _ = update(m, tea.KeyPressMsg{Code: tea.KeyHome})
-	if d.view.YOffset() != 0 || m.viewport.YOffset() != mainOffset {
+	if d.View().YOffset() != 0 || m.viewport.YOffset() != mainOffset {
 		t.Fatal("Home did not scroll the drawer to its start")
 	}
 	m, _ = update(m, tea.KeyPressMsg{Code: 'x', Text: "x"})
@@ -122,8 +122,8 @@ func TestResizeRefitsTheDrawer(t *testing.T) {
 	m := sizedModel(t, 80, 24)
 	d := testDrawer(&m, "stats", "drawer text")
 	m, _ = update(m, tea.WindowSizeMsg{Width: 120, Height: 40})
-	if want := drawerBody(drawerRect(120, 40, 0)); d.view.Width() != want.w || d.view.Height() != want.h {
-		t.Fatalf("drawer view is %dx%d after resize, want %dx%d", d.view.Width(), d.view.Height(), want.w, want.h)
+	if want := m.drawers.Body(0); d.View().Width() != want.W || d.View().Height() != want.H {
+		t.Fatalf("drawer view is %dx%d after resize, want %dx%d", d.View().Width(), d.View().Height(), want.W, want.H)
 	}
 	if got := plain(m.View().Content); !strings.Contains(got, "drawer text") {
 		t.Fatalf("drawer lost its text on resize:\n%s", got)

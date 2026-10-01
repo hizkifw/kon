@@ -83,7 +83,7 @@ func (m Model) applyMentionFiles(msg mentionFilesMsg) (tea.Model, tea.Cmd) {
 	m.mentions.files, m.mentions.err = msg.files, msg.err
 	m.mentions.loaded, m.mentions.loading, m.mentions.cancel = true, false, nil
 	// A result must not reopen a dismissed popup or replace another surface.
-	if !m.mentions.dismissed && m.search == nil && m.login == nil && len(m.drawers) == 0 {
+	if !m.mentions.dismissed && m.search == nil && m.login == nil && m.drawers.Len() == 0 {
 		m.openMenu()
 		m.resize()
 	}

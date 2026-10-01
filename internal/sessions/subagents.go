@@ -34,6 +34,17 @@ type Subagents struct {
 	checked map[string]bool
 	// followed holds each subagent session by file name.
 	followed map[string]*tally
+	// orphans holds checked subagent sessions whose parent was not in the
+	// family when they were read, by parent, in case it joins later. Names
+	// carry the creation time only to the millisecond, so a subagent made in
+	// the same millisecond as the session that started it can sort first.
+	orphans map[typedid.SessionID][]orphan
+}
+
+// orphan is a subagent session read before its parent.
+type orphan struct {
+	name string
+	id   typedid.SessionID
 }
 
 // tally follows one subagent session. It keeps only how far it has read and
@@ -87,7 +98,7 @@ func NewSubagents(path string, id typedid.SessionID) *Subagents {
 	since, _, _ := strings.Cut(filepath.Base(path), "_")
 	return &Subagents{
 		dir: filepath.Dir(path), root: id, since: since, family: map[typedid.SessionID]bool{id: true},
-		checked: map[string]bool{}, followed: map[string]*tally{},
+		checked: map[string]bool{}, followed: map[string]*tally{}, orphans: map[typedid.SessionID][]orphan{},
 	}
 }
 
@@ -121,7 +132,8 @@ func (s *Subagents) Usage() session.Usage {
 
 // discover follows each session file not seen before whose parent is in the
 // family. A file name starts with the session's creation time, so sorting the
-// names puts a subagent's session after the session that started it.
+// names usually puts a subagent's session after the session that started it;
+// one that sorts first waits among the orphans.
 func (s *Subagents) discover() {
 	f, err := os.Open(s.dir)
 	if err != nil {
@@ -145,11 +157,25 @@ func (s *Subagents) discover() {
 			continue
 		}
 		s.checked[name] = true
-		if !s.family[header.Parent] || header.Parent.IsZero() {
-			continue
+		switch {
+		case header.Parent.IsZero():
+		case s.family[header.Parent]:
+			s.adopt(name, header.ID)
+		default:
+			s.orphans[header.Parent] = append(s.orphans[header.Parent], orphan{name: name, id: header.ID})
 		}
-		s.family[header.ID] = true
-		s.followed[name] = &tally{path: path}
+	}
+}
+
+// adopt follows the session id, in the file name, as one of the family, and
+// then every session read earlier that it started.
+func (s *Subagents) adopt(name string, id typedid.SessionID) {
+	s.family[id] = true
+	s.followed[name] = &tally{path: filepath.Join(s.dir, name)}
+	children := s.orphans[id]
+	delete(s.orphans, id)
+	for _, child := range children {
+		s.adopt(child.name, child.id)
 	}
 }
 

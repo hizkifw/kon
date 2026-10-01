@@ -1,4 +1,4 @@
-package ui
+package tui
 
 import (
 	"strings"
@@ -7,8 +7,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-func scrollViewWith(n, height int) scrollView {
-	s := newScrollView()
+func scrollWith(n, height int) Scroll {
+	s := NewScroll()
 	s.SetWidth(40)
 	s.SetHeight(height)
 	lines := make([]string, n)
@@ -19,8 +19,8 @@ func scrollViewWith(n, height int) scrollView {
 	return s
 }
 
-func TestScrollViewClampsOffset(t *testing.T) {
-	s := scrollViewWith(100, 10)
+func TestScrollClampsOffset(t *testing.T) {
+	s := scrollWith(100, 10)
 	if got := s.maxYOffset(); got != 91 {
 		t.Fatalf("maxYOffset = %d, want 91", got)
 	}
@@ -37,8 +37,8 @@ func TestScrollViewClampsOffset(t *testing.T) {
 	}
 }
 
-func TestScrollViewPaging(t *testing.T) {
-	s := scrollViewWith(100, 10)
+func TestScrollPaging(t *testing.T) {
+	s := scrollWith(100, 10)
 	s.PageDown()
 	if s.YOffset() != 10 {
 		t.Fatalf("page down offset = %d, want 10", s.YOffset())
@@ -57,8 +57,8 @@ func TestScrollViewPaging(t *testing.T) {
 	}
 }
 
-func TestScrollViewWheel(t *testing.T) {
-	s := scrollViewWith(100, 10)
+func TestScrollWheel(t *testing.T) {
+	s := scrollWith(100, 10)
 	// Starting mid-content keeps both directions clear of the clamps, so a
 	// notch down must move further into the content and a notch up must undo
 	// exactly that. How many lines a notch covers is a tuning choice left open.
@@ -79,8 +79,8 @@ func TestScrollViewWheel(t *testing.T) {
 	}
 }
 
-func TestScrollViewRendersExactlyHeight(t *testing.T) {
-	s := scrollViewWith(100, 4)
+func TestScrollRendersExactlyHeight(t *testing.T) {
+	s := scrollWith(100, 4)
 	if got := len(strings.Split(s.View(), "\n")); got != 4 {
 		t.Fatalf("view lines = %d, want 4", got)
 	}
@@ -92,8 +92,8 @@ func TestScrollViewRendersExactlyHeight(t *testing.T) {
 	}
 }
 
-func TestScrollViewShrinksContentClampsOffset(t *testing.T) {
-	s := scrollViewWith(100, 10)
+func TestScrollShrinksContentClampsOffset(t *testing.T) {
+	s := scrollWith(100, 10)
 	s.GotoBottom()
 	s.SetContentLines([]string{"a", "b", "c"})
 	if s.YOffset() != 0 {
@@ -101,11 +101,11 @@ func TestScrollViewShrinksContentClampsOffset(t *testing.T) {
 	}
 }
 
-// TestScrollViewBottomPadding verifies the one-line padding at the bottom-most
+// TestScrollBottomPadding verifies the one-line padding at the bottom-most
 // scroll position: the last visible line is blank, while one wheel notch up the
 // window is filled entirely with content lines again.
-func TestScrollViewBottomPadding(t *testing.T) {
-	s := scrollViewWith(100, 10)
+func TestScrollBottomPadding(t *testing.T) {
+	s := scrollWith(100, 10)
 	s.GotoBottom()
 	view := strings.Split(s.View(), "\n")
 	if got := view[len(view)-1]; got != "" {
@@ -123,14 +123,14 @@ func TestScrollViewBottomPadding(t *testing.T) {
 		}
 	}
 	// Short content still renders a fully blank window without underflow.
-	short := scrollViewWith(2, 4)
+	short := scrollWith(2, 4)
 	if got := strings.Split(short.View(), "\n"); len(got) != 4 {
 		t.Fatalf("short view lines = %d, want 4", len(got))
 	}
 }
 
-func TestScrollViewHeightChangeKeepsBottomEdge(t *testing.T) {
-	s := scrollViewWith(100, 10)
+func TestScrollHeightChangeKeepsBottomEdge(t *testing.T) {
+	s := scrollWith(100, 10)
 	s.GotoBottom()
 	s.SetHeight(6)
 	if !s.AtBottom() {
