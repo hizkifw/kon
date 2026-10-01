@@ -1,4 +1,4 @@
-package session
+package sessions
 
 import (
 	"bytes"
@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hizkifw/kon/core/session"
 	"github.com/hizkifw/kon/core/typedid"
 )
 
@@ -29,26 +30,26 @@ func benchBody(tb testing.TB, turns, toolBytes int) []byte {
 	tb.Helper()
 	var out bytes.Buffer
 	var parent *typedid.EntryID
-	add := func(message Message) {
+	add := func(message session.Message) {
 		id, err := typedid.NewEntryID()
 		if err != nil {
 			tb.Fatal(err)
 		}
-		line, err := json.Marshal(Entry{Type: EntryTypeMessage, ID: id, ParentID: parent, Timestamp: time.Unix(0, 0).UTC(), Message: &message})
+		line, err := json.Marshal(session.Entry{Type: session.EntryTypeMessage, ID: id, ParentID: parent, Timestamp: time.Unix(0, 0).UTC(), Message: &message})
 		if err != nil {
 			tb.Fatal(err)
 		}
 		out.Write(append(line, '\n'))
 		parent = &id
 	}
-	add(TextMessage(RoleSystem, "system"))
-	add(TextMessage(RoleUser, "task"))
+	add(session.TextMessage(session.RoleSystem, "system"))
+	add(session.TextMessage(session.RoleUser, "task"))
 	output := strings.Repeat("x", toolBytes)
 	for i := range turns {
 		call := typedid.ToolCallID(fmt.Sprintf("call-%d", i))
-		add(Message{Role: RoleAssistant, Parts: []Part{{Type: PartToolCall, ToolCallID: call, ToolName: "read", ToolInput: json.RawMessage(`{"path":"a"}`)}},
-			Usage: &Usage{PromptTokens: 1000, CompletionTokens: 10, TotalTokens: 1010, Cost: 0.001}})
-		add(ToolResultMessage(call, "read", output))
+		add(session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartToolCall, ToolCallID: call, ToolName: "read", ToolInput: json.RawMessage(`{"path":"a"}`)}},
+			Usage: &session.Usage{PromptTokens: 1000, CompletionTokens: 10, TotalTokens: 1010, Cost: 0.001}})
+		add(session.ToolResultMessage(call, "read", output))
 	}
 	return out.Bytes()
 }
@@ -62,7 +63,7 @@ func writeSession(tb testing.TB, dir string, n int, parent typedid.SessionID, bo
 		tb.Fatal(err)
 	}
 	created := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC).Add(time.Duration(n) * time.Second)
-	header, err := json.Marshal(Header{Type: "session", Version: SchemaVersion, ID: id, AppVersion: "bench", Timestamp: created, CWD: "/w", Parent: parent})
+	header, err := json.Marshal(session.Header{Type: "session", Version: session.SchemaVersion, ID: id, AppVersion: "bench", Timestamp: created, CWD: "/w", Parent: parent})
 	if err != nil {
 		tb.Fatal(err)
 	}

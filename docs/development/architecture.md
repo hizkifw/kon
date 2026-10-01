@@ -34,7 +34,7 @@ registry and prompt the same way; `core/agent/example_test.go` shows one.
 2. Create a cwd-scoped session and persist the exact system prompt. With
    `--resume`, open the newest existing session for the directory (or a named
    one) instead of creating a session, and replay its active path for display.
-   With `--incognito`, the session is `session.NewEphemeral`: the same store
+   With `--incognito`, the session is `session.NewMemory`: the same store
    and append path, writing to a discarded file, with images held in memory.
 3. Render the alternate-screen TUI. No provider request occurs during startup.
 4. Persist a submitted user message before starting network work.
@@ -513,7 +513,7 @@ never reprices past work.
   `KON_SESSION` as its session's parent, writes its session ID into `KON_JOB`,
   keeps its session in memory with `--incognito` or under `KON_INCOGNITO`, and
   refuses to start past a fixed depth. What subagents spend is read from their
-  own sessions: `session.Subagents` finds every session in the workspace whose
+  own sessions: `sessions.Subagents` finds every session in the workspace whose
   parent chain leads to the live one. A subagent is always created after its
   parent, and file names start with the creation time, so only newer files
   are considered, each header read once. Each subagent session is then read

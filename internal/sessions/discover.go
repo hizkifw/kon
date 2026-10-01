@@ -1,7 +1,6 @@
-package session
+package sessions
 
 import (
-	"bufio"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -13,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hizkifw/kon/core/session"
 	"github.com/hizkifw/kon/core/typedid"
 )
 
@@ -64,7 +64,7 @@ func Discover(root, cwd string) ([]Summary, error) {
 			// A single unreadable file must not hide the rest of the sessions.
 			continue
 		}
-		summary.InUse = InUse(summary.Path)
+		summary.InUse = session.InUse(summary.Path)
 		summaries = append(summaries, summary)
 	}
 	// Newest first matches how "/resume" presents choices. Ordering uses each
@@ -119,49 +119,42 @@ func Find(root, cwd string, id typedid.SessionID) (Summary, error) {
 // its system prompt and any model changes — so listing never scales with the
 // transcript. This runs on every keystroke while completing "/resume".
 func readSummary(path string) (Summary, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return Summary{}, err
-	}
-	defer f.Close()
-	reader := bufio.NewReaderSize(f, 32<<10)
-
-	var header Header
+	var header session.Header
 	first := true
 	substantive := false
 	title := ""
-	for {
-		line, readErr := reader.ReadString('\n')
-		trimmed := strings.TrimSpace(line)
-		switch {
-		case first:
+	_, err := session.ReadLines(path, 0, func(line []byte) error {
+		if first {
 			first = false
-			if err := json.Unmarshal([]byte(trimmed), &header); err != nil {
-				return Summary{}, fmt.Errorf("parse session header: %w", err)
-			}
-			if header.Type != "session" || header.ID.IsZero() || header.Version != SchemaVersion {
-				return Summary{}, errors.New("invalid session header")
-			}
-		case trimmed != "":
-			var entry struct {
-				Type    EntryType `json:"type"`
-				Message *Message  `json:"message"`
-			}
-			if json.Unmarshal([]byte(trimmed), &entry) == nil {
-				if entry.Type == EntryTypeCompaction || (entry.Message != nil && entry.Message.Role != RoleSystem) {
-					substantive = true
-				}
-				if title == "" && entry.Message != nil && entry.Message.Role == RoleUser {
-					title = sessionTitle(entry.Message.Text())
-				}
-			}
+			var err error
+			header, err = session.ParseHeader(line)
+			return err
 		}
-		if readErr != nil {
-			break
+		if len(line) == 0 {
+			return nil
+		}
+		var entry struct {
+			Type    session.EntryType `json:"type"`
+			Message *session.Message  `json:"message"`
+		}
+		if json.Unmarshal(line, &entry) == nil {
+			if entry.Type == session.EntryTypeCompaction || (entry.Message != nil && entry.Message.Role != session.RoleSystem) {
+				substantive = true
+			}
+			if title == "" && entry.Message != nil && entry.Message.Role == session.RoleUser {
+				title = sessionTitle(entry.Message.Text())
+			}
 		}
 		if substantive && title != "" {
-			break
+			return session.ErrStop
 		}
+		return nil
+	})
+	if err != nil {
+		return Summary{}, err
+	}
+	if first {
+		return Summary{}, errors.New("empty session")
 	}
 	if !substantive {
 		// A session with no conversation is an accidental launch that should have
@@ -191,7 +184,7 @@ func sessionTitle(content string) string {
 	return ""
 }
 
-// directoryFor resolves the cwd-scoped session directory used by New.
+// directoryFor is the directory kon keeps a working directory's sessions in.
 func directoryFor(root, cwd string) (string, error) {
 	absCWD, err := filepath.Abs(cwd)
 	if err != nil {

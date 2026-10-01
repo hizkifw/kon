@@ -10,7 +10,7 @@ import (
 // file, and returns its path with the writer still open.
 func keptSession(t *testing.T) *Store {
 	t.Helper()
-	store, err := New(t.TempDir(), t.TempDir(), "test", "system")
+	store, err := newStore(t.TempDir(), t.TempDir(), "test", "system")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +91,7 @@ func TestFailedOpenReleasesTheLock(t *testing.T) {
 }
 
 func TestDiscardedSessionRemovesItsLock(t *testing.T) {
-	store, err := New(t.TempDir(), t.TempDir(), "test", "system")
+	store, err := newStore(t.TempDir(), t.TempDir(), "test", "system")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,27 +110,5 @@ func TestInUseDoesNotCreateALockFile(t *testing.T) {
 	}
 	if _, err := os.Stat(lockPath(path)); !os.IsNotExist(err) {
 		t.Fatalf("InUse created a lock file: %v", err)
-	}
-}
-
-func TestDiscoverReportsSessionsInUse(t *testing.T) {
-	root, cwd := t.TempDir(), t.TempDir()
-	store, err := New(root, cwd, "test", "system")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.AppendMessage(TextMessage(RoleUser, "hello")); err != nil {
-		t.Fatal(err)
-	}
-	summaries, err := Discover(root, cwd)
-	if err != nil || len(summaries) != 1 || !summaries[0].InUse {
-		t.Fatalf("summaries while open = %+v, %v", summaries, err)
-	}
-	if err := store.Close(); err != nil {
-		t.Fatal(err)
-	}
-	summaries, err = Discover(root, cwd)
-	if err != nil || len(summaries) != 1 || summaries[0].InUse {
-		t.Fatalf("summaries after close = %+v, %v", summaries, err)
 	}
 }

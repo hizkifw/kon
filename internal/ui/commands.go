@@ -6,9 +6,9 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/hizkifw/kon/core/session"
 	"github.com/hizkifw/kon/core/typedid"
 	"github.com/hizkifw/kon/internal/app"
+	"github.com/hizkifw/kon/internal/sessions"
 )
 
 // argument describes one positional argument accepted by a slash command.
@@ -508,7 +508,7 @@ const previewTurns = 2
 // popup is never opened; the closure runs only when its row is highlighted. It
 // reads just the session's trailing turns and leads with a marker so the
 // preview is never mistaken for the live conversation.
-func previewSession(m Model, summary session.Summary) func() *transcript {
+func previewSession(m Model, summary sessions.Summary) func() *transcript {
 	return func() *transcript {
 		entries, err := m.runtime.SessionPreview(summary.Path, previewTurns)
 		if err != nil || len(entries) == 0 {

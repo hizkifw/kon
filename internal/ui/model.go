@@ -19,6 +19,7 @@ import (
 	"github.com/hizkifw/kon/internal/codetools"
 	"github.com/hizkifw/kon/internal/config"
 	"github.com/hizkifw/kon/internal/history"
+	"github.com/hizkifw/kon/internal/sessions"
 )
 
 const streamFrameInterval = 50 * time.Millisecond
@@ -47,7 +48,7 @@ type Runtime interface {
 	LoadCatalog()
 	NewSession() error
 	Resume(typedid.SessionID) error
-	Sessions() ([]session.Summary, error)
+	Sessions() ([]sessions.Summary, error)
 	SessionID() typedid.SessionID
 	SessionHistory() []session.Entry
 	// Incognito reports that sessions are kept in memory only, which the

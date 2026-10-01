@@ -42,7 +42,7 @@ func (p *steeringProvider) Complete(context.Context, []session.Message, []sessio
 
 func runSteered(t *testing.T, p *steeringProvider) []Event {
 	t.Helper()
-	store, err := session.New(t.TempDir(), t.TempDir(), "test", "system")
+	store, err := newSession(t.TempDir(), t.TempDir(), "test", "system")
 	if err != nil {
 		t.Fatal(err)
 	}

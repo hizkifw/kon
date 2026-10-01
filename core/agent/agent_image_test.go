@@ -81,7 +81,7 @@ func TestImageResultDoesNotForceCompaction(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "shot.png"), image, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	store, err := session.New(t.TempDir(), dir, "test", "system")
+	store, err := newSession(t.TempDir(), dir, "test", "system")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +126,7 @@ func TestRunPersistsImagePartsFromTool(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "shot.png"), pngHeader, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	store, err := session.New(t.TempDir(), dir, "test", "system")
+	store, err := newSession(t.TempDir(), dir, "test", "system")
 	if err != nil {
 		t.Fatal(err)
 	}

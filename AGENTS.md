@@ -58,7 +58,8 @@ them with its own prompt and tools. Everything kon-specific lives in `internal/`
 | `internal/login` | `/login` choices per service and connection verification | wire backends or config writes |
 | `internal/catalog` | models.dev metadata: the bundled snapshot and its cached refresh | which provider APIs kon supports |
 | `internal/catalog/generate` | refreshing the bundled snapshot, run only by `go generate` | anything a normal build runs |
-| `core/session` | domain messages and append-only context tree | provider requests |
+| `core/session` | domain messages, the append-only context tree, and its file and memory stores | where a program keeps its sessions, or provider requests |
+| `internal/sessions` | where kon keeps sessions: per-workspace directories, discovery, subagent usage, and previews | the session format |
 | `internal/migrate` | storage upgrade locking, version tracking, and the `Step` interface | the concrete steps |
 | `internal/migrations` | the concrete, ordered storage upgrade steps | locking or version tracking |
 | `internal/codetools` | kon's coding tools: bounded schemas, execution, and transcript displays | agent orchestration |

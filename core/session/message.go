@@ -36,13 +36,14 @@ func TotalUsage(entries []Entry) Usage {
 			usage = entry.Message.Usage
 		}
 		if usage != nil {
-			total.add(*usage)
+			total.Add(*usage)
 		}
 	}
 	return total
 }
 
-func (u *Usage) add(other Usage) {
+// Add adds other to u.
+func (u *Usage) Add(other Usage) {
 	u.PromptTokens += other.PromptTokens
 	u.CompletionTokens += other.CompletionTokens
 	u.TotalTokens += other.TotalTokens

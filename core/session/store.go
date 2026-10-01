@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -34,11 +33,9 @@ type Store struct {
 	// then ends in a torn line, and appending after it would bury that line
 	// mid-file where Open refuses it, so every later append fails instead.
 	broken error
-	// images and scratch hold what an ephemeral session would otherwise keep
-	// beside its file: image bytes by hash, and the temporary directory its
-	// background jobs use. Both are unset for a persisted session.
-	images  map[string][]byte
-	scratch string
+	// images holds a memory session's image bytes by hash, which a persisted
+	// session keeps beside its file.
+	images map[string][]byte
 }
 
 // sessionFile is the part of *os.File the store writes through, so tests can
@@ -51,33 +48,15 @@ type sessionFile interface {
 	Close() error
 }
 
-func New(root, cwd, appVersion, systemPrompt string) (*Store, error) {
-	return NewChild(root, cwd, appVersion, systemPrompt, typedid.SessionID{})
-}
-
-// NewChild creates a session that records parent as the session that started
-// it. A zero parent makes an ordinary session.
-func NewChild(root, cwd, appVersion, systemPrompt string, parent typedid.SessionID) (*Store, error) {
-	dir, err := directoryFor(root, cwd)
+// Create starts a session file at path, which must not exist, holding header
+// and the root system message. The header's type and version are kon's; a
+// zero ID or timestamp is filled in. The store is the file's only writer
+// until Close.
+func Create(path string, header Header, systemPrompt string) (*Store, error) {
+	header, err := completeHeader(header)
 	if err != nil {
 		return nil, err
 	}
-	absCWD, err := filepath.Abs(cwd)
-	if err != nil {
-		return nil, fmt.Errorf("resolve working directory: %w", err)
-	}
-	absCWD = filepath.Clean(absCWD)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return nil, fmt.Errorf("create session directory: %w", err)
-	}
-
-	sessionID, err := typedid.NewSessionID()
-	if err != nil {
-		return nil, err
-	}
-	now := time.Now().UTC()
-	name := now.Format("20060102T150405.000Z") + "_" + sessionID.String() + fileSuffix
-	path := filepath.Join(dir, name)
 	// Lock before the file exists, so no other process can find the session
 	// unlocked and open it as a second writer.
 	l, err := lock(path)
@@ -90,7 +69,7 @@ func NewChild(root, cwd, appVersion, systemPrompt string, parent typedid.Session
 		return nil, fmt.Errorf("create session: %w", err)
 	}
 	s := &Store{
-		header: Header{Type: "session", Version: SchemaVersion, ID: sessionID, AppVersion: appVersion, Timestamp: now, CWD: absCWD, Parent: parent},
+		header: header,
 		path:   path,
 		file:   f,
 		lock:   l,
@@ -108,6 +87,23 @@ func NewChild(root, cwd, appVersion, systemPrompt string, parent typedid.Session
 		return nil, err
 	}
 	return s, nil
+}
+
+// completeHeader stamps a new session's header with the current format and
+// fills in its identity and creation time when the caller left them zero.
+func completeHeader(header Header) (Header, error) {
+	header.Type, header.Version = "session", SchemaVersion
+	if header.ID.IsZero() {
+		id, err := typedid.NewSessionID()
+		if err != nil {
+			return Header{}, err
+		}
+		header.ID = id
+	}
+	if header.Timestamp.IsZero() {
+		header.Timestamp = time.Now().UTC()
+	}
+	return header, nil
 }
 
 // Open opens a persisted session as its only writer. It returns ErrInUse while
@@ -189,9 +185,6 @@ func (s *Store) Close() error {
 	}
 	if s.ephemeral() {
 		s.file, s.images = nil, nil
-		if err := os.RemoveAll(s.scratch); err != nil {
-			return fmt.Errorf("remove incognito jobs directory: %w", err)
-		}
 		return nil
 	}
 	err := s.file.Sync()

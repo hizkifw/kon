@@ -9,7 +9,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/hizkifw/kon/core/session"
+	"github.com/hizkifw/kon/core/typedid"
 	"github.com/hizkifw/kon/internal/codetools"
+	"github.com/hizkifw/kon/internal/sessions"
 )
 
 // jobsModel is a sized model whose session has a finished command, 1, and
@@ -188,7 +190,7 @@ func TestJobDrawerKeepsTheLastLinesOfLongOutput(t *testing.T) {
 
 func TestJobDrawerFollowsASubagentsSession(t *testing.T) {
 	m, runtime := jobsModel(t)
-	store, err := session.New(t.TempDir(), "/tmp", "test", "system prompt")
+	store, err := sessions.New(t.TempDir(), "/tmp", "test", "system prompt", typedid.SessionID{})
 	if err != nil {
 		t.Fatal(err)
 	}

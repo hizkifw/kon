@@ -14,7 +14,7 @@ import (
 
 func newUsageStore(t *testing.T) *session.Store {
 	t.Helper()
-	store, err := session.New(t.TempDir(), t.TempDir(), "test", "system")
+	store, err := newSession(t.TempDir(), t.TempDir(), "test", "system")
 	if err != nil {
 		t.Fatal(err)
 	}

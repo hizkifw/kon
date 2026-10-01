@@ -24,6 +24,7 @@ import (
 	"github.com/hizkifw/kon/internal/config"
 	"github.com/hizkifw/kon/internal/history"
 	"github.com/hizkifw/kon/internal/login"
+	"github.com/hizkifw/kon/internal/sessions"
 )
 
 type fakeRuntime struct {
@@ -31,7 +32,7 @@ type fakeRuntime struct {
 	models        []app.Model
 	kills         int
 	killFails     bool
-	sessions      []session.Summary
+	sessions      []sessions.Summary
 	entries       []session.Entry
 	id            typedid.SessionID
 	contextTokens tokens.Count
@@ -131,14 +132,14 @@ func (f *fakeRuntime) DescribeSelection(selection session.ModelSelection) app.Mo
 	}
 	return app.Model{Name: selection.Name, DisplayName: selection.ExternalID.String()}
 }
-func (f *fakeRuntime) LoadCatalog()                         { f.catalogLoads++ }
-func (f *fakeRuntime) Interrupt(attempt int) bool           { f.kills++; return !f.killFails }
-func (f *fakeRuntime) Resume(id typedid.SessionID) error    { f.id = id; return nil }
-func (f *fakeRuntime) Sessions() ([]session.Summary, error) { return f.sessions, nil }
-func (f *fakeRuntime) SessionID() typedid.SessionID         { return f.id }
-func (f *fakeRuntime) SessionHistory() []session.Entry      { return f.entries }
-func (f *fakeRuntime) Incognito() bool                      { return f.incognito }
-func (f *fakeRuntime) Follow() (app.Followed, error)        { return f.followed, f.followErr }
+func (f *fakeRuntime) LoadCatalog()                          { f.catalogLoads++ }
+func (f *fakeRuntime) Interrupt(attempt int) bool            { f.kills++; return !f.killFails }
+func (f *fakeRuntime) Resume(id typedid.SessionID) error     { f.id = id; return nil }
+func (f *fakeRuntime) Sessions() ([]sessions.Summary, error) { return f.sessions, nil }
+func (f *fakeRuntime) SessionID() typedid.SessionID          { return f.id }
+func (f *fakeRuntime) SessionHistory() []session.Entry       { return f.entries }
+func (f *fakeRuntime) Incognito() bool                       { return f.incognito }
+func (f *fakeRuntime) Follow() (app.Followed, error)         { return f.followed, f.followErr }
 func (f *fakeRuntime) TakeOver() ([]session.Entry, error) {
 	if f.takeOverErr != nil {
 		return nil, f.takeOverErr
@@ -1542,7 +1543,7 @@ func TestResumeCommandReplaysSession(t *testing.T) {
 	runtime := &fakeRuntime{
 		state:    app.State{Active: models[0], Phase: app.PhaseReady},
 		models:   models,
-		sessions: []session.Summary{{ID: id}},
+		sessions: []sessions.Summary{{ID: id}},
 		entries: []session.Entry{
 			{Message: &session.Message{Role: session.RoleSystem, Parts: []session.Part{{Type: session.PartText, Text: "system"}}}},
 			{Message: &session.Message{Role: session.RoleUser, Parts: []session.Part{{Type: session.PartText, Text: "earlier question"}}}},
@@ -1576,7 +1577,7 @@ func TestResumeCommandReplaysThinking(t *testing.T) {
 	runtime := &fakeRuntime{
 		state:    app.State{Active: models[0], Phase: app.PhaseReady},
 		models:   models,
-		sessions: []session.Summary{{ID: id}},
+		sessions: []sessions.Summary{{ID: id}},
 		entries: []session.Entry{
 			{Message: &session.Message{Role: session.RoleSystem, Parts: []session.Part{{Type: session.PartText, Text: "system"}}}},
 			{Message: &session.Message{Role: session.RoleUser, Parts: []session.Part{{Type: session.PartText, Text: "earlier question"}}}},
@@ -1607,7 +1608,7 @@ func TestResumeAdoptsPersistedContextUsage(t *testing.T) {
 	runtime := &fakeRuntime{
 		state:         app.State{Active: models[0], Phase: app.PhaseReady},
 		models:        models,
-		sessions:      []session.Summary{{ID: id}},
+		sessions:      []sessions.Summary{{ID: id}},
 		entries:       []session.Entry{{Message: &session.Message{Role: session.RoleUser, Parts: []session.Part{{Type: session.PartText, Text: "hi"}}}}},
 		contextTokens: 4321,
 		contextKnown:  true,
@@ -1630,7 +1631,7 @@ func TestResumeCommandListsWithoutID(t *testing.T) {
 	}
 	runtime := &fakeRuntime{
 		state:    app.State{Phase: app.PhaseReady},
-		sessions: []session.Summary{{ID: id, CreatedAt: time.Unix(0, 0)}},
+		sessions: []sessions.Summary{{ID: id, CreatedAt: time.Unix(0, 0)}},
 	}
 	m := New(context.Background(), "/tmp", "/tmp/config.json", runtime, history.New(t.TempDir()+"/history.jsonl"), nil)
 	m.width, m.height = 80, 24
@@ -1664,7 +1665,7 @@ func TestResumePreviewRendersHighlightedSession(t *testing.T) {
 	}
 	runtime := &fakeRuntime{
 		state: app.State{Phase: app.PhaseReady},
-		sessions: []session.Summary{
+		sessions: []sessions.Summary{
 			{ID: newID, Path: "newer.jsonl", Title: "newer work", CreatedAt: time.Unix(10, 0)},
 			{ID: oldID, Path: "older.jsonl", Title: "older work", CreatedAt: time.Unix(0, 0)},
 		},
@@ -1726,7 +1727,7 @@ func TestResumePreviewIsLazy(t *testing.T) {
 	}
 	runtime := &fakeRuntime{
 		state:    app.State{Phase: app.PhaseReady},
-		sessions: []session.Summary{{ID: id, Path: "one.jsonl"}},
+		sessions: []sessions.Summary{{ID: id, Path: "one.jsonl"}},
 	}
 	m := newTestModel(t)
 	m.runtime = runtime

@@ -32,7 +32,7 @@ func (clockTool) Run(context.Context, tool.Env, json.RawMessage) (tool.Result, e
 // A bot built on core brings its own prompt, tools, and model; the runner
 // handles tool calls, retries, and compaction.
 func Example() {
-	store, err := session.NewEphemeral(".", "clockbot", "You are a terse assistant in a chat room.")
+	store, err := session.NewMemory(session.Header{AppVersion: "clockbot"}, "You are a terse assistant in a chat room.")
 	if err != nil {
 		panic(err)
 	}

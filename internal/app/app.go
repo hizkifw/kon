@@ -25,6 +25,7 @@ import (
 	"github.com/hizkifw/kon/internal/config"
 	"github.com/hizkifw/kon/internal/contextfiles"
 	"github.com/hizkifw/kon/internal/prompt"
+	"github.com/hizkifw/kon/internal/sessions"
 )
 
 var (
@@ -110,7 +111,7 @@ type Runtime struct {
 	notices chan string
 	// subagents counts the usage of the live session's subagents, for the
 	// session it was made for.
-	subagents *session.Subagents
+	subagents *sessions.Subagents
 
 	// pinned keeps the active model across a resume instead of restoring the
 	// session's recorded one, and effort, when set, replaces the saved
@@ -217,9 +218,9 @@ func Start(cfg config.Config, paths config.Paths, cwd, version string, opts Opti
 			return nil, err
 		}
 		if opts.Incognito {
-			return session.NewEphemeral(cwd, version, prompt)
+			return sessions.NewIncognito(cwd, version, prompt)
 		}
-		return session.NewChild(paths.Sessions, cwd, version, prompt, opts.Parent)
+		return sessions.New(paths.Sessions, cwd, version, prompt, opts.Parent)
 	}
 	r.openSession = session.Open
 	r.createRunner = func(profile modelSpec, store *session.Store) (*agent.Runner, error) {
@@ -284,25 +285,40 @@ func (r *Runtime) buildRunner(profile modelSpec, store *session.Store) (*agent.R
 	if err != nil {
 		return nil, err
 	}
+	jobs, err := r.jobsFor(store)
+	if err != nil {
+		return nil, err
+	}
 	return agent.New(agent.Config{
 		Limits:   profile.limits(r.config.Compaction),
 		Provider: client,
 		Store:    store,
-		Tools:    tool.NewExecutor(codetools.Registry(r.jobsFor(store)), r.cwd, profile.Vision),
+		Tools:    tool.NewExecutor(codetools.Registry(jobs), r.cwd, profile.Vision),
 	}), nil
 }
 
 // jobsFor returns the store's job supervisor, starting it on first use. Every
 // runner built for a store shares it, so a model switch keeps its jobs.
-func (r *Runtime) jobsFor(store *session.Store) *codetools.Jobs {
+func (r *Runtime) jobsFor(store *session.Store) (*codetools.Jobs, error) {
 	if jobs, ok := r.jobs[store]; ok {
-		return jobs
+		return jobs, nil
+	}
+	dir := sessions.JobsDir(store)
+	if dir == "" {
+		// An incognito session leaves no files behind, but the agent reads
+		// job output with ordinary commands, so its jobs get a private
+		// temporary directory that closeStore removes.
+		scratch, err := os.MkdirTemp("", "kon-incognito-*")
+		if err != nil {
+			return nil, fmt.Errorf("create incognito jobs directory: %w", err)
+		}
+		dir = scratch
 	}
 	if r.jobs == nil {
 		r.jobs = map[*session.Store]*codetools.Jobs{}
 	}
 	notices := r.notices
-	jobs := codetools.NewJobs(store.JobsDir(), store.ID().String(), r.incognito, r.konDir(), func(notice string) {
+	jobs := codetools.NewJobs(dir, store.ID().String(), r.incognito, r.konDir(), func(notice string) {
 		// A frontend that is not listening, like kon run, must not stall the
 		// job's goroutine; the job's files still record how it ended.
 		select {
@@ -311,7 +327,7 @@ func (r *Runtime) jobsFor(store *session.Store) *codetools.Jobs {
 		}
 	})
 	r.jobs[store] = jobs
-	return jobs
+	return jobs, nil
 }
 
 // konDir is the directory the shell tool puts first on PATH so that `kon`
@@ -338,11 +354,17 @@ func (r *Runtime) konDir() string {
 
 // closeStore stops the store's jobs and then closes it.
 func (r *Runtime) closeStore(store *session.Store) error {
+	var err error
 	if jobs, ok := r.jobs[store]; ok {
 		jobs.Close()
 		delete(r.jobs, store)
+		if sessions.JobsDir(store) == "" {
+			if removeErr := os.RemoveAll(jobs.Dir()); removeErr != nil {
+				err = fmt.Errorf("remove incognito jobs directory: %w", removeErr)
+			}
+		}
 	}
-	return store.Close()
+	return errors.Join(err, store.Close())
 }
 
 // Notices delivers a notice whenever a background job exits on its own. The
@@ -374,7 +396,7 @@ func (r *Runtime) KillJob(id int) error {
 // OpenSubagent opens a subagent's session, which runs in this workspace,
 // to follow it read-only as the subagent writes it.
 func (r *Runtime) OpenSubagent(id typedid.SessionID) (*session.View, error) {
-	summary, err := session.Find(r.paths.Sessions, r.cwd, id)
+	summary, err := sessions.Find(r.paths.Sessions, r.cwd, id)
 	if err != nil {
 		return nil, err
 	}
@@ -400,7 +422,7 @@ func (r *Runtime) SubagentUsage() session.Usage {
 		return session.Usage{}
 	}
 	if r.subagents == nil || r.subagents.Session() != id {
-		r.subagents = session.NewSubagents(path, id)
+		r.subagents = sessions.NewSubagents(path, id)
 	}
 	subagents := r.subagents
 	r.mu.Unlock()
@@ -475,7 +497,7 @@ func (r *Runtime) swap(o opened) {
 func (r *Runtime) openTarget(id typedid.SessionID) (opened, error) {
 	var path string
 	if id.IsZero() {
-		summary, ok, err := session.Latest(r.paths.Sessions, r.cwd)
+		summary, ok, err := sessions.Latest(r.paths.Sessions, r.cwd)
 		if err != nil {
 			return opened{}, err
 		}
@@ -486,7 +508,7 @@ func (r *Runtime) openTarget(id typedid.SessionID) (opened, error) {
 		}
 		path = summary.Path
 	} else {
-		summary, err := session.Find(r.paths.Sessions, r.cwd, id)
+		summary, err := sessions.Find(r.paths.Sessions, r.cwd, id)
 		if err != nil {
 			return opened{}, err
 		}
@@ -622,11 +644,11 @@ func (r *Runtime) SwitchModel(name string) error {
 
 // Sessions returns the persisted sessions for this workspace, newest first.
 // The UI uses it to list candidates for "/resume".
-func (r *Runtime) Sessions() ([]session.Summary, error) {
+func (r *Runtime) Sessions() ([]sessions.Summary, error) {
 	if r.incognito {
 		return nil, ErrIncognito
 	}
-	return session.Discover(r.paths.Sessions, r.cwd)
+	return sessions.Discover(r.paths.Sessions, r.cwd)
 }
 
 // Incognito reports whether this runtime keeps its sessions in memory only.
@@ -667,7 +689,7 @@ func (r *Runtime) SessionHistory() []session.Entry {
 // not scan every session in the workspace or parse the whole transcript, and it
 // never opens or modifies the file.
 func (r *Runtime) SessionPreview(path string, maxTurns int) ([]session.Entry, error) {
-	return session.TailEntries(path, maxTurns)
+	return sessions.TailEntries(path, maxTurns)
 }
 
 // DescribeTool resolves the transcript display for a persisted tool call
@@ -701,7 +723,7 @@ func (r *Runtime) Resume(id typedid.SessionID) error {
 	if r.incognito {
 		return ErrIncognito
 	}
-	summary, err := session.Find(r.paths.Sessions, r.cwd, id)
+	summary, err := sessions.Find(r.paths.Sessions, r.cwd, id)
 	if err != nil {
 		return err
 	}

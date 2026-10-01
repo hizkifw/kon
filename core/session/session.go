@@ -12,11 +12,6 @@ import (
 
 const SchemaVersion = 4
 
-// fileSuffix ends every persisted session file. Names begin with a fixed-width
-// UTC timestamp; lexical order approximates creation order but only to the
-// millisecond, so Discover re-sorts by the header's full-precision timestamp.
-const fileSuffix = ".jsonl"
-
 type EntryType string
 
 const (

@@ -48,7 +48,8 @@ them with its own prompt and tools. Everything kon-specific lives in `internal/`
 | `core/provider/wire` | the wire-format table: names, default endpoints, and dialect facts | HTTP, backends, or service quirks |
 | `internal/login` | `/login` choices per service and connection verification | wire backends or config writes |
 | `internal/catalog` | bundled model metadata and local refresh cache | provider requests or configuration writes |
-| `core/session` | domain messages and append-only context tree | provider requests |
+| `core/session` | domain messages, the append-only context tree, and its file and memory stores | where a program keeps its sessions, or provider requests |
+| `internal/sessions` | where kon keeps sessions: per-workspace directories, discovery, subagent usage, and previews | the session format |
 | `internal/migrate` | storage version tracking and process locks | session format conversion |
 | `internal/migrations` | ordered storage conversion steps | live runtime state |
 | `internal/codetools` | kon's coding tools: bounded schemas, execution, and transcript displays | agent orchestration |

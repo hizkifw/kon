@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -45,7 +46,7 @@ func (f *fakeProvider) Complete(_ context.Context, _ []session.Message, _ []sess
 }
 
 func TestRunnerCompactsOlderTurnsBeforeRequest(t *testing.T) {
-	store, err := session.New(t.TempDir(), t.TempDir(), "test", "system")
+	store, err := newSession(t.TempDir(), t.TempDir(), "test", "system")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +100,7 @@ func TestRunnerCompactsOlderTurnsBeforeRequest(t *testing.T) {
 
 func TestNewSeedsUsageFromPersistedAssistantMessages(t *testing.T) {
 	dir := t.TempDir()
-	store, err := session.New(dir, dir, "test", "system")
+	store, err := newSession(dir, dir, "test", "system")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +129,7 @@ func TestNewSeedsUsageFromPersistedAssistantMessages(t *testing.T) {
 }
 
 func TestContextUsageUnknownBeforeFirstReport(t *testing.T) {
-	store, err := session.New(t.TempDir(), t.TempDir(), "test", "system")
+	store, err := newSession(t.TempDir(), t.TempDir(), "test", "system")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +168,7 @@ func (p *interruptingProvider) Complete(_ context.Context, _ []session.Message, 
 }
 
 func TestRunnerPersistsPartialTurnOnInterruptedStream(t *testing.T) {
-	store, err := session.New(t.TempDir(), t.TempDir(), "test", "system")
+	store, err := newSession(t.TempDir(), t.TempDir(), "test", "system")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,7 +207,7 @@ func TestRunnerBracketsTurnWithMarkers(t *testing.T) {
 		{"interrupted", &interruptingProvider{}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			store, err := session.New(t.TempDir(), t.TempDir(), "test", "system")
+			store, err := newSession(t.TempDir(), t.TempDir(), "test", "system")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -246,7 +247,7 @@ func (toolCallProvider) Complete(context.Context, []session.Message, []session.T
 }
 
 func TestRunnerPersistsInterruptedResultsForRemainingToolCalls(t *testing.T) {
-	store, err := session.New(t.TempDir(), t.TempDir(), "test", "system")
+	store, err := newSession(t.TempDir(), t.TempDir(), "test", "system")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -286,7 +287,7 @@ func (reasoningProvider) Complete(_ context.Context, _ []session.Message, _ []se
 }
 
 func TestRunnerEmitsThinkingBeforeText(t *testing.T) {
-	store, err := session.New(t.TempDir(), t.TempDir(), "test", "system")
+	store, err := newSession(t.TempDir(), t.TempDir(), "test", "system")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -326,7 +327,7 @@ func TestSelectCutNeverStartsAtToolResult(t *testing.T) {
 }
 
 func TestCompactForcesCompactionBelowThreshold(t *testing.T) {
-	store, err := session.New(t.TempDir(), t.TempDir(), "test", "system")
+	store, err := newSession(t.TempDir(), t.TempDir(), "test", "system")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -397,7 +398,7 @@ func containsSummary(messages []session.ContextMessage) bool {
 }
 
 func TestCompactFallsBackToIsolatedSummaryWhenLiveContextWouldOverflow(t *testing.T) {
-	store, err := session.New(t.TempDir(), t.TempDir(), "test", "system prompt")
+	store, err := newSession(t.TempDir(), t.TempDir(), "test", "system prompt")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -446,7 +447,7 @@ func TestCompactFallsBackToIsolatedSummaryWhenLiveContextWouldOverflow(t *testin
 // tags, so the fallback carries the prior summary in them, as the live
 // context does.
 func TestIsolatedSummaryCarriesThePriorCheckpoint(t *testing.T) {
-	store, err := session.New(t.TempDir(), t.TempDir(), "test", "system prompt")
+	store, err := newSession(t.TempDir(), t.TempDir(), "test", "system prompt")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -482,7 +483,7 @@ func TestIsolatedSummaryCarriesThePriorCheckpoint(t *testing.T) {
 }
 
 func TestCompactReportsMeasuredContextFromLiveSummaryRequest(t *testing.T) {
-	store, err := session.New(t.TempDir(), t.TempDir(), "test", "system")
+	store, err := newSession(t.TempDir(), t.TempDir(), "test", "system")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -526,7 +527,7 @@ func TestCompactAnswersToolCallsInLiveSummary(t *testing.T) {
 		"gives up":                    {toolCalls: toolRetries + 1, wantErr: true},
 	} {
 		t.Run(name, func(t *testing.T) {
-			store, err := session.New(t.TempDir(), t.TempDir(), "test", "system")
+			store, err := newSession(t.TempDir(), t.TempDir(), "test", "system")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -581,7 +582,7 @@ func TestCompactAnswersToolCallsInLiveSummary(t *testing.T) {
 }
 
 func TestCompactUsesPreviousSummaryWithoutReSummarizingIt(t *testing.T) {
-	store, err := session.New(t.TempDir(), t.TempDir(), "test", "system")
+	store, err := newSession(t.TempDir(), t.TempDir(), "test", "system")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -666,6 +667,11 @@ func (p *recordingProvider) Complete(_ context.Context, messages []session.Messa
 	return session.Message{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartText, Text: "summary"}}, Usage: usage}, nil
 }
 
+// newSession creates a session file in dir for cwd.
+func newSession(dir, cwd, appVersion, systemPrompt string) (*session.Store, error) {
+	return session.Create(filepath.Join(dir, "session.jsonl"), session.Header{CWD: cwd, AppVersion: appVersion}, systemPrompt)
+}
+
 // newRunner builds a runner over tools, rooted at the store's working
 // directory with vision on.
 func newRunner(limits Limits, provider Provider, store *session.Store, tools ...tool.Tool) *Runner {
@@ -700,7 +706,7 @@ func (p *retryingProvider) Complete(ctx context.Context, messages []session.Mess
 // A retry is reported from a turn and from a compaction alike, before the
 // output of the request that got through.
 func TestRunnerReportsProviderRetries(t *testing.T) {
-	store, err := session.New(t.TempDir(), t.TempDir(), "test", "system")
+	store, err := newSession(t.TempDir(), t.TempDir(), "test", "system")
 	if err != nil {
 		t.Fatal(err)
 	}

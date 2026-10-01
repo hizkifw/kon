@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"testing"
+
+	"github.com/hizkifw/kon/core/typedid"
 )
 
 // tornFile writes half of each record and then fails, as a full disk does.
@@ -34,7 +37,7 @@ func TestFailedAppendLeavesNoTornLine(t *testing.T) {
 	// New and Open differ: only a reopened file is in append mode, so a new
 	// session's next write depends on seeking to the truncated end.
 	for _, reopen := range []bool{false, true} {
-		store, err := New(t.TempDir(), t.TempDir(), "test", "system")
+		store, err := newStore(t.TempDir(), t.TempDir(), "test", "system")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -91,7 +94,7 @@ func TestFailedAppendLeavesNoTornLine(t *testing.T) {
 }
 
 func TestUnrecoverableAppendStopsLaterAppends(t *testing.T) {
-	store, err := New(t.TempDir(), t.TempDir(), "test", "system")
+	store, err := newStore(t.TempDir(), t.TempDir(), "test", "system")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,4 +112,13 @@ func TestUnrecoverableAppendStopsLaterAppends(t *testing.T) {
 	if _, err := store.AppendMessage(userText("after")); err == nil {
 		t.Fatal("append after an unrecoverable failure was accepted")
 	}
+}
+
+// newStore creates a session file in dir for cwd.
+func newStore(dir, cwd, appVersion, systemPrompt string) (*Store, error) {
+	id, err := typedid.NewSessionID()
+	if err != nil {
+		return nil, err
+	}
+	return Create(filepath.Join(dir, id.String()+".jsonl"), Header{ID: id, CWD: cwd, AppVersion: appVersion}, systemPrompt)
 }

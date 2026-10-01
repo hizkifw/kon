@@ -1,7 +1,6 @@
-package session
+package sessions
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
 	"errors"
@@ -11,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/hizkifw/kon/core/session"
 	"github.com/hizkifw/kon/core/typedid"
 )
 
@@ -42,7 +42,7 @@ type Subagents struct {
 type tally struct {
 	path   string
 	offset int64
-	usage  Usage
+	usage  session.Usage
 }
 
 // usageKey marks a record that may carry usage. Inside a string, as in a tool's
@@ -53,38 +53,32 @@ var usageKey = []byte(`"usage":`)
 // usageRecord is the part of a session record that carries usage: an
 // assistant message's, or a compaction's own.
 type usageRecord struct {
-	Usage   *Usage `json:"usage"`
+	Usage   *session.Usage `json:"usage"`
 	Message *struct {
-		Usage *Usage `json:"usage"`
+		Usage *session.Usage `json:"usage"`
 	} `json:"message"`
 }
 
 // read adds the usage of the records completed since the last read. A line
 // without its ending is left for the next read, once the writer finishes it.
 func (t *tally) read() error {
-	b, err := appended(t.path, t.offset)
-	if err != nil {
-		return err
-	}
-	for {
-		end := bytes.IndexByte(b, '\n')
-		if end < 0 {
+	offset, err := session.ReadLines(t.path, t.offset, func(line []byte) error {
+		if !bytes.Contains(line, usageKey) {
 			return nil
 		}
-		if line := b[:end]; bytes.Contains(line, usageKey) {
-			var record usageRecord
-			if json.Unmarshal(line, &record) == nil {
-				switch {
-				case record.Message != nil && record.Message.Usage != nil:
-					t.usage.add(*record.Message.Usage)
-				case record.Usage != nil:
-					t.usage.add(*record.Usage)
-				}
+		var record usageRecord
+		if json.Unmarshal(line, &record) == nil {
+			switch {
+			case record.Message != nil && record.Message.Usage != nil:
+				t.usage.Add(*record.Message.Usage)
+			case record.Usage != nil:
+				t.usage.Add(*record.Usage)
 			}
 		}
-		t.offset += int64(end + 1)
-		b = b[end+1:]
-	}
+		return nil
+	})
+	t.offset = offset
+	return err
 }
 
 // NewSubagents follows the subagents of the session id, whose file is at
@@ -103,14 +97,14 @@ func (s *Subagents) Session() typedid.SessionID { return s.root }
 // Usage returns what the subagents have used so far. Each call reads only what
 // their sessions appended since the last, and the sessions of subagents
 // started since.
-func (s *Subagents) Usage() Usage {
+func (s *Subagents) Usage() session.Usage {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.discover()
-	var total Usage
+	var total session.Usage
 	for name, t := range s.followed {
 		switch err := t.read(); {
-		case errors.Is(err, ErrRemoved):
+		case errors.Is(err, session.ErrRemoved):
 			// Only a session that never held a conversation is removed.
 			delete(s.followed, name)
 			continue
@@ -120,7 +114,7 @@ func (s *Subagents) Usage() Usage {
 			*t = tally{path: t.path}
 			continue
 		}
-		total.add(t.usage)
+		total.Add(t.usage)
 	}
 	return total
 }
@@ -161,23 +155,14 @@ func (s *Subagents) discover() {
 
 // readHeader reads a session file's header alone. A header without its line
 // ending is still being written and is an error.
-func readHeader(path string) (Header, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return Header{}, err
+func readHeader(path string) (session.Header, error) {
+	var header session.Header
+	err := errors.New("session header is incomplete")
+	if _, readErr := session.ReadLines(path, 0, func(line []byte) error {
+		header, err = session.ParseHeader(line)
+		return session.ErrStop
+	}); readErr != nil {
+		return session.Header{}, readErr
 	}
-	defer f.Close()
-	// A header is a few hundred bytes; a longer one is still read whole.
-	line, err := bufio.NewReaderSize(f, 512).ReadBytes('\n')
-	if err != nil {
-		return Header{}, err
-	}
-	var header Header
-	if err := json.Unmarshal(line, &header); err != nil {
-		return Header{}, err
-	}
-	if header.Type != "session" || header.ID.IsZero() {
-		return Header{}, errors.New("invalid session header")
-	}
-	return header, nil
+	return header, err
 }
