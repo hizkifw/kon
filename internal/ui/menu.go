@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"image/color"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -21,14 +20,11 @@ type menuItem struct {
 	// without committing. It is built lazily on highlight, never for every
 	// candidate. Nil means no preview.
 	Preview func() *transcript
-	// Heading marks a row of a drawer's list that names the section below
-	// it rather than something to pick; it is never highlighted.
-	Heading bool
-	// Badge is a short status a drawer's list shows between the label and
-	// the description, in BadgeColor, or the text color when that is nil.
-	Badge      string
-	BadgeColor color.Color
 }
+
+// selectedRowStyle marks the highlighted row of the popup and of a drawer's
+// list.
+var selectedRowStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#DADADA")).Background(lipgloss.Color("#333333"))
 
 // menu is a generic selectable popup rendered above the prompt. It owns only
 // presentation and navigation; committing a choice is the job of the
@@ -88,7 +84,7 @@ func (m menu) render(width int) string {
 		}
 		return ""
 	}
-	selected := lipgloss.NewStyle().Foreground(lipgloss.Color("#DADADA")).Background(lipgloss.Color("#333333"))
+	selected := selectedRowStyle
 	description := lipgloss.NewStyle().Foreground(colorFaint)
 	// Keep the selected row visible when the list is longer than the window.
 	start := 0

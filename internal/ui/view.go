@@ -33,7 +33,7 @@ func (m *Model) resize() {
 	m.input.SetHeight(inputHeight)
 	m.viewport.SetWidth(max(1, m.width))
 	m.viewport.SetHeight(max(1, m.height-inputHeight-2-panels))
-	m.layoutDrawers()
+	m.drawers.Resize(m.width, m.height)
 }
 
 // refreshTranscript updates the viewport contents. When toBottom is set, the
@@ -47,7 +47,7 @@ func (m *Model) refreshTranscript(toBottom bool) {
 	if follow {
 		m.viewport.GotoBottom()
 	}
-	m.refreshDrawers()
+	m.drawers.Refresh()
 }
 
 // activeTranscript is the transcript the mouse works on: the top drawer's when
@@ -55,7 +55,8 @@ func (m *Model) refreshTranscript(toBottom bool) {
 // shows.
 func (m *Model) activeTranscript() *transcript {
 	if d := m.topDrawer(); d != nil {
-		return d.transcript
+		t, _ := d.Content.(*transcript)
+		return t
 	}
 	return m.mainTranscript()
 }
@@ -134,11 +135,11 @@ func (m Model) View() tea.View {
 	}
 	sections = append(sections, inputView(input, m.width))
 	content := strings.Join(sections, "\n")
-	if len(m.drawers) > 0 {
-		content = strings.Join(m.paintDrawers(strings.Split(content, "\n")), "\n")
+	if m.drawers.Len() > 0 {
+		content = strings.Join(m.drawers.Paint(&m, strings.Split(content, "\n")), "\n")
 	}
 	view := tea.NewView(content)
-	if m.terminalFocused && len(m.drawers) == 0 {
+	if m.terminalFocused && m.drawers.Len() == 0 {
 		view.Cursor = m.input.Cursor()
 		if m.login != nil {
 			view.Cursor = m.login.input.Cursor()

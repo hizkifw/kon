@@ -119,7 +119,7 @@ type Model struct {
 	// runEpoch counts started runs, main and side alike; see run.epoch.
 	runEpoch int
 	// drawers is the stack of surfaces painted over the screen, top last.
-	drawers   []*drawer
+	drawers   tui.Stack[*Model]
 	side      *sideChat
 	sideSpent float64
 	// jobsView is the /jobs drawers while they are open, and jobsEpoch
@@ -249,6 +249,7 @@ func New(ctx context.Context, cwd, configPath string, runtime Runtime, historySt
 		active: state.Active, cwd: cwd, configPath: configPath,
 		transcript: transcript{cwd: cwd, banner: mark},
 		configured: state.Ready() || state.Following(), contextTokens: -1, terminalFocused: true,
+		drawers: tui.Stack[*Model]{Theme: drawerTheme()},
 	}
 	// A resumed session opens with its conversation already in the transcript.
 	// The viewport has no size until the first resize, so defer the scroll to
@@ -326,7 +327,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case flashDoneMsg:
 		return m.flashDone(msg)
 	case tea.PasteMsg:
-		if len(m.drawers) > 0 {
+		if m.drawers.Len() > 0 {
 			return m, nil
 		}
 		if m.search != nil {
@@ -359,7 +360,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.retitleModelChanges()
 		return m, nil
 	case tea.KeyPressMsg:
-		if len(m.drawers) > 0 {
+		if m.drawers.Len() > 0 {
 			return m.drawerKey(msg.String())
 		}
 		if m.login != nil {

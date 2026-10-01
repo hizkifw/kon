@@ -159,7 +159,7 @@ func (m Model) openJobs() (tea.Model, tea.Cmd) {
 	}
 	m.jobsEpoch++
 	v := &jobsView{epoch: m.jobsEpoch, jobs: jobs}
-	v.list = &drawer{title: "jobs", list: &menu{}, actions: v.listActions, onClose: func(m *Model) { m.jobsView = nil }}
+	v.list = &drawer{Title: "jobs", List: &tui.List{}, Actions: v.listActions, OnClose: func(m *Model) { m.jobsView = nil }}
 	v.fillList()
 	m.jobsView = v
 	m.openDrawer(v.list)
@@ -176,7 +176,7 @@ func (v *jobsView) fillList() {
 		status, _ := jobStatus(job)
 		statusWidth = max(statusWidth, ansi.StringWidth(status))
 	}
-	var items []menuItem
+	var items []tui.Item
 	index := -1
 	section := func(heading string, running bool) {
 		first := true
@@ -185,14 +185,14 @@ func (v *jobsView) fillList() {
 				continue
 			}
 			if first {
-				items = append(items, menuItem{Label: heading, Heading: true})
+				items = append(items, tui.Item{Label: heading, Heading: true})
 				first = false
 			}
 			status, tint := jobStatus(job)
 			if job.ID == selected.ID || index < 0 {
 				index = len(items)
 			}
-			items = append(items, menuItem{
+			items = append(items, tui.Item{
 				Value:       strconv.Itoa(job.ID),
 				Label:       fmt.Sprintf("%*d  %-8s", idWidth, job.ID, jobKind(job)),
 				Badge:       status + strings.Repeat(" ", statusWidth-ansi.StringWidth(status)),
@@ -203,14 +203,14 @@ func (v *jobsView) fillList() {
 	}
 	section("running", true)
 	section("finished", false)
-	v.list.list.items, v.list.list.index = items, index
+	v.list.List.Items, v.list.List.Index = items, index
 }
 
 // selected is the highlighted job, or the zero job when there is none.
 func (v *jobsView) selected() codetools.Job {
-	if list := v.list.list; list.index < len(list.items) {
+	if item, ok := v.list.List.Selected(); ok {
 		for _, job := range v.jobs {
-			if strconv.Itoa(job.ID) == list.items[list.index].Value {
+			if strconv.Itoa(job.ID) == item.Value {
 				return job
 			}
 		}
@@ -223,7 +223,7 @@ func (v *jobsView) listActions(*Model) []drawerAction {
 	if job.ID == 0 {
 		return nil
 	}
-	actions := []drawerAction{{key: "enter", hint: "⏎", label: "open", run: func(m *Model) tea.Cmd {
+	actions := []drawerAction{{Key: "enter", Hint: "⏎", Label: "open", Run: func(m *Model) tea.Cmd {
 		return m.openJob(job)
 	}}}
 	return append(actions, killAction(job)...)
@@ -235,9 +235,9 @@ func killAction(job codetools.Job) []drawerAction {
 		return nil
 	}
 	return []drawerAction{{
-		key: "K", hint: "⇧K", label: "kill",
-		confirm: "press ⇧K again to stop " + jobKind(job) + " " + strconv.Itoa(job.ID),
-		run: func(m *Model) tea.Cmd {
+		Key: "K", Hint: "⇧K", Label: "kill",
+		Confirm: "press ⇧K again to stop " + jobKind(job) + " " + strconv.Itoa(job.ID),
+		Run: func(m *Model) tea.Cmd {
 			m.stopJob(job.ID)
 			return nil
 		},
@@ -250,12 +250,12 @@ func killAction(job codetools.Job) []drawerAction {
 func (m *Model) openJob(job codetools.Job) tea.Cmd {
 	v := m.jobsView
 	w := &jobWatch{job: job, transcript: transcript{cwd: m.cwd}}
-	w.drawer = &drawer{title: jobTitle(job), transcript: &w.transcript, onClose: func(m *Model) {
+	w.drawer = &drawer{Title: jobTitle(job), Content: &w.transcript, OnClose: func(m *Model) {
 		if m.jobsView != nil {
 			m.jobsView.watch = nil
 		}
 	}}
-	w.drawer.actions = func(*Model) []drawerAction { return killAction(w.job) }
+	w.drawer.Actions = func(*Model) []drawerAction { return killAction(w.job) }
 	w.showOutput()
 	v.watch = w
 	m.openDrawer(w.drawer)
@@ -339,10 +339,10 @@ func (m Model) applyJobsPolled(msg jobsPolledMsg) (tea.Model, tea.Cmd) {
 				w.job = job
 			}
 		}
-		w.drawer.title = jobTitle(w.job)
+		w.drawer.Title = jobTitle(w.job)
 		m.applyJobRead(w, msg.read)
 	}
-	m.refreshDrawers()
+	m.drawers.Refresh()
 	// A job opened while this read was in flight is read at once.
 	if w := v.watch; w != nil && !w.read {
 		return m, m.pollJobs()

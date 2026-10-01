@@ -189,6 +189,18 @@ type transcript struct {
 	bannerValid bool
 }
 
+// Lines is the transcript at width, for a drawer showing it.
+func (t *transcript) Lines(width int) []string { return t.linesFor(width) }
+
+// Highlight marks the selection, for a drawer showing the transcript, or is
+// nil when there is none.
+func (t *transcript) Highlight(width int) func(i int, line string) string {
+	if t.selection == nil {
+		return nil
+	}
+	return func(i int, line string) string { return t.highlight(i, line, width) }
+}
+
 func (t *transcript) add(value block) {
 	t.blocks = append(t.blocks, value)
 	t.dirty = true

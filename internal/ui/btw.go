@@ -46,7 +46,7 @@ func (m Model) startSideChat(question string) (tea.Model, tea.Cmd) {
 	r.paint(&m.side.transcript, time.Now())
 	m.input.Reset()
 	m.resetMenu()
-	m.openDrawer(&drawer{title: "/btw", transcript: &m.side.transcript, onClose: closeSideChat})
+	m.openDrawer(&drawer{Title: "/btw", Content: &m.side.transcript, OnClose: closeSideChat})
 	return m, cmd
 }
 

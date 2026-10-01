@@ -75,8 +75,8 @@ func TestJobsWithNoneSaysSo(t *testing.T) {
 	m := sizedModel(t, 80, 24)
 	updated, cmd := m.openJobs()
 	m = updated.(Model)
-	if cmd != nil || len(m.drawers) != 0 || m.message != "no background jobs" {
-		t.Fatalf("drawers = %d, status = %q", len(m.drawers), m.message)
+	if cmd != nil || m.drawers.Len() != 0 || m.message != "no background jobs" {
+		t.Fatalf("drawers = %d, status = %q", m.drawers.Len(), m.message)
 	}
 }
 
@@ -132,8 +132,8 @@ func TestJobDrawerFollowsOutputLikeATerminal(t *testing.T) {
 	updated, _ := m.openJobs()
 	m = updated.(Model)
 	m = sendKey(t, m, "enter")
-	if len(m.drawers) != 2 {
-		t.Fatalf("enter opened %d drawers", len(m.drawers))
+	if m.drawers.Len() != 2 {
+		t.Fatalf("enter opened %d drawers", m.drawers.Len())
 	}
 	m = pollNow(t, m)
 	got := screen(m)
@@ -157,11 +157,11 @@ func TestJobDrawerFollowsOutputLikeATerminal(t *testing.T) {
 		t.Fatalf("finished job still shows as running:\n%s", got)
 	}
 	m = sendKey(t, m, "esc")
-	if len(m.drawers) != 1 || m.jobsView == nil || m.jobsView.watch != nil {
+	if m.drawers.Len() != 1 || m.jobsView == nil || m.jobsView.watch != nil {
 		t.Fatal("esc did not go back to the list")
 	}
 	m = sendKey(t, m, "esc")
-	if len(m.drawers) != 0 || m.jobsView != nil {
+	if m.drawers.Len() != 0 || m.jobsView != nil {
 		t.Fatal("esc did not close the list")
 	}
 }
@@ -236,28 +236,28 @@ func TestClickingARowHighlightsThenOpensIt(t *testing.T) {
 	m, _ := jobsModel(t)
 	updated, _ := m.openJobs()
 	m = updated.(Model)
-	body := drawerBody(drawerRect(m.width, m.height, 0))
+	body := m.drawers.Body(0)
 	// Rows are: running, job 2, finished, job 1. A heading takes no click.
 	m, _ = update(m, tea.MouseClickMsg{X: body.X + 2, Y: body.Y + 2, Button: tea.MouseLeft})
-	if m.jobsView.list.list.index != 1 || len(m.drawers) != 1 {
-		t.Fatalf("clicking a heading: index = %d, drawers = %d", m.jobsView.list.list.index, len(m.drawers))
+	if m.jobsView.list.List.Index != 1 || m.drawers.Len() != 1 {
+		t.Fatalf("clicking a heading: index = %d, drawers = %d", m.jobsView.list.List.Index, m.drawers.Len())
 	}
 	click := tea.MouseClickMsg{X: body.X + 2, Y: body.Y + 3, Button: tea.MouseLeft}
 	m, _ = update(m, click)
-	if m.jobsView.list.list.index != 3 || len(m.drawers) != 1 {
-		t.Fatalf("first click: index = %d, drawers = %d", m.jobsView.list.list.index, len(m.drawers))
+	if m.jobsView.list.List.Index != 3 || m.drawers.Len() != 1 {
+		t.Fatalf("first click: index = %d, drawers = %d", m.jobsView.list.List.Index, m.drawers.Len())
 	}
 	m, _ = update(m, click)
-	if len(m.drawers) != 2 || m.jobsView.watch == nil || m.jobsView.watch.job.ID != 1 {
+	if m.drawers.Len() != 2 || m.jobsView.watch == nil || m.jobsView.watch.job.ID != 1 {
 		t.Fatal("a click on the highlighted row did not open it")
 	}
 	// Esc in the hint row is a button too.
-	hints := m.hints(m.topDrawer())
+	hints := m.drawers.Hints(&m)
 	esc := hints[len(hints)-1]
-	body = drawerBody(drawerRect(m.width, m.height, 1))
-	m, _ = update(m, tea.MouseClickMsg{X: body.X + esc.x, Y: body.Y + body.H, Button: tea.MouseLeft})
-	if len(m.drawers) != 1 {
-		t.Fatalf("clicking esc back left %d drawers", len(m.drawers))
+	body = m.drawers.Body(1)
+	m, _ = update(m, tea.MouseClickMsg{X: body.X + esc.X, Y: body.Y + body.H, Button: tea.MouseLeft})
+	if m.drawers.Len() != 1 {
+		t.Fatalf("clicking esc back left %d drawers", m.drawers.Len())
 	}
 }
 

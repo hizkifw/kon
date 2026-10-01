@@ -102,7 +102,7 @@ var selectedStyle = lipgloss.NewStyle().Reverse(true)
 // screen: the top drawer's when one is open, otherwise the main transcript's.
 func (m *Model) surface() (*tui.Scroll, tui.Rect) {
 	if d := m.topDrawer(); d != nil {
-		return &d.view, drawerBody(drawerRect(m.width, m.height, len(m.drawers)-1))
+		return d.View(), m.drawers.Body(m.drawers.Len() - 1)
 	}
 	return &m.viewport, tui.Rect{Y: transcriptTop, W: m.width, H: m.viewport.Height()}
 }
@@ -131,9 +131,9 @@ func (m Model) pointAt(x, y int) (point, int) {
 // nothing until the pointer moves; a double click selects the word pressed
 // on and a triple click the paragraph, straight away.
 func (m Model) pressMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
-	if len(m.drawers) > 0 {
+	if m.drawers.Len() > 0 {
 		// The dimmed area around the top drawer only takes a click to close it.
-		if r := drawerRect(m.width, m.height, len(m.drawers)-1); !r.Contains(msg.X, msg.Y) {
+		if r := m.drawers.Rect(m.drawers.Len() - 1); !r.Contains(msg.X, msg.Y) {
 			m.closeDrawer()
 			return m, nil
 		}
@@ -143,13 +143,13 @@ func (m Model) pressMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		// A list has no text to select.
-		if m.topDrawer().list != nil {
+		if m.topDrawer().List != nil {
 			return m, nil
 		}
 	}
 	m.activeTranscript().selection = nil
 	view, area := m.surface()
-	if msg.Button != tea.MouseLeft || len(m.drawers) == 0 && m.preview != nil || !area.Contains(msg.X, msg.Y) || view.LineCount() == 0 {
+	if msg.Button != tea.MouseLeft || m.drawers.Len() == 0 && m.preview != nil || !area.Contains(msg.X, msg.Y) || view.LineCount() == 0 {
 		m.click = click{}
 		return m, nil
 	}

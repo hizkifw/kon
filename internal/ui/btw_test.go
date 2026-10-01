@@ -26,7 +26,7 @@ func (r sideRuntime) SideChat(ctx context.Context, question string, emit func(ag
 func openSide(m *Model) {
 	m.runEpoch++
 	m.side = &sideChat{run: &run{epoch: m.runEpoch, cancel: func() {}, start: time.Now(), verb: "Asking"}}
-	m.openDrawer(&drawer{title: "/btw", transcript: &m.side.transcript, onClose: closeSideChat})
+	m.openDrawer(&drawer{Title: "/btw", Content: &m.side.transcript, OnClose: closeSideChat})
 }
 
 func TestBTWParsesFreeFormQuestion(t *testing.T) {
@@ -129,7 +129,7 @@ func TestBTWDismissCancelsOnlySideAndDropsLateEvents(t *testing.T) {
 	epoch := m.side.run.epoch
 	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updated.(Model)
-	if m.side == nil || len(m.drawers) != 1 {
+	if m.side == nil || m.drawers.Len() != 1 {
 		t.Fatal("Enter dismissed the side answer")
 	}
 	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
@@ -139,7 +139,7 @@ func TestBTWDismissCancelsOnlySideAndDropsLateEvents(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("dismiss did not cancel side request")
 	}
-	if mainCancelled || !m.busy() || m.side != nil || len(m.drawers) != 0 {
+	if mainCancelled || !m.busy() || m.side != nil || m.drawers.Len() != 0 {
 		t.Fatal("dismiss affected the main run")
 	}
 	updated, cmd := m.Update(runMsg{epoch: epoch, event: agent.Event{Kind: agent.EventText, Text: "late"}})
