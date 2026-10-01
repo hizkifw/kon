@@ -17,7 +17,7 @@ import (
 
 // SchemaVersion is the only session format version this package reads and
 // writes. Files of an older version are upgraded before they are opened.
-const SchemaVersion = 4
+const SchemaVersion = 5
 
 // EntryType is what an entry records. Readers keep entries of types they do
 // not know, so a newer writer can add one.

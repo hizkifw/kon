@@ -112,19 +112,57 @@ type Part struct {
 	ToolName        string             `json:"tool_name,omitempty"`
 	ToolInput       json.RawMessage    `json:"tool_input,omitempty"`
 	ToolOutput      string             `json:"tool_output,omitempty"`
-	ImageHash       string             `json:"image_hash,omitempty"`
-	ImageMIME       string             `json:"image_mime,omitempty"`
+	MediaHash       string             `json:"media_hash,omitempty"`
+	MediaMIME       string             `json:"media_mime,omitempty"`
 	ProviderOptions json.RawMessage    `json:"provider_options,omitempty"`
 }
 
-// Content part types. An image part references bytes beside the session file.
+// Content part types. A media part references bytes beside the session file.
 const (
 	PartReasoning  = "reasoning"
 	PartText       = "text"
 	PartToolCall   = "tool_call"
-	PartImage      = "image"
+	PartMedia      = "media"
 	PartToolResult = "tool_result"
 )
+
+// Modality is a kind of non-text input a model may accept. The names match
+// models.dev's input modalities.
+type Modality string
+
+const (
+	ModalityImage Modality = "image"
+	ModalityAudio Modality = "audio"
+	ModalityVideo Modality = "video"
+	ModalityPDF   Modality = "pdf"
+)
+
+// Modalities lists every modality kon can attach, in a stable order.
+func Modalities() []Modality {
+	return []Modality{ModalityImage, ModalityAudio, ModalityVideo, ModalityPDF}
+}
+
+// ModalityOf is the modality a MIME type belongs to, or "" for one kon
+// cannot attach. A media part's modality comes from its MIME type alone, so
+// the session never records it twice.
+func ModalityOf(mime string) Modality {
+	kind, _, _ := strings.Cut(mime, "/")
+	switch {
+	case kind == "image" || kind == "audio" || kind == "video":
+		return Modality(kind)
+	case mime == "application/pdf":
+		return ModalityPDF
+	}
+	return ""
+}
+
+// Modality is a media part's modality, or "" for any other part.
+func (p Part) Modality() Modality {
+	if p.Type != PartMedia {
+		return ""
+	}
+	return ModalityOf(p.MediaMIME)
+}
 
 // Message is provider-neutral. Parts are the only source of message content
 // and retain the order and opaque metadata supplied by the provider.
@@ -202,7 +240,7 @@ func (m Message) ToolResult() (typedid.ToolCallID, string) {
 }
 
 // Validate reports whether the message can be stored: content its role
-// requires, unique tool call IDs, and well-formed image parts.
+// requires, unique tool call IDs, and well-formed media parts.
 func (m Message) Validate() error {
 	switch m.Role {
 	case RoleSystem, RoleUser:
@@ -244,8 +282,8 @@ func (m Message) Validate() error {
 		return fmt.Errorf("unknown message role %q", m.Role)
 	}
 	for _, part := range m.Parts {
-		if part.Type == PartImage && (part.Text != "" || !validImageHash(part.ImageHash) || part.ImageMIME == "") {
-			return errors.New("image part requires a blob hash and MIME type")
+		if part.Type == PartMedia && (part.Text != "" || !validBlobHash(part.MediaHash) || part.MediaMIME == "") {
+			return errors.New("media part requires a blob hash and MIME type")
 		}
 	}
 	return nil

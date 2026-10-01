@@ -133,7 +133,7 @@ started, without asking first.
 
 | Tool | Does |
 | --- | --- |
-| `read` | Return a file's lines, numbered, up to 2,000 per call; the model asks for more by offset. Text files over 1 MiB are refused. Images of up to 5 MiB are passed to models with [image support](configuration.md#images). |
+| `read` | Return a file's lines, numbered, up to 2,000 per call; the model asks for more by offset. Text files over 1 MiB are refused. Images, audio, video, and PDFs are passed whole to models that [accept them](configuration.md#media). |
 | `write` | Create or replace a whole file, atomically. |
 | `edit` | Replace one exact piece of text in a file. It fails if the text occurs zero times or more than once. |
 | `shell` | Run a command, with a timeout the model chooses, of up to 600 seconds. A timeout of `0` starts a [background job](#background-job-files). |
@@ -241,7 +241,7 @@ Set by kon for every shell command the agent runs:
 | `headers` | object | no | Extra HTTP headers, which may override kon's own. |
 | `context_window_tokens` | integer | no | Context limit; `0` means unknown. It must exceed the `compaction` sizes you set, combined. |
 | `max_output_tokens` | integer | no | The most the model writes in one reply; `0` means unknown. |
-| `vision` | boolean | no | Accepts images. |
+| `inputs` | array of strings | no | [Media](configuration.md#media) the model accepts: `image`, `audio`, `video`, `pdf`. |
 | `reasoning` | boolean | no | Reasons; see [Reasoning](configuration.md#reasoning). |
 | `reasoning_efforts` | array of strings | no | Effort levels, in Shift+Tab order, without duplicates. |
 | `cost` | object | no | US dollars per million tokens: `input`, `output`, and optionally `cache_read` and `cache_write`. |

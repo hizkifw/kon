@@ -426,13 +426,13 @@ func TestSideChatSnapshotRetainsIncognitoImagesAfterClose(t *testing.T) {
 	}))
 	defer server.Close()
 	cfg := configured("side-model")
-	cfg.Models[0].BaseURL, cfg.Models[0].Vision = server.URL, true
+	cfg.Models[0].BaseURL, cfg.Models[0].Inputs = server.URL, []session.Modality{session.ModalityImage}
 	r, err := Start(cfg, config.Paths{Sessions: t.TempDir()}, t.TempDir(), "test", Options{Incognito: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer r.Close()
-	part, err := r.store.SaveImage([]byte("test image"), "image/png")
+	part, err := r.store.SaveMedia([]byte("test image"), "image/png")
 	if err != nil {
 		t.Fatal(err)
 	}

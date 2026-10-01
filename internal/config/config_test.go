@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"kon.kitsu.red/core/session"
 )
 
 // TestConfigFilesArePrivate covers both ways kon writes its config: the
@@ -167,6 +169,20 @@ func TestValidateReasoningEfforts(t *testing.T) {
 	cfg.Models[0].ReasoningEfforts = []string{"low", "low"}
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("duplicate reasoning effort was accepted")
+	}
+}
+
+func TestValidateInputs(t *testing.T) {
+	cfg := testConfig()
+	cfg.Models[0].Inputs = []session.Modality{session.ModalityImage, session.ModalityAudio}
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	for _, inputs := range [][]session.Modality{{"text"}, {"image", "image"}} {
+		cfg.Models[0].Inputs = inputs
+		if err := cfg.Validate(); err == nil {
+			t.Fatalf("inputs %v were accepted", inputs)
+		}
 	}
 }
 

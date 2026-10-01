@@ -64,7 +64,7 @@ func (imageTool) Run(_ context.Context, env tool.Env, raw json.RawMessage) (tool
 	if err != nil {
 		return tool.Result{}, err
 	}
-	return tool.Result{Content: fmt.Sprintf("image %s (%d bytes)", args.Path, len(data)), Images: []tool.Image{{Data: data, MIME: "image/png"}}}, nil
+	return tool.Result{Content: fmt.Sprintf("image %s (%d bytes)", args.Path, len(data)), Media: []tool.Media{{Data: data, MIME: "image/png"}}}, nil
 }
 
 // TestImageResultDoesNotForceCompaction pins the compaction behavior for
@@ -150,10 +150,10 @@ func TestRunPersistsImagePartsFromTool(t *testing.T) {
 	if tool == nil {
 		t.Fatal("no tool result was persisted")
 	}
-	if len(tool.Parts) != 2 || tool.Parts[1].Type != session.PartImage || tool.Parts[1].ImageMIME != "image/png" || tool.Parts[1].ImageHash == "" || tool.Parts[1].Text != "" {
+	if len(tool.Parts) != 2 || tool.Parts[1].Type != session.PartMedia || tool.Parts[1].MediaMIME != "image/png" || tool.Parts[1].MediaHash == "" || tool.Parts[1].Text != "" {
 		t.Fatalf("tool parts = %#v", tool.Parts)
 	}
-	data, err := store.ReadImage(tool.Parts[1].ImageHash)
+	data, err := store.ReadMedia(tool.Parts[1].MediaHash)
 	if err != nil || string(data) != string(pngHeader) {
 		t.Fatalf("stored image = %x, %v", data, err)
 	}

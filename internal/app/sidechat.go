@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"kon.kitsu.red/core/agent"
@@ -105,22 +106,22 @@ func (r *Runtime) prepareSideChat(question string) (*provider.Client, []session.
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("side chat context: %w", err)
 	}
-	// Detach images as well as messages before releasing the runtime lock.
+	// Detach media as well as messages before releasing the runtime lock.
 	// Session switches can then close even an incognito store immediately.
-	type imageResult struct {
+	type mediaResult struct {
 		data []byte
 		err  error
 	}
-	images := make(map[string]imageResult)
+	media := make(map[string]mediaResult)
 	messages := make([]session.Message, 0, len(snapshot)+1)
 	for _, item := range snapshot {
 		for _, part := range item.Message.Parts {
-			if !profile.Vision || part.Type != session.PartImage {
+			if part.Type != session.PartMedia || !slices.Contains(profile.Inputs, part.Modality()) {
 				continue
 			}
-			if _, ok := images[part.ImageHash]; !ok {
-				data, err := r.store.ReadImage(part.ImageHash)
-				images[part.ImageHash] = imageResult{data, err}
+			if _, ok := media[part.MediaHash]; !ok {
+				data, err := r.store.ReadMedia(part.MediaHash)
+				media[part.MediaHash] = mediaResult{data, err}
 			}
 		}
 		// Context repairs missing results as interrupted calls. A live main
@@ -135,9 +136,9 @@ func (r *Runtime) prepareSideChat(question string) (*provider.Client, []session.
 	// prompt, so this detour does not change the main conversation's prefix.
 	messages = append(messages, session.TextMessage(session.RoleUser, question+"\n\n["+sideChatInstructions+"]"))
 	client, err := provider.New(profile.providerSpec(), func(hash string) ([]byte, error) {
-		result, ok := images[hash]
+		result, ok := media[hash]
 		if !ok {
-			return nil, errors.New("image absent from side chat snapshot")
+			return nil, errors.New("media absent from side chat snapshot")
 		}
 		return result.data, result.err
 	})

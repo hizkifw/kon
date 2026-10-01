@@ -17,14 +17,19 @@ import (
 )
 
 const (
-	maxReadBytes  = 1024 * 1024
-	maxReadLines  = 2000
-	maxImageBytes = 5 * 1024 * 1024
+	maxReadBytes = 1024 * 1024
+	maxReadLines = 2000
 )
 
 // readTool reads a bounded window of a UTF-8 text file with line numbers, or
-// loads an image whole for models with vision.
+// loads a media file whole for models that accept it.
 type readTool struct{}
+
+type readArgs struct {
+	Path   string `json:"path"`
+	Offset int    `json:"offset"`
+	Limit  int    `json:"limit"`
+}
 
 type readDetails struct {
 	LineCount int  `json:"line_count"`
@@ -34,7 +39,7 @@ type readDetails struct {
 func (readTool) Definition() session.ToolDefinition {
 	return session.ToolDefinition{
 		Name:        "read",
-		Description: "Read a UTF-8 text file with one-based line offsets, or load an image (png, jpeg, gif, webp) whole for models with vision.",
+		Description: "Read a UTF-8 text file with one-based line offsets, or load a media file whole for models that accept it: " + formatsOf(session.Modalities()) + ".",
 		Parameters:  json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"offset":{"type":"integer","minimum":1},"limit":{"type":"integer","minimum":1,"maximum":2000}},"required":["path"],"additionalProperties":false}`),
 	}
 }
@@ -42,10 +47,7 @@ func (readTool) Definition() session.ToolDefinition {
 // Summarize renders the request line: the path relative to cwd, plus the
 // offset when the model started reading mid-file.
 func (readTool) Summarize(raw json.RawMessage, cwd string) string {
-	args := struct {
-		Path   string `json:"path"`
-		Offset int    `json:"offset"`
-	}{Offset: 1}
+	args := readArgs{Offset: 1}
 	if err := json.Unmarshal(raw, &args); err != nil {
 		return FallbackSummary(raw)
 	}
@@ -123,11 +125,7 @@ func readNote(text string) string {
 }
 
 func (t readTool) Run(_ context.Context, env tool.Env, raw json.RawMessage) (tool.Result, error) {
-	args := struct {
-		Path   string `json:"path"`
-		Offset int    `json:"offset"`
-		Limit  int    `json:"limit"`
-	}{Offset: 1, Limit: maxReadLines}
+	args := readArgs{Offset: 1, Limit: maxReadLines}
 	if err := decodeArgs(raw, &args); err != nil {
 		return tool.Result{}, err
 	}
@@ -138,10 +136,10 @@ func (t readTool) Run(_ context.Context, env tool.Env, raw json.RawMessage) (too
 	// A file larger than any mode can accept is rejected from its size and a
 	// short prefix, never loaded whole: reading a multi-gigabyte file just to
 	// refuse it would spike memory for nothing. The prefix still carries the
-	// image magic, so an oversized image is named as such rather than as an
+	// format's magic, so an oversized video is named as such rather than as an
 	// oversized text file.
-	if info, statErr := os.Stat(path); statErr == nil && info.Mode().IsRegular() && info.Size() > maxImageBytes {
-		return tool.Result{}, rejectOversize(path)
+	if info, statErr := os.Stat(path); statErr == nil && info.Mode().IsRegular() && info.Size() > maxMediaBytes {
+		return tool.Result{}, rejectOversize(path, env.Inputs)
 	}
 	// Read once and route by content, not extension: any real image is an
 	// image whatever it is named (or not named), and binary data never reaches
@@ -150,29 +148,29 @@ func (t readTool) Run(_ context.Context, env tool.Env, raw json.RawMessage) (too
 	if err != nil {
 		return tool.Result{}, err
 	}
-	if mime := detectImageMIME(b); mime != "" {
-		return t.imageResult(path, b, mime, env.Vision)
+	switch mime, format := sniffMedia(b); {
+	case format != "":
+		return tool.Result{}, unsupported(path, mime, format, env.Inputs)
+	case mime != "":
+		return mediaResult(path, b, mime, env)
 	}
-	if _, format := detectUnsendableImageMIME(b); format != "" {
-		return tool.Result{}, fmt.Errorf("%s is a %s image; kon can attach png, jpeg, gif, or webp images — convert it first", path, format)
-	}
-	return t.readText(args, path, b)
+	return readText(args, b)
 }
 
 // rejectOversize returns the error for a file too large for any read mode,
-// naming it as an unsupported image when its prefix is a known-but-unsendable
+// naming it as unsupported media when its prefix is a known-but-unsendable
 // format and as an oversized text file otherwise. It reads only a short prefix,
 // so a huge file is never loaded to be refused.
-func rejectOversize(path string) error {
+func rejectOversize(path string, inputs []session.Modality) error {
 	prefix, err := readPrefix(path, 512)
 	if err != nil {
 		return err
 	}
-	if _, format := detectUnsendableImageMIME(prefix); format != "" {
-		return fmt.Errorf("%s is a %s image; kon can attach png, jpeg, gif, or webp images — convert it first", path, format)
-	}
-	if mime := detectImageMIME(prefix); mime != "" {
-		return fmt.Errorf("%s is larger than %d bytes", path, maxImageBytes)
+	switch mime, format := sniffMedia(prefix); {
+	case format != "":
+		return unsupported(path, mime, format, inputs)
+	case mime != "":
+		return fmt.Errorf("%s is larger than %d bytes", path, mediaKinds[session.ModalityOf(mime)].limit)
 	}
 	return fmt.Errorf("file is larger than %d bytes", maxReadBytes)
 }
@@ -192,28 +190,26 @@ func readPrefix(path string, n int) ([]byte, error) {
 	return buf[:read], nil
 }
 
-// imageResult attaches the whole file as an image part. Offset and limit do
-// not apply to binary content. A vision-disabled configuration returns a text
-// notice instead of the bytes, so the model can react rather than retry.
-func (t readTool) imageResult(path string, b []byte, mime string, vision bool) (tool.Result, error) {
-	if len(b) > maxImageBytes {
-		return tool.Result{}, fmt.Errorf("%s is larger than %d bytes", path, maxImageBytes)
+// mediaResult attaches the whole file as a media part. Offset and limit do
+// not apply to binary content. A model that does not accept the modality gets
+// a text notice instead of the bytes, so it can react rather than retry.
+func mediaResult(path string, b []byte, mime string, env tool.Env) (tool.Result, error) {
+	modality := session.ModalityOf(mime)
+	kind := mediaKinds[modality]
+	if len(b) > kind.limit {
+		return tool.Result{}, fmt.Errorf("%s is larger than %d bytes", path, kind.limit)
 	}
-	if !vision {
-		return tool.Result{Content: fmt.Sprintf("%s is an image; the active model is not configured with vision, so its pixels cannot be inspected. Treat it as an opaque binary file.", path)}, nil
+	if !env.Accepts(modality) {
+		return tool.Result{Content: fmt.Sprintf("%s is %s; the active model does not accept %s input, so its contents cannot be inspected. Treat it as an opaque binary file.", path, kind.noun, modality)}, nil
 	}
 	return tool.Result{
-		Content: fmt.Sprintf("loaded image %s (%s, %d bytes)", path, mime, len(b)),
-		Images:  []tool.Image{{Data: b, MIME: mime}},
+		Content: fmt.Sprintf("loaded %s %s (%s, %d bytes)", modality, path, mime, len(b)),
+		Media:   []tool.Media{{Data: b, MIME: mime}},
 	}, nil
 }
 
 // readText renders the numbered line window of a UTF-8 text file.
-func (t readTool) readText(args struct {
-	Path   string `json:"path"`
-	Offset int    `json:"offset"`
-	Limit  int    `json:"limit"`
-}, path string, b []byte) (tool.Result, error) {
+func readText(args readArgs, b []byte) (tool.Result, error) {
 	if args.Offset < 1 || args.Limit < 1 || args.Limit > maxReadLines {
 		return tool.Result{}, errors.New("offset must be at least 1 and limit must be between 1 and 2000")
 	}

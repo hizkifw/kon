@@ -305,7 +305,7 @@ func (r *Runtime) resolveModel(name string) (config.Model, bool) {
 			}
 			profile.MaxOutputTokens = tokens.Count(metadata.Limit.Output)
 			profile.Cost = config.Cost(metadata.Cost)
-			profile.Vision = slices.Contains(metadata.Modalities.Input, "image")
+			profile.Inputs = inputModalities(metadata.Modalities.Input)
 			profile.Reasoning = metadata.Reasoning
 			profile.ReasoningEfforts = metadata.Efforts()
 			if len(profile.ReasoningEfforts) == 0 && metadata.ReasoningToggle() {
@@ -452,4 +452,16 @@ func saveProviderModels(path string, models map[string][]string) error {
 		return err
 	}
 	return os.Rename(tmp.Name(), path)
+}
+
+// inputModalities keeps the catalog's input modalities kon can attach, which
+// drops "text" and any it does not know.
+func inputModalities(catalog []string) []session.Modality {
+	var inputs []session.Modality
+	for _, modality := range session.Modalities() {
+		if slices.Contains(catalog, string(modality)) {
+			inputs = append(inputs, modality)
+		}
+	}
+	return inputs
 }

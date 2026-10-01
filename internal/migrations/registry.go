@@ -11,6 +11,8 @@ func Ordered() []migrate.Step {
 		v011SessionsV2{},
 		compactionDefaultsV3{},
 		instructionsFileV4{},
+		mediaPartsV5{},
+		modelInputsV6{},
 	}
 }
 
@@ -19,4 +21,6 @@ var (
 	_ migrate.Step = v011SessionsV2{}
 	_ migrate.Step = compactionDefaultsV3{}
 	_ migrate.Step = instructionsFileV4{}
+	_ migrate.Step = mediaPartsV5{}
+	_ migrate.Step = modelInputsV6{}
 )

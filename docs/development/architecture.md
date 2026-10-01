@@ -38,7 +38,7 @@ the model's context with `session.Project`.
    `--resume`, open the newest existing session for the directory (or a named
    one) instead of creating a session, and replay its active path for display.
    With `--incognito`, the session is `session.NewMemory`: the same store
-   and append path, with nothing written and images held in memory.
+   and append path, with nothing written and media held in memory.
 3. Render the alternate-screen TUI. No provider request occurs during startup.
 4. Persist a submitted user message before starting network work.
 5. Stream one assistant message. A completed message is persisted atomically as
@@ -70,7 +70,7 @@ destructive one asks for a second press. `/jobs` stacks a list of jobs under
 the job opened from it. Both are refreshed by one chain of reads off the
 update loop: a command's output is read from where the last read ended, and a
 subagent's session through a `session.View`, as a followed session is. The runtime owns cancellation
-of both requests and waits for both on close. The snapshot includes image
+of both requests and waits for both on close. The snapshot includes media
 data, so side-request cleanup does not block session or model switches.
 The store serializes context snapshots and appends with the same mutex.
 Side usage events contribute cost only, leaving main-context usage unchanged.
@@ -163,6 +163,11 @@ from qualified model names, and moves base64 images to content-addressed blob
 files. It writes and validates each converted session before replacing the
 original, and keeps a temporary v1 backup so an interrupted replacement can
 resume. Config and history need no transformation from v0.1.1.
+
+Version 5 renames v4's `image` session parts to `media` parts, which also
+carry audio, video, and PDFs, copying every other line byte for byte so the
+root system prompt keeps its cache prefix. Version 6 replaces each model's
+`vision` flag with the `inputs` list.
 
 Every command that accesses durable state holds a shared lock on
 `instances.lock` until it finishes. Startup briefly holds a shared

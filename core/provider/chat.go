@@ -38,7 +38,7 @@ type chatModel struct {
 	effort    string
 	// reasoning marks a model that produces reasoning; see chatReplay.
 	reasoning bool
-	readImage func(string) ([]byte, error)
+	media     mediaReader
 }
 
 // maxEventSize bounds one SSE line. Providers occasionally emit very long
@@ -50,18 +50,7 @@ const maxEventSize = 1 << 20
 // unbounded so long generations are never cut off.
 const completeTimeout = 10 * time.Minute
 
-// imageReader returns nil for a model without vision, so its requests carry
-// placeholders instead of image parts. A session keeps images read by an
-// earlier model, and a /model switch must not send them to one that rejects
-// them.
-func imageReader(model Spec, readImage func(string) ([]byte, error)) func(string) ([]byte, error) {
-	if !model.Vision {
-		return nil
-	}
-	return readImage
-}
-
-func newChatModel(model Spec, spec wire.Spec, readImage func(string) ([]byte, error)) (*chatModel, error) {
+func newChatModel(model Spec, spec wire.Spec, media mediaReader) (*chatModel, error) {
 	baseURL, err := spec.BaseURL(model.BaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("model %q: %w", model.Name, err)
@@ -77,7 +66,7 @@ func newChatModel(model Spec, spec wire.Spec, readImage func(string) ([]byte, er
 		spec:      spec,
 		effort:    model.ReasoningEffort,
 		reasoning: model.Reasoning,
-		readImage: imageReader(model, readImage),
+		media:     media,
 	}, nil
 }
 
@@ -138,9 +127,9 @@ type chatMessage struct {
 	ToolCallID       string            `json:"tool_call_id,omitempty"`
 }
 
-// chatImageURL carries one image reference; the wire form is
+// chatURL carries one image or video reference; the wire form is
 // {"url": "data:..."} and data URIs carry base64 bytes for vision models.
-type chatImageURL struct {
+type chatURL struct {
 	URL string `json:"url"`
 }
 
@@ -148,40 +137,40 @@ type chatImageURL struct {
 type chatContentPart struct {
 	Type string `json:"type"`
 	Text string `json:"text,omitempty"`
-	// ImageURL is set only on image parts.
-	ImageURL *chatImageURL `json:"image_url,omitempty"`
+	// Exactly one of these is set on a media part, by its modality. Video
+	// goes as video_url, which OpenRouter, vLLM, and DashScope accept; it
+	// is not part of OpenAI's own schema.
+	ImageURL   *chatURL        `json:"image_url,omitempty"`
+	InputAudio *chatInputAudio `json:"input_audio,omitempty"`
+	VideoURL   *chatURL        `json:"video_url,omitempty"`
+	File       *chatFile       `json:"file,omitempty"`
 }
 
-// Placeholders stand in for an image the request cannot carry. They are fixed
-// strings so a session renders the same bytes on every request, which keeps
-// the cached prompt prefix intact.
-const (
-	imageOmittedText     = "[image omitted: the active model does not accept image input]"
-	imageUnavailableText = "[image unavailable: its stored copy could not be read]"
-)
+// chatInputAudio is base64 audio with its format, "wav" or "mp3".
+type chatInputAudio struct {
+	Data   string `json:"data"`
+	Format string `json:"format"`
+}
 
-// messageContent renders a user or tool message. A message without image parts
-// keeps the compact string form. Image parts become multimodal content, except
-// that an image is replaced by a text placeholder when readImage is nil (the
-// model has no vision) or its blob cannot be read: failing the request instead
-// would break every later turn, compaction included. If no image survives, the
-// content collapses back to a string, since a server without vision may reject
+// chatFile is an inline document such as a PDF, as a data URI.
+type chatFile struct {
+	Filename string `json:"filename"`
+	FileData string `json:"file_data"`
+}
+
+// messageContent renders a user or tool message. A message without media parts
+// keeps the compact string form. Media parts become multimodal content, or a
+// text placeholder for media the model does not accept. If no media survives,
+// the content collapses back to a string, since a text-only server may reject
 // the multimodal form outright.
-func messageContent(message session.Message, readImage func(string) ([]byte, error)) any {
-	hasImage := false
-	for _, part := range message.Parts {
-		if part.Type == session.PartImage {
-			hasImage = true
-			break
-		}
-	}
-	if !hasImage {
+func messageContent(message session.Message, media mediaReader) any {
+	if !hasMedia(message) {
 		text := message.Text()
 		return &text
 	}
 	parts := make([]chatContentPart, 0, len(message.Parts))
 	texts := make([]string, 0, len(message.Parts))
-	images := 0
+	attached := 0
 	addText := func(text string) {
 		parts = append(parts, chatContentPart{Type: "text", Text: text})
 		texts = append(texts, text)
@@ -192,24 +181,47 @@ func messageContent(message session.Message, readImage func(string) ([]byte, err
 			addText(part.Text)
 		case part.Type == session.PartToolResult && part.ToolOutput != "":
 			addText(part.ToolOutput)
-		case part.Type == session.PartImage && readImage == nil:
-			addText(imageOmittedText)
-		case part.Type == session.PartImage:
-			data, err := readImage(part.ImageHash)
-			if err != nil {
-				addText(imageUnavailableText)
+		case part.Type == session.PartMedia:
+			data, placeholder := media.load(part, session.ModalityImage, session.ModalityAudio, session.ModalityVideo, session.ModalityPDF)
+			if data == nil {
+				addText(placeholder)
 				continue
 			}
-			uri := "data:" + part.ImageMIME + ";base64," + base64.StdEncoding.EncodeToString(data)
-			parts = append(parts, chatContentPart{Type: "image_url", ImageURL: &chatImageURL{URL: uri}})
-			images++
+			parts = append(parts, chatMediaPart(part, data))
+			attached++
 		}
 	}
-	if images == 0 {
+	if attached == 0 {
 		text := strings.Join(texts, "\n")
 		return &text
 	}
 	return &parts
+}
+
+// chatMediaPart encodes loaded media as the content part for its modality.
+func chatMediaPart(part session.Part, data []byte) chatContentPart {
+	switch part.Modality() {
+	case session.ModalityAudio:
+		return chatContentPart{Type: "input_audio", InputAudio: &chatInputAudio{Data: base64.StdEncoding.EncodeToString(data), Format: audioFormat(part.MediaMIME)}}
+	case session.ModalityVideo:
+		return chatContentPart{Type: "video_url", VideoURL: &chatURL{URL: dataURI(part.MediaMIME, data)}}
+	case session.ModalityPDF:
+		return chatContentPart{Type: "file", File: &chatFile{Filename: mediaFilename(part), FileData: dataURI(part.MediaMIME, data)}}
+	}
+	return chatContentPart{Type: "image_url", ImageURL: &chatURL{URL: dataURI(part.MediaMIME, data)}}
+}
+
+// audioFormat is the input_audio format name for an audio MIME type: the
+// chat schema names formats rather than taking a MIME type.
+func audioFormat(mime string) string {
+	switch mime {
+	case "audio/mpeg", "audio/mp3":
+		return "mp3"
+	case "audio/wav", "audio/x-wav", "audio/wave":
+		return "wav"
+	}
+	_, subtype, _ := strings.Cut(mime, "/")
+	return subtype
 }
 
 type chatToolCall struct {
@@ -270,17 +282,17 @@ func (m *chatModel) replay() chatReplay {
 // wrote: models that think across tool calls expect their earlier reasoning in
 // the history, and without it the next request's context is smaller than the
 // reported usage that preceded it.
-func toChatMessages(messages []session.Message, replay chatReplay, readImage func(string) ([]byte, error)) ([]chatMessage, error) {
+func toChatMessages(messages []session.Message, replay chatReplay, media mediaReader) ([]chatMessage, error) {
 	out := make([]chatMessage, 0, len(messages))
 	for i, message := range messages {
 		switch message.Role {
 		case session.RoleSystem, session.RoleUser:
 			text := message.Text()
 			wire := chatMessage{Role: string(message.Role), Content: &text}
-			// Image parts are honored on user messages (and tool messages
+			// Media parts are honored on user messages (and tool messages
 			// below); the system prompt is plain text by construction.
 			if message.Role == session.RoleUser {
-				wire.Content = messageContent(message, readImage)
+				wire.Content = messageContent(message, media)
 			}
 			out = append(out, wire)
 		case session.RoleAssistant:
@@ -308,10 +320,10 @@ func toChatMessages(messages []session.Message, replay chatReplay, readImage fun
 			out = append(out, wire)
 		case session.RoleTool:
 			// Tool messages always carry content, even when a tool returned
-			// nothing: the field is required for the role. Image parts from
+			// nothing: the field is required for the role. Media parts from
 			// tools like read upgrade the content to multimodal form.
 			id, _ := message.ToolResult()
-			wire := chatMessage{Role: string(message.Role), ToolCallID: id.String(), Content: messageContent(message, readImage)}
+			wire := chatMessage{Role: string(message.Role), ToolCallID: id.String(), Content: messageContent(message, media)}
 			out = append(out, wire)
 		default:
 			return nil, fmt.Errorf("message %d has role %q which this wire format cannot send", i, message.Role)
@@ -390,7 +402,7 @@ func toChatTools(tools []session.ToolDefinition) []chatTool {
 // Stream runs one streamed generation and forwards text and reasoning deltas
 // through emit as they arrive.
 func (m *chatModel) Stream(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, emit func(Event)) (generation, error) {
-	wireMessages, err := toChatMessages(messages, m.replay(), m.readImage)
+	wireMessages, err := toChatMessages(messages, m.replay(), m.media)
 	if err != nil {
 		return generation{}, err
 	}
@@ -452,7 +464,7 @@ func (m *chatModel) streamOnce(ctx context.Context, payload chatRequest, emit fu
 // when set. tools, when non-empty, matches the streaming turn's tool roster so
 // the request can reuse the provider's cached prefix.
 func (m *chatModel) Complete(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, maxTokens tokens.Count, emit func(Event)) (generation, error) {
-	wireMessages, err := toChatMessages(messages, m.replay(), m.readImage)
+	wireMessages, err := toChatMessages(messages, m.replay(), m.media)
 	if err != nil {
 		return generation{}, err
 	}

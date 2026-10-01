@@ -44,7 +44,7 @@ func (s *sliceStore) AppendTurnEnd(time.Duration) (typedid.EntryID, error) {
 	return s.append(session.Entry{Type: session.EntryTypeTurnEnd})
 }
 
-func (s *sliceStore) SaveImage([]byte, string) (session.Part, error) {
+func (s *sliceStore) SaveMedia([]byte, string) (session.Part, error) {
 	return session.Part{}, nil
 }
 
@@ -54,7 +54,7 @@ func TestRunnerRunsOnAnyStore(t *testing.T) {
 		t.Fatal(err)
 	}
 	fake := &fakeProvider{}
-	runner := New(Config{Provider: fake, Store: store, Tools: tool.NewExecutor(tool.NewRegistry(), "", false)})
+	runner := New(Config{Provider: fake, Store: store, Tools: tool.NewExecutor(tool.NewRegistry(), "", nil)})
 	if err := runner.Run(context.Background(), "hello", nil, func(Event) {}); err != nil {
 		t.Fatal(err)
 	}

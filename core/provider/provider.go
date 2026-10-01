@@ -34,10 +34,10 @@ type Spec struct {
 	Headers map[string]string
 	// UserAgent identifies the program to the server, or "" for Go's default.
 	UserAgent string
-	// Vision gates whether image parts are sent. Without it, stored images
-	// go out as text placeholders, so a conversation that switches to a
-	// model without vision can continue.
-	Vision bool
+	// Inputs lists the media the model accepts beyond text. Stored media of
+	// any other modality goes out as a text placeholder, so a conversation
+	// that switches to a model without it can continue.
+	Inputs []session.Modality
 	// Reasoning marks a model that produces reasoning, which some servers hold
 	// to stricter rules for replayed history.
 	Reasoning bool
@@ -78,12 +78,13 @@ type Client struct {
 	pricing Pricing
 }
 
-// New builds the client for a resolved model.
-func New(spec Spec, readImage func(string) ([]byte, error)) (*Client, error) {
+// New builds the client for a resolved model. readMedia loads a media part's
+// bytes by hash, as session.Store.ReadMedia does; nil sends placeholders.
+func New(spec Spec, readMedia func(string) ([]byte, error)) (*Client, error) {
 	if strings.TrimSpace(spec.ModelID) == "" {
 		return nil, fmt.Errorf("model %q has no model ID", spec.Name)
 	}
-	model, err := newBackend(spec, readImage)
+	model, err := newBackend(spec, mediaReader{inputs: spec.Inputs, read: readMedia})
 	if err != nil {
 		return nil, err
 	}
@@ -92,18 +93,18 @@ func New(spec Spec, readImage func(string) ([]byte, error)) (*Client, error) {
 
 // newBackend builds the backend for a spec's wire format, chosen by its
 // protocol.
-func newBackend(spec Spec, readImage func(string) ([]byte, error)) (backend, error) {
+func newBackend(spec Spec, media mediaReader) (backend, error) {
 	dialect, ok := wire.Lookup(spec.Format)
 	if !ok {
 		return nil, fmt.Errorf("unsupported wire format %q", spec.Format)
 	}
 	switch dialect.Protocol {
 	case wire.Messages:
-		return newMessagesModel(spec, dialect, readImage)
+		return newMessagesModel(spec, dialect, media)
 	case wire.Responses:
-		return newResponsesModel(spec, dialect, readImage)
+		return newResponsesModel(spec, dialect, media)
 	}
-	return newChatModel(spec, dialect, readImage)
+	return newChatModel(spec, dialect, media)
 }
 
 // Stream generates one assistant message, emitting text and reasoning as it

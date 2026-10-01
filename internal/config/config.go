@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"kon.kitsu.red/core/provider/wire"
+	"kon.kitsu.red/core/session"
 	"kon.kitsu.red/core/tokens"
 )
 
@@ -68,9 +69,10 @@ type Model struct {
 	// means unknown, which holds a compaction summary to a size every model
 	// accepts.
 	MaxOutputTokens tokens.Count `json:"max_output_tokens,omitempty"`
-	// Vision marks models that accept image content. It gates whether the read
-	// tool attaches image parts to its results instead of a text notice.
-	Vision bool `json:"vision,omitempty"`
+	// Inputs lists the media the model accepts beyond text: "image", "audio",
+	// "video", or "pdf". It gates whether the read tool attaches such files
+	// to its results instead of a text notice.
+	Inputs []session.Modality `json:"inputs,omitempty"`
 	// Reasoning marks models that produce reasoning. Some servers hold such a
 	// model to stricter rules for replayed history; see the provider package.
 	Reasoning bool `json:"reasoning,omitempty"`
@@ -275,6 +277,14 @@ func (c Config) Validate() error {
 			}
 			if slices.Contains(model.ReasoningEfforts[:j], effort) {
 				return fmt.Errorf("model %q lists reasoning effort %q twice", model.Name, effort)
+			}
+		}
+		for j, input := range model.Inputs {
+			if !slices.Contains(session.Modalities(), input) {
+				return fmt.Errorf("model %q inputs[%d] must be one of image, audio, video, or pdf", model.Name, j)
+			}
+			if slices.Contains(model.Inputs[:j], input) {
+				return fmt.Errorf("model %q lists input %q twice", model.Name, input)
 			}
 		}
 		if cost := model.Cost; cost.Input < 0 || cost.Output < 0 || cost.CacheRead < 0 || cost.CacheWrite < 0 {

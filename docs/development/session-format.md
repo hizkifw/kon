@@ -6,7 +6,7 @@ object. The first line is a header; later lines form an append-only tree.
 ## Header
 
 ```json
-{"type":"session","version":4,"id":"ses_7Yk2mP9Qa4Zx8Vc1Nd6R","app_version":"v0.1.0","timestamp":"2026-09-21T08:00:00Z","cwd":"/work/project"}
+{"type":"session","version":5,"id":"ses_7Yk2mP9Qa4Zx8Vc1Nd6R","app_version":"v0.1.0","timestamp":"2026-09-21T08:00:00Z","cwd":"/work/project"}
 ```
 
 A session started by `kon run` from an agent's shell, a subagent, also records
@@ -14,8 +14,11 @@ A session started by `kon run` from an agent's shell, a subagent, also records
 additive, so it does not change the schema version.
 
 The schema version governs the file representation. Readers accept only version
-4. The startup migration converts version 1 sessions written by kon v0.1.1 to
-version 4 before a reader opens them. Versions 2 and 3 are not migrated.
+5. The startup migration converts version 1 sessions written by kon v0.1.1 to
+version 4, then version 4 sessions to version 5, before a reader opens them.
+Versions 2 and 3 are not migrated. Version 5 differs from 4 only in media
+parts: v4's `image` part with `image_hash` and `image_mime` became the `media`
+part below, with the same blobs.
 
 kon names session files `<UTC timestamp>_<session ID>.jsonl`, where the timestamp
 has millisecond precision, in one directory per working directory
@@ -90,12 +93,14 @@ same sum over every session whose `parent_session_id` leads back to it.
 
 Assistant tool calls are `tool_call` parts with opaque IDs and JSON arguments.
 The `parts` array is the sole content source and preserves reasoning blocks,
-tool calls, text, and provider-owned metadata in order. An `image` part holds
-`image_hash` (a lowercase SHA-256 digest) and `image_mime`. Its bytes live in a
-file named by the hash inside `<session.jsonl>.blobs/`; the JSONL contains no
-base64 image data. Equal bytes in one session share a blob. The provider
-verifies and loads blobs when it builds a vision request; text-only results
-carry no image part.
+tool calls, text, and provider-owned metadata in order. A `media` part holds
+`media_hash` (a lowercase SHA-256 digest) and `media_mime`. The MIME type alone
+decides its modality: `image/*`, `audio/*`, `video/*`, or `application/pdf`.
+Its bytes live in a file named by the hash inside `<session.jsonl>.blobs/`; the
+JSONL contains no base64 data. Equal bytes in one session share a blob. The
+provider verifies and loads blobs when it builds a request for a model that
+accepts the modality, and sends a fixed text placeholder otherwise; text-only
+results carry no media part.
 
 Background shell jobs keep their files in `<session.jsonl>.jobs/<id>/`, with
 IDs counting up from 1 per session:

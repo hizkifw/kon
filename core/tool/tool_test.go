@@ -36,7 +36,7 @@ func (t *stubbornTool) Interrupt(attempt int) bool {
 }
 
 func TestExecutorRunsRegisteredTools(t *testing.T) {
-	executor := NewExecutor(NewRegistry(echoTool{"echo"}), "/work", false)
+	executor := NewExecutor(NewRegistry(echoTool{"echo"}), "/work", nil)
 	var snapshots []any
 	result, failed := executor.Execute(context.Background(), "echo", json.RawMessage(`1`), func(s any) { snapshots = append(snapshots, s) })
 	if failed || result.Content != "/work 1" || len(snapshots) != 1 || snapshots[0] != "running" {
@@ -52,11 +52,11 @@ func TestExecutorRunsRegisteredTools(t *testing.T) {
 
 func TestInterruptReachesOnlyInterrupters(t *testing.T) {
 	stubborn := &stubbornTool{echoTool: echoTool{"shell"}}
-	executor := NewExecutor(NewRegistry(echoTool{"echo"}, stubborn), "", false)
+	executor := NewExecutor(NewRegistry(echoTool{"echo"}, stubborn), "", nil)
 	if !executor.Interrupt(2) || len(stubborn.attempts) != 1 || stubborn.attempts[0] != 2 {
 		t.Fatalf("interrupt attempts = %v", stubborn.attempts)
 	}
-	if NewExecutor(NewRegistry(echoTool{"echo"}), "", false).Interrupt(1) {
+	if NewExecutor(NewRegistry(echoTool{"echo"}), "", nil).Interrupt(1) {
 		t.Fatal("a registry without interrupters reported an interrupt")
 	}
 }

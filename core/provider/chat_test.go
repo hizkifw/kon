@@ -174,7 +174,7 @@ func captureRequests(t *testing.T) (*chatModel, *[]string) {
 // its wire form as JSON.
 func assistantWire(t *testing.T, replay chatReplay, message session.Message) string {
 	t.Helper()
-	wire, err := toChatMessages([]session.Message{session.TextMessage(session.RoleUser, "hi"), message}, replay, nil)
+	wire, err := toChatMessages([]session.Message{session.TextMessage(session.RoleUser, "hi"), message}, replay, mediaReader{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -664,7 +664,7 @@ func TestToChatMessagesKeepsEmptyToolContent(t *testing.T) {
 		session.TextMessage(session.RoleUser, "hi"),
 		{Role: session.RoleAssistant, Parts: []session.Part{{Type: session.PartToolCall, ToolCallID: "1", ToolName: "read", ToolInput: json.RawMessage(`{}`)}}},
 		session.ToolResultMessage("1", "read", ""),
-	}, chatReplay{}, nil)
+	}, chatReplay{}, mediaReader{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -682,7 +682,7 @@ func TestToChatMessagesKeepsEmptyToolContent(t *testing.T) {
 func TestToChatMessagesRejectsUnknownRole(t *testing.T) {
 	// A role this wire format cannot send must fail the request instead of
 	// silently truncating the conversation.
-	if _, err := toChatMessages([]session.Message{session.TextMessage("hyper", "hi")}, chatReplay{}, nil); err == nil {
+	if _, err := toChatMessages([]session.Message{session.TextMessage("hyper", "hi")}, chatReplay{}, mediaReader{}); err == nil {
 		t.Fatal("unknown role was accepted")
 	}
 }

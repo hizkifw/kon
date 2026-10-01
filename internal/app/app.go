@@ -147,7 +147,7 @@ func (m modelSpec) providerSpec() provider.Spec {
 	return provider.Spec{
 		Name: m.Name, Format: m.WireFormat(), ModelID: m.ModelID,
 		BaseURL: m.BaseURL, APIKey: m.APIKey, Headers: m.Headers, UserAgent: buildinfo.UserAgent(),
-		Vision: m.Vision, Reasoning: m.Reasoning, ReasoningEffort: m.effort,
+		Inputs: m.Inputs, Reasoning: m.Reasoning, ReasoningEffort: m.effort,
 		Pricing: provider.Pricing(m.Cost),
 	}
 }
@@ -281,7 +281,7 @@ func (r *Runtime) checkEffort(effort string) error {
 // buildRunner builds the runner for a model in a store without recording
 // anything, for a model the store already names as its latest.
 func (r *Runtime) buildRunner(profile modelSpec, store *session.Store) (*agent.Runner, error) {
-	client, err := provider.New(profile.providerSpec(), store.ReadImage)
+	client, err := provider.New(profile.providerSpec(), store.ReadMedia)
 	if err != nil {
 		return nil, err
 	}
@@ -293,7 +293,7 @@ func (r *Runtime) buildRunner(profile modelSpec, store *session.Store) (*agent.R
 		Limits:   profile.limits(r.config.Compaction),
 		Provider: client,
 		Store:    store,
-		Tools:    tool.NewExecutor(codetools.Registry(jobs), r.cwd, profile.Vision),
+		Tools:    tool.NewExecutor(codetools.Registry(jobs), r.cwd, profile.Inputs),
 	}), nil
 }
 

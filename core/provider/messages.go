@@ -35,7 +35,7 @@ type messagesModel struct {
 	spec      wire.Spec
 	effort    string
 	reasoning bool
-	readImage func(string) ([]byte, error)
+	media     mediaReader
 
 	// What the server has told this model about itself. Each is learned from
 	// one rejected request and kept, so the next request is right the first
@@ -65,7 +65,7 @@ const minThinkingBudget tokens.Count = 1024
 // longer matches. The header alone changes nothing.
 const thinkingBindingBeta = "thinking-binding-controls-2026-08-01"
 
-func newMessagesModel(model Spec, spec wire.Spec, readImage func(string) ([]byte, error)) (*messagesModel, error) {
+func newMessagesModel(model Spec, spec wire.Spec, media mediaReader) (*messagesModel, error) {
 	baseURL, err := spec.BaseURL(model.BaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("model %q: %w", model.Name, err)
@@ -81,7 +81,7 @@ func newMessagesModel(model Spec, spec wire.Spec, readImage func(string) ([]byte
 		spec:      spec,
 		effort:    model.ReasoningEffort,
 		reasoning: model.Reasoning,
-		readImage: imageReader(model, readImage),
+		media:     media,
 	}, nil
 }
 
@@ -113,19 +113,20 @@ type messagesBlock struct {
 	Thinking  *string `json:"thinking,omitempty"`
 	Signature string  `json:"signature,omitempty"`
 	// Data is a redacted_thinking block's opaque payload.
-	Data      string               `json:"data,omitempty"`
-	ID        string               `json:"id,omitempty"`
-	Name      string               `json:"name,omitempty"`
-	Input     json.RawMessage      `json:"input,omitempty"`
-	ToolUseID string               `json:"tool_use_id,omitempty"`
-	Content   []messagesBlock      `json:"content,omitempty"`
-	IsError   bool                 `json:"is_error,omitempty"`
-	Source    *messagesImageSource `json:"source,omitempty"`
+	Data      string          `json:"data,omitempty"`
+	ID        string          `json:"id,omitempty"`
+	Name      string          `json:"name,omitempty"`
+	Input     json.RawMessage `json:"input,omitempty"`
+	ToolUseID string          `json:"tool_use_id,omitempty"`
+	Content   []messagesBlock `json:"content,omitempty"`
+	IsError   bool            `json:"is_error,omitempty"`
+	Source    *messagesSource `json:"source,omitempty"`
 	// CacheControl marks a prompt cache breakpoint; see withCacheBreakpoints.
 	CacheControl *messagesCacheControl `json:"cache_control,omitempty"`
 }
 
-type messagesImageSource struct {
+// messagesSource is the inline base64 body of an image or document block.
+type messagesSource struct {
 	Type      string `json:"type"`
 	MediaType string `json:"media_type"`
 	Data      string `json:"data"`
@@ -180,7 +181,7 @@ func decodeThinkingOptions(raw json.RawMessage) thinkingOptions {
 // a tool_result block in a user turn, and consecutive turns of one role merge
 // into a single turn: every result of a parallel batch belongs together, and a
 // steering message that follows them joins that turn as trailing text.
-func toMessagesRequest(messages []session.Message, readImage func(string) ([]byte, error)) ([]messagesBlock, []messagesMessage) {
+func toMessagesRequest(messages []session.Message, media mediaReader) ([]messagesBlock, []messagesMessage) {
 	var system []messagesBlock
 	var out []messagesMessage
 	add := func(role string, blocks []messagesBlock) {
@@ -200,10 +201,10 @@ func toMessagesRequest(messages []session.Message, readImage func(string) ([]byt
 				system = append(system, messagesBlock{Type: "text", Text: text})
 			}
 		case session.RoleUser:
-			add("user", contentBlocks(message, readImage))
+			add("user", contentBlocks(message, media))
 		case session.RoleTool:
 			id, _ := message.ToolResult()
-			add("user", []messagesBlock{{Type: "tool_result", ToolUseID: id.String(), Content: contentBlocks(message, readImage), IsError: message.IsError}})
+			add("user", []messagesBlock{{Type: "tool_result", ToolUseID: id.String(), Content: contentBlocks(message, media), IsError: message.IsError}})
 		case session.RoleAssistant:
 			add("assistant", assistantBlocks(message))
 		}
@@ -211,10 +212,11 @@ func toMessagesRequest(messages []session.Message, readImage func(string) ([]byt
 	return system, out
 }
 
-// contentBlocks renders a user message or tool result: text as text blocks
-// and images as image blocks, with the chat backend's placeholders standing in
-// for an image the request cannot carry.
-func contentBlocks(message session.Message, readImage func(string) ([]byte, error)) []messagesBlock {
+// contentBlocks renders a user message or tool result: text as text blocks,
+// images as image blocks, and PDFs as document blocks. The Messages API takes
+// no audio or video, so those, like media the model does not accept, become
+// placeholders.
+func contentBlocks(message session.Message, media mediaReader) []messagesBlock {
 	var blocks []messagesBlock
 	for _, part := range message.Parts {
 		switch {
@@ -222,15 +224,17 @@ func contentBlocks(message session.Message, readImage func(string) ([]byte, erro
 			blocks = append(blocks, messagesBlock{Type: "text", Text: part.Text})
 		case part.Type == session.PartToolResult && part.ToolOutput != "":
 			blocks = append(blocks, messagesBlock{Type: "text", Text: part.ToolOutput})
-		case part.Type == session.PartImage && readImage == nil:
-			blocks = append(blocks, messagesBlock{Type: "text", Text: imageOmittedText})
-		case part.Type == session.PartImage:
-			data, err := readImage(part.ImageHash)
-			if err != nil {
-				blocks = append(blocks, messagesBlock{Type: "text", Text: imageUnavailableText})
+		case part.Type == session.PartMedia:
+			data, placeholder := media.load(part, session.ModalityImage, session.ModalityPDF)
+			if data == nil {
+				blocks = append(blocks, messagesBlock{Type: "text", Text: placeholder})
 				continue
 			}
-			blocks = append(blocks, messagesBlock{Type: "image", Source: &messagesImageSource{Type: "base64", MediaType: part.ImageMIME, Data: base64.StdEncoding.EncodeToString(data)}})
+			kind := "image"
+			if part.Modality() == session.ModalityPDF {
+				kind = "document"
+			}
+			blocks = append(blocks, messagesBlock{Type: kind, Source: &messagesSource{Type: "base64", MediaType: part.MediaMIME, Data: base64.StdEncoding.EncodeToString(data)}})
 		}
 	}
 	return blocks
@@ -310,7 +314,7 @@ func (m *messagesModel) request(messages []session.Message, tools []session.Tool
 	if outputCap > 0 {
 		maxTokens = min(maxTokens, outputCap)
 	}
-	system, wireMessages := toMessagesRequest(messages, m.readImage)
+	system, wireMessages := toMessagesRequest(messages, m.media)
 	withCacheBreakpoints(system, wireMessages)
 	payload := messagesRequest{Model: m.model, MaxTokens: maxTokens, System: system, Messages: wireMessages, Stream: true}
 	if len(tools) > 0 {

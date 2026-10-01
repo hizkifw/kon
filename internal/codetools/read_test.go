@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"kon.kitsu.red/core/session"
 )
 
 // pngBytes is a minimal valid 1×1 PNG (magic header + IHDR + IDAT + IEND).
@@ -19,39 +21,39 @@ var pngBytes = []byte{
 	0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
 }
 
-func TestReadImageAttachesForVision(t *testing.T) {
+func TestReadImageAttaches(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "shot.png")
 	if err := os.WriteFile(path, pngBytes, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	executor := newExecutor(dir, true, nil)
+	executor := newExecutor(dir, allInputs, nil)
 	result, failed := executor.Execute(context.Background(), "read", raw(map[string]any{"path": "shot.png"}), nil)
 	if failed {
 		t.Fatalf("image read failed: %s", result.Content)
 	}
-	if len(result.Images) != 1 || string(result.Images[0].Data) != string(pngBytes) || result.Images[0].MIME != "image/png" {
-		t.Fatalf("image = %#v", result.Images)
+	if len(result.Media) != 1 || string(result.Media[0].Data) != string(pngBytes) || result.Media[0].MIME != "image/png" {
+		t.Fatalf("image = %#v", result.Media)
 	}
 	if !strings.Contains(result.Content, "shot.png") || strings.Contains(result.Content, "base64") {
 		t.Fatalf("content should describe the image without inlining bytes: %q", result.Content)
 	}
 }
 
-func TestReadImageWithoutVisionExplains(t *testing.T) {
+func TestReadImageWithoutImageInputExplains(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "shot.png")
 	if err := os.WriteFile(path, pngBytes, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	result, failed := newExecutor(dir, false, nil).Execute(context.Background(), "read", raw(map[string]any{"path": "shot.png"}), nil)
+	result, failed := newExecutor(dir, nil, nil).Execute(context.Background(), "read", raw(map[string]any{"path": "shot.png"}), nil)
 	if failed {
-		t.Fatalf("non-vision read failed: %s", result.Content)
+		t.Fatalf("read without image input failed: %s", result.Content)
 	}
-	if len(result.Images) != 0 {
-		t.Fatalf("images attached without vision: %#v", result.Images)
+	if len(result.Media) != 0 {
+		t.Fatalf("image attached without image input: %#v", result.Media)
 	}
-	if !strings.Contains(result.Content, "vision") {
+	if !strings.Contains(result.Content, "does not accept image input") {
 		t.Fatalf("content does not explain the limitation: %q", result.Content)
 	}
 }
@@ -68,7 +70,7 @@ func TestReadImageRejectsSpoofedExtension(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "notes.png"), big, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	result, failed := newExecutor(dir, true, nil).Execute(context.Background(), "read", raw(map[string]any{"path": "notes.png"}), nil)
+	result, failed := newExecutor(dir, allInputs, nil).Execute(context.Background(), "read", raw(map[string]any{"path": "notes.png"}), nil)
 	if !failed || !strings.Contains(result.Content, "larger than 1048576") {
 		t.Fatalf("oversize text under an image extension = %q, failed=%v", result.Content, failed)
 	}
@@ -83,8 +85,8 @@ func TestReadImageRoutesByContentNotExtension(t *testing.T) {
 		if err := os.WriteFile(path, pngBytes, 0o644); err != nil {
 			t.Fatal(err)
 		}
-		result, failed := newExecutor(dir, true, nil).Execute(context.Background(), "read", raw(map[string]any{"path": name}), nil)
-		if failed || len(result.Images) != 1 {
+		result, failed := newExecutor(dir, allInputs, nil).Execute(context.Background(), "read", raw(map[string]any{"path": name}), nil)
+		if failed || len(result.Media) != 1 {
 			t.Fatalf("read %s = %q, failed=%v", name, result.Content, failed)
 		}
 	}
@@ -98,7 +100,7 @@ func TestReadUnsendableImageFormatExplains(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "shot.bmp"), big, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	result, failed := newExecutor(dir, true, nil).Execute(context.Background(), "read", raw(map[string]any{"path": "shot.bmp"}), nil)
+	result, failed := newExecutor(dir, allInputs, nil).Execute(context.Background(), "read", raw(map[string]any{"path": "shot.bmp"}), nil)
 	if !failed || !strings.Contains(result.Content, "BMP") || !strings.Contains(result.Content, "convert") {
 		t.Fatalf("BMP read = %q, failed=%v", result.Content, failed)
 	}
@@ -112,7 +114,7 @@ func TestReadImageRejectsOversize(t *testing.T) {
 	if err := os.WriteFile(path, big, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	result, failed := newExecutor(dir, true, nil).Execute(context.Background(), "read", raw(map[string]any{"path": "big.png"}), nil)
+	result, failed := newExecutor(dir, allInputs, nil).Execute(context.Background(), "read", raw(map[string]any{"path": "big.png"}), nil)
 	if !failed || !strings.Contains(result.Content, "larger than") {
 		t.Fatalf("oversize image = %q, failed=%v", result.Content, failed)
 	}
@@ -131,7 +133,7 @@ func TestReadTextFileWithImageExtensionReadsAsText(t *testing.T) {
 	if err := os.WriteFile(path, []byte("just text in a png name\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	result, failed := newExecutor(dir, false, nil).Execute(context.Background(), "read", raw(map[string]any{"path": "notes.png"}), nil)
+	result, failed := newExecutor(dir, nil, nil).Execute(context.Background(), "read", raw(map[string]any{"path": "notes.png"}), nil)
 	if failed || !strings.Contains(result.Content, "just text") {
 		t.Fatalf("text read = %q, failed=%v", result.Content, failed)
 	}
@@ -161,7 +163,7 @@ func TestReadRejectsOversizeFromStatWithoutLoading(t *testing.T) {
 	var before, after runtime.MemStats
 	runtime.GC()
 	runtime.ReadMemStats(&before)
-	result, failed := newExecutor(dir, true, nil).Execute(context.Background(), "read", raw(map[string]any{"path": "big.txt"}), nil)
+	result, failed := newExecutor(dir, allInputs, nil).Execute(context.Background(), "read", raw(map[string]any{"path": "big.txt"}), nil)
 	runtime.ReadMemStats(&after)
 	if !failed || !strings.Contains(result.Content, "larger than") {
 		t.Fatalf("oversize read = %q, failed=%v", result.Content, failed)
@@ -174,10 +176,10 @@ func TestReadRejectsOversizeFromStatWithoutLoading(t *testing.T) {
 
 	// A large BMP is refused as an unsupported image, not as oversized text.
 	bmp := filepath.Join(dir, "huge.bmp")
-	if err := os.WriteFile(bmp, append([]byte("BM"), make([]byte, 6*1024*1024)...), 0o644); err != nil {
+	if err := os.WriteFile(bmp, append([]byte("BM"), make([]byte, maxMediaBytes)...), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	result, failed = newExecutor(dir, true, nil).Execute(context.Background(), "read", raw(map[string]any{"path": "huge.bmp"}), nil)
+	result, failed = newExecutor(dir, allInputs, nil).Execute(context.Background(), "read", raw(map[string]any{"path": "huge.bmp"}), nil)
 	if !failed || !strings.Contains(result.Content, "BMP") {
 		t.Fatalf("oversize BMP read = %q, failed=%v", result.Content, failed)
 	}
@@ -189,8 +191,122 @@ func TestReadBinaryNonImageIsRejected(t *testing.T) {
 	if err := os.WriteFile(path, []byte{0x00, 0x01, 0x02}, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	result, failed := newExecutor(dir, true, nil).Execute(context.Background(), "read", raw(map[string]any{"path": "data.bin"}), nil)
+	result, failed := newExecutor(dir, allInputs, nil).Execute(context.Background(), "read", raw(map[string]any{"path": "data.bin"}), nil)
 	if !failed || !strings.Contains(result.Content, "not UTF-8 text") {
 		t.Fatalf("binary read = %q, failed=%v", result.Content, failed)
+	}
+}
+
+// Each attachable format is recognized by its content and attached only for
+// a model that accepts its modality.
+func TestReadMediaAttachesByModality(t *testing.T) {
+	mp4 := append([]byte("\x00\x00\x00\x18ftypisom"), make([]byte, 16)...)
+	webm := append([]byte("\x1a\x45\xdf\xa3\x9f\x42\x86\x81\x01\x42\x82\x84webm"), make([]byte, 16)...)
+	for _, test := range []struct {
+		name     string
+		data     []byte
+		mime     string
+		modality session.Modality
+	}{
+		{"clip.wav", []byte("RIFF\x24\x00\x00\x00WAVEfmt "), "audio/wav", session.ModalityAudio},
+		{"song.mp3", []byte("ID3\x04\x00\x00\x00\x00\x00\x00"), "audio/mpeg", session.ModalityAudio},
+		{"bare.mp3", []byte{0xFF, 0xFB, 0x90, 0x64, 0x00}, "audio/mpeg", session.ModalityAudio},
+		{"demo.mp4", mp4, "video/mp4", session.ModalityVideo},
+		{"demo.mov", []byte("\x00\x00\x00\x14ftypqt  \x00\x00\x00\x00"), "video/quicktime", session.ModalityVideo},
+		{"demo.webm", webm, "video/webm", session.ModalityVideo},
+		{"paper.pdf", []byte("%PDF-1.7\n%\xe2\xe3\xcf\xd3\n"), "application/pdf", session.ModalityPDF},
+	} {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, test.name), test.data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		args := raw(map[string]any{"path": test.name})
+		result, failed := newExecutor(dir, []session.Modality{test.modality}, nil).Execute(context.Background(), "read", args, nil)
+		if failed || len(result.Media) != 1 || result.Media[0].MIME != test.mime {
+			t.Fatalf("read %s = %q, media %#v, failed=%v", test.name, result.Content, result.Media, failed)
+		}
+		// An image-only model is told what the file is instead.
+		result, failed = newExecutor(dir, []session.Modality{session.ModalityImage}, nil).Execute(context.Background(), "read", args, nil)
+		if failed || len(result.Media) != 0 || !strings.Contains(result.Content, "does not accept "+string(test.modality)+" input") {
+			t.Fatalf("read %s without %s input = %q, failed=%v", test.name, test.modality, result.Content, failed)
+		}
+	}
+}
+
+// Audio and video run larger than images, so they get the larger cap.
+func TestReadMediaAllowsLargerAudioThanImages(t *testing.T) {
+	dir := t.TempDir()
+	wav := append([]byte("RIFF\x24\x00\x00\x00WAVEfmt "), make([]byte, maxImageBytes+1)...)
+	if err := os.WriteFile(filepath.Join(dir, "long.wav"), wav, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, failed := newExecutor(dir, allInputs, nil).Execute(context.Background(), "read", raw(map[string]any{"path": "long.wav"}), nil)
+	if failed || len(result.Media) != 1 {
+		t.Fatalf("read long.wav = %q, failed=%v", result.Content, failed)
+	}
+}
+
+// Known-but-unsendable audio and video get the same convert-it hint as
+// unsendable images.
+func TestReadUnsendableMediaFormatExplains(t *testing.T) {
+	for name, data := range map[string][]byte{
+		"song.flac": []byte("fLaC\x00\x00\x00\x22"),
+		"voice.m4a": []byte("\x00\x00\x00\x20ftypM4A \x00\x00\x00\x00"),
+		"film.mkv":  []byte("\x1a\x45\xdf\xa3\x9f\x42\x86\x81\x01\x42\x82\x88matroska"),
+	} {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, name), data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		result, failed := newExecutor(dir, allInputs, nil).Execute(context.Background(), "read", raw(map[string]any{"path": name}), nil)
+		if !failed || !strings.Contains(result.Content, "convert") {
+			t.Fatalf("read %s = %q, failed=%v", name, result.Content, failed)
+		}
+	}
+}
+
+// The hint names what the active model accepts: formats to convert to when
+// it takes the modality, and the modalities it does take otherwise.
+func TestReadUnsendableMediaHintFollowsTheModel(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "song.flac"), []byte("fLaC\x00\x00\x00\x22"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	args := raw(map[string]any{"path": "song.flac"})
+	for _, test := range []struct {
+		inputs []session.Modality
+		want   string
+	}{
+		{[]session.Modality{session.ModalityAudio}, "convert it to wav or mp3 audio"},
+		{[]session.Modality{session.ModalityImage, session.ModalityPDF}, "does not accept audio input; it accepts png, jpeg, gif, or webp images; or PDF documents"},
+		{nil, "accepts no media input"},
+	} {
+		result, failed := newExecutor(dir, test.inputs, nil).Execute(context.Background(), "read", args, nil)
+		if !failed || !strings.Contains(result.Content, test.want) {
+			t.Fatalf("inputs %v: read = %q, failed=%v", test.inputs, result.Content, failed)
+		}
+	}
+}
+
+// The description is part of every request's cached prefix, so building it
+// from mediaKinds must not change its bytes.
+func TestReadDescriptionListsAttachableFormats(t *testing.T) {
+	const want = "Read a UTF-8 text file with one-based line offsets, or load a media file whole for models that accept it: png, jpeg, gif, or webp images; wav or mp3 audio; mp4, mov, or webm video; or PDF documents."
+	if got := (readTool{}).Definition().Description; got != want {
+		t.Fatalf("description = %q", got)
+	}
+}
+
+// WebM is a Matroska file kon can send, so an oversized one is named by its
+// size limit rather than refused as unsupported Matroska.
+func TestReadOversizeWebMIsNotMatroska(t *testing.T) {
+	dir := t.TempDir()
+	webm := append([]byte("\x1a\x45\xdf\xa3\x9f\x42\x86\x81\x01\x42\x82\x84webm"), make([]byte, maxMediaBytes)...)
+	if err := os.WriteFile(filepath.Join(dir, "long.webm"), webm, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, failed := newExecutor(dir, allInputs, nil).Execute(context.Background(), "read", raw(map[string]any{"path": "long.webm"}), nil)
+	if !failed || !strings.Contains(result.Content, "larger than") || strings.Contains(result.Content, "Matroska video file") {
+		t.Fatalf("oversize webm = %q, failed=%v", result.Content, failed)
 	}
 }

@@ -32,20 +32,20 @@ type Store struct {
 	closed bool
 }
 
-// backend is where a store's records and images go.
+// backend is where a store's records and media go.
 type backend interface {
 	// write appends one encoded record, syncing it to stable storage when
 	// sync is set. A record that fails to write must leave no trace.
 	write(record []byte, sync bool) error
-	saveImage(hash string, data []byte) error
-	readImage(hash string) ([]byte, error)
+	saveMedia(hash string, data []byte) error
+	readMedia(hash string) ([]byte, error)
 	// close releases the backend, first discarding everything it holds when
 	// discard is set.
 	close(discard bool) error
 }
 
-// maxImageBytes bounds one stored image.
-const maxImageBytes = 20 << 20
+// maxMediaBytes bounds one stored media file.
+const maxMediaBytes = 20 << 20
 
 // start begins a new session in b: its header, then its root system message.
 func start(path string, header Header, b backend, systemPrompt string) (*Store, error) {
@@ -207,12 +207,12 @@ func (s *Store) append(entry Entry) (typedid.EntryID, error) {
 	return id, nil
 }
 
-// SaveImage stores an image before a session entry can refer to it, and
-// returns the part that does. Equal bytes are stored once per session, and
-// the entry keeps only their hash.
-func (s *Store) SaveImage(data []byte, mime string) (Part, error) {
-	if len(data) == 0 || len(data) > maxImageBytes || mime == "" {
-		return Part{}, errors.New("image requires bounded bytes and a MIME type")
+// SaveMedia stores an image, audio clip, video, or document before a session
+// entry can refer to it, and returns the part that does. Equal bytes are
+// stored once per session, and the entry keeps only their hash.
+func (s *Store) SaveMedia(data []byte, mime string) (Part, error) {
+	if len(data) == 0 || len(data) > maxMediaBytes || mime == "" {
+		return Part{}, errors.New("media requires bounded bytes and a MIME type")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -221,21 +221,21 @@ func (s *Store) SaveImage(data []byte, mime string) (Part, error) {
 	}
 	digest := sha256.Sum256(data)
 	hash := hex.EncodeToString(digest[:])
-	if err := s.backend.saveImage(hash, data); err != nil {
+	if err := s.backend.saveMedia(hash, data); err != nil {
 		return Part{}, err
 	}
-	return Part{Type: PartImage, ImageHash: hash, ImageMIME: mime}, nil
+	return Part{Type: PartMedia, MediaHash: hash, MediaMIME: mime}, nil
 }
 
-// ReadImage loads a stored image by hash, as a provider request needs it.
-func (s *Store) ReadImage(hash string) ([]byte, error) {
-	if !validImageHash(hash) {
-		return nil, errors.New("invalid image blob hash")
+// ReadMedia loads stored media by hash, as a provider request needs it.
+func (s *Store) ReadMedia(hash string) ([]byte, error) {
+	if !validBlobHash(hash) {
+		return nil, errors.New("invalid media blob hash")
 	}
-	return s.backend.readImage(hash)
+	return s.backend.readMedia(hash)
 }
 
-func validImageHash(hash string) bool {
+func validBlobHash(hash string) bool {
 	if len(hash) != 64 {
 		return false
 	}

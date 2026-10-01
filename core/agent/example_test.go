@@ -42,7 +42,7 @@ func Example() {
 		ModelID:   "claude-sonnet-5-5",
 		APIKey:    os.Getenv("ANTHROPIC_API_KEY"),
 		UserAgent: "clockbot/1.0",
-	}, store.ReadImage)
+	}, store.ReadMedia)
 	if err != nil {
 		panic(err)
 	}
@@ -50,7 +50,7 @@ func Example() {
 		Limits:   agent.Limits{ContextWindow: 200_000, OutputLimit: 32_000},
 		Provider: client,
 		Store:    store,
-		Tools:    tool.NewExecutor(tool.NewRegistry(clockTool{}), ".", false),
+		Tools:    tool.NewExecutor(tool.NewRegistry(clockTool{}), ".", nil),
 	})
 	err = runner.Run(context.Background(), "What time is it?", nil, func(event agent.Event) {
 		if event.Kind == agent.EventText {

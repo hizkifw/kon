@@ -67,7 +67,7 @@ func TestShellDescriptionNamesTheInterpreterRunUses(t *testing.T) {
 	if description := (&shellTool{}).Definition().Description; !strings.Contains(description, "konsh") {
 		t.Fatalf("shell description does not name the interpreter konsh: %q", description)
 	}
-	result, failed := newExecutor(t.TempDir(), false, nil).Execute(context.Background(), "shell", raw(map[string]any{"command": `echo "$0"`, "timeout": 10}), nil)
+	result, failed := newExecutor(t.TempDir(), nil, nil).Execute(context.Background(), "shell", raw(map[string]any{"command": `echo "$0"`, "timeout": 10}), nil)
 	if failed || !strings.Contains(result.Content, link) {
 		t.Fatalf("shell ran as %q (failed=%v), want the interpreter the description names", result.Content, failed)
 	}

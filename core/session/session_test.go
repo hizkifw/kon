@@ -527,12 +527,12 @@ func TestImagePartRoundTripsThroughPersistence(t *testing.T) {
 	}
 	path := store.Path()
 	image := []byte("hello")
-	part, err := store.SaveImage(image, "image/png")
+	part, err := store.SaveMedia(image, "image/png")
 	if err != nil {
 		t.Fatal(err)
 	}
-	again, err := store.SaveImage(image, "image/png")
-	if err != nil || again.ImageHash != part.ImageHash {
+	again, err := store.SaveMedia(image, "image/png")
+	if err != nil || again.MediaHash != part.MediaHash {
 		t.Fatalf("deduplicated image = %#v, %v", again, err)
 	}
 	if _, err := store.AppendMessage(Message{Role: RoleUser, Parts: []Part{{Type: PartText, Text: "look"}}}); err != nil {
@@ -571,10 +571,10 @@ func TestImagePartRoundTripsThroughPersistence(t *testing.T) {
 		if item.Message.Role != RoleTool {
 			continue
 		}
-		if len(item.Message.Parts) != 2 || item.Message.Parts[1].Type != PartImage || item.Message.Parts[1].ImageHash != part.ImageHash || item.Message.Parts[1].ImageMIME != "image/png" {
+		if len(item.Message.Parts) != 2 || item.Message.Parts[1].Type != PartMedia || item.Message.Parts[1].MediaHash != part.MediaHash || item.Message.Parts[1].MediaMIME != "image/png" {
 			t.Fatalf("tool parts = %#v", item.Message.Parts)
 		}
-		loaded, err := reopened.ReadImage(item.Message.Parts[1].ImageHash)
+		loaded, err := reopened.ReadMedia(item.Message.Parts[1].MediaHash)
 		if err != nil || string(loaded) != string(image) {
 			t.Fatalf("blob after reopen = %q, %v", loaded, err)
 		}
@@ -583,13 +583,31 @@ func TestImagePartRoundTripsThroughPersistence(t *testing.T) {
 	if !found {
 		t.Fatal("tool result was not persisted")
 	}
-	if err := os.WriteFile(filepath.Join(path+".blobs", part.ImageHash), []byte("changed"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(path+".blobs", part.MediaHash), []byte("changed"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := reopened.ReadImage(part.ImageHash); err == nil {
+	if _, err := reopened.ReadMedia(part.MediaHash); err == nil {
 		t.Fatal("corrupted image blob was accepted")
 	}
-	if _, err := reopened.ReadImage("../other"); err == nil {
+	if _, err := reopened.ReadMedia("../other"); err == nil {
 		t.Fatal("invalid image hash was accepted")
+	}
+}
+
+func TestModalityOfMIME(t *testing.T) {
+	for mime, want := range map[string]Modality{
+		"image/png":       ModalityImage,
+		"audio/mpeg":      ModalityAudio,
+		"video/webm":      ModalityVideo,
+		"application/pdf": ModalityPDF,
+		"application/zip": "",
+		"text/plain":      "",
+	} {
+		if got := ModalityOf(mime); got != want {
+			t.Fatalf("ModalityOf(%q) = %q, want %q", mime, got, want)
+		}
+	}
+	if got := (Part{Type: PartText, MediaMIME: "image/png"}).Modality(); got != "" {
+		t.Fatalf("text part modality = %q", got)
 	}
 }

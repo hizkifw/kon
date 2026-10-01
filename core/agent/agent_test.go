@@ -707,7 +707,7 @@ func TestRunnerNeedsNoToolsOrListener(t *testing.T) {
 }
 
 func newRunner(limits Limits, provider Provider, store *session.Store, tools ...tool.Tool) *Runner {
-	return New(Config{Limits: limits, Provider: provider, Store: store, Tools: tool.NewExecutor(tool.NewRegistry(tools...), store.CWD(), true)})
+	return New(Config{Limits: limits, Provider: provider, Store: store, Tools: tool.NewExecutor(tool.NewRegistry(tools...), store.CWD(), []session.Modality{session.ModalityImage})})
 }
 
 func newTestEntryID(t *testing.T) typedid.EntryID {

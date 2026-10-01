@@ -12,15 +12,15 @@ import (
 // agent sees.
 type Executor struct {
 	cwd      string
-	vision   bool
+	inputs   []session.Modality
 	registry *Registry
 }
 
 // NewExecutor returns an Executor that runs the tools in registry with cwd as
-// their working directory. vision reports whether the active model accepts
-// image content and gates whether tools attach images to their results.
-func NewExecutor(registry *Registry, cwd string, vision bool) *Executor {
-	return &Executor{cwd: cwd, vision: vision, registry: registry}
+// their working directory. inputs lists the media the active model accepts
+// and gates what tools attach to their results.
+func NewExecutor(registry *Registry, cwd string, inputs []session.Modality) *Executor {
+	return &Executor{cwd: cwd, inputs: inputs, registry: registry}
 }
 
 // Interrupt escalates cancellation of the tool call in flight. attempt is the
@@ -42,7 +42,7 @@ func (e *Executor) Execute(ctx context.Context, name string, arguments json.RawM
 	if !ok {
 		return Result{Content: fmt.Sprintf("error: unknown tool %q", name)}, true
 	}
-	result, err := tool.Run(ctx, Env{CWD: e.cwd, Vision: e.vision, Progress: progress}, arguments)
+	result, err := tool.Run(ctx, Env{CWD: e.cwd, Inputs: e.inputs, Progress: progress}, arguments)
 	if err != nil {
 		return Result{Content: "error: " + err.Error()}, true
 	}

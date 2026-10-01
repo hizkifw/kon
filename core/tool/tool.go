@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"slices"
 
 	"kon.kitsu.red/core/session"
 )
@@ -37,23 +38,23 @@ type Interrupter interface {
 	Interrupt(attempt int) bool
 }
 
-// Image is one binary attachment produced by a tool call. The agent stores it
-// beside the session and the provider maps it to the wire format for models
-// with vision; text-only models see the textual content instead.
-type Image struct {
+// Media is one binary attachment produced by a tool call: an image, audio
+// clip, video, or document. The agent stores it beside the session and the
+// provider maps it to the wire format for models that accept its modality;
+// other models see the textual content instead.
+type Media struct {
 	Data []byte // raw bytes, encoded at the agent boundary
-	MIME string // e.g. image/png
+	MIME string // e.g. image/png; its type decides the modality
 }
 
 // Result is one tool call's output. Content is the text the model and the
-// transcript see; it stands alone, so providers that cannot send attachments
-// (or a vision-disabled configuration) lose nothing textual. Images, when
-// non-empty, additionally attach binary content for vision models. Details
-// carries tool-owned metadata, persisted with the result, so a later replay
-// need not parse Content.
+// transcript see; it stands alone, so a model that cannot take an attachment
+// loses nothing textual. Media, when non-empty, additionally attaches binary
+// content. Details carries tool-owned metadata, persisted with the result,
+// so a later replay need not parse Content.
 type Result struct {
 	Content string
-	Images  []Image
+	Media   []Media
 	Details json.RawMessage
 	IsError bool
 }
@@ -62,14 +63,19 @@ type Result struct {
 type Env struct {
 	// CWD is the working directory relative paths resolve against.
 	CWD string
-	// Vision reports whether the active model accepts image content. Tools
-	// attach images only when it is set; otherwise they describe them in the
-	// text result so the model can react (e.g. convert or inspect another way).
-	Vision bool
+	// Inputs lists the media the active model accepts. Tools attach media
+	// only of these modalities; otherwise they describe it in the text result
+	// so the model can react (e.g. convert or inspect another way).
+	Inputs []session.Modality
 	// Progress receives live snapshots while a long-running call runs. Their
 	// type is the tool's own, agreed with whoever presents them. It may be
 	// nil, and it must not block: calls happen from the tool's own goroutine.
 	Progress func(snapshot any)
+}
+
+// Accepts reports whether the active model takes media of modality m.
+func (e Env) Accepts(m session.Modality) bool {
+	return slices.Contains(e.Inputs, m)
 }
 
 // Report publishes one progress snapshot for the running call, if anything is

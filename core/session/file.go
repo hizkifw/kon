@@ -83,7 +83,7 @@ func Open(path string) (_ *Store, err error) {
 	return s, nil
 }
 
-// fileBackend appends records to a JSONL file and keeps images beside it, one
+// fileBackend appends records to a JSONL file and keeps media beside it, one
 // file per hash.
 type fileBackend struct {
 	path string
@@ -141,22 +141,22 @@ func (b *fileBackend) rollback(offset int64, cause error) error {
 
 func (b *fileBackend) blobDir() string { return b.path + ".blobs" }
 
-// saveImage writes the image whole under a temporary name and renames it into
-// place, so a crash never leaves a partial image under its hash.
-func (b *fileBackend) saveImage(hash string, data []byte) error {
+// saveMedia writes the bytes whole under a temporary name and renames them into
+// place, so a crash never leaves a partial blob under its hash.
+func (b *fileBackend) saveMedia(hash string, data []byte) error {
 	dir := b.blobDir()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("create image blob directory: %w", err)
+		return fmt.Errorf("create media blob directory: %w", err)
 	}
 	path := filepath.Join(dir, hash)
 	if _, err := os.Stat(path); err == nil {
 		return nil
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("stat image blob: %w", err)
+		return fmt.Errorf("stat media blob: %w", err)
 	}
 	tmp, err := os.CreateTemp(dir, ".blob-*")
 	if err != nil {
-		return fmt.Errorf("create image blob: %w", err)
+		return fmt.Errorf("create media blob: %w", err)
 	}
 	defer os.Remove(tmp.Name())
 	if err := tmp.Chmod(0o600); err != nil {
@@ -165,41 +165,41 @@ func (b *fileBackend) saveImage(hash string, data []byte) error {
 	}
 	if _, err := tmp.Write(data); err != nil {
 		tmp.Close()
-		return fmt.Errorf("write image blob: %w", err)
+		return fmt.Errorf("write media blob: %w", err)
 	}
 	if err := tmp.Sync(); err != nil {
 		tmp.Close()
-		return fmt.Errorf("sync image blob: %w", err)
+		return fmt.Errorf("sync media blob: %w", err)
 	}
 	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("close image blob: %w", err)
+		return fmt.Errorf("close media blob: %w", err)
 	}
 	if err := os.Rename(tmp.Name(), path); err != nil {
 		if _, statErr := os.Stat(path); statErr != nil {
-			return fmt.Errorf("install image blob: %w", err)
+			return fmt.Errorf("install media blob: %w", err)
 		}
 	}
 	return nil
 }
 
-// readImage loads an image and checks its digest, which catches missing or
+// readMedia loads a blob and checks its digest, which catches missing or
 // corrupted data before it reaches the wire.
-func (b *fileBackend) readImage(hash string) ([]byte, error) {
+func (b *fileBackend) readMedia(hash string) ([]byte, error) {
 	f, err := os.Open(filepath.Join(b.blobDir(), hash))
 	if err != nil {
-		return nil, fmt.Errorf("open image blob: %w", err)
+		return nil, fmt.Errorf("open media blob: %w", err)
 	}
 	defer f.Close()
-	data, err := io.ReadAll(io.LimitReader(f, maxImageBytes+1))
+	data, err := io.ReadAll(io.LimitReader(f, maxMediaBytes+1))
 	if err != nil {
-		return nil, fmt.Errorf("read image blob: %w", err)
+		return nil, fmt.Errorf("read media blob: %w", err)
 	}
-	if len(data) > maxImageBytes {
-		return nil, errors.New("image blob is too large")
+	if len(data) > maxMediaBytes {
+		return nil, errors.New("media blob is too large")
 	}
 	digest := sha256.Sum256(data)
 	if hex.EncodeToString(digest[:]) != hash {
-		return nil, errors.New("image blob hash mismatch")
+		return nil, errors.New("media blob hash mismatch")
 	}
 	return data, nil
 }

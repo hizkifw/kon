@@ -13,12 +13,13 @@ import (
 	"testing"
 	"time"
 
+	"kon.kitsu.red/core/session"
 	"kon.kitsu.red/core/tool"
 )
 
 func TestWriteEditRead(t *testing.T) {
 	dir := t.TempDir()
-	executor := newExecutor(dir, false, nil)
+	executor := newExecutor(dir, nil, nil)
 	result, failed := executor.Execute(context.Background(), "write", raw(map[string]any{"path": "note.txt", "content": "alpha\nbeta\n"}), nil)
 	if failed {
 		t.Fatalf("write = %q, failed", result.Content)
@@ -52,7 +53,7 @@ func TestWriteEditKeepFileMode(t *testing.T) {
 	if err := os.Chmod(path, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	executor := newExecutor(dir, false, nil)
+	executor := newExecutor(dir, nil, nil)
 	for _, call := range []struct {
 		tool string
 		args map[string]any
@@ -78,7 +79,7 @@ func TestEditRejectsAmbiguousAndUnknownArguments(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "x"), []byte("same same"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	executor := newExecutor(dir, false, nil)
+	executor := newExecutor(dir, nil, nil)
 	if _, failed := executor.Execute(context.Background(), "edit", raw(map[string]any{"path": "x", "old_text": "same", "new_text": "x"}), nil); !failed {
 		t.Fatal("ambiguous edit succeeded")
 	}
@@ -92,7 +93,7 @@ func TestShellCapturesExitCode(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		command = "echo hello"
 	}
-	result, failed := newExecutor(t.TempDir(), false, nil).Execute(context.Background(), "shell", raw(map[string]any{"command": command, "timeout": 10}), nil)
+	result, failed := newExecutor(t.TempDir(), nil, nil).Execute(context.Background(), "shell", raw(map[string]any{"command": command, "timeout": 10}), nil)
 	if failed || !strings.Contains(result.Content, "hello") || !strings.Contains(result.Content, "exit code: 0") {
 		t.Fatalf("shell = %q, failed=%v", result.Content, failed)
 	}
@@ -105,7 +106,7 @@ func TestShellCapturesExitCode(t *testing.T) {
 	if runtime.GOOS == "windows" && shellName() == "cmd.exe" {
 		command = "echo failing& exit 3"
 	}
-	result, failed = newExecutor(t.TempDir(), false, nil).Execute(context.Background(), "shell", raw(map[string]any{"command": command, "timeout": 10}), nil)
+	result, failed = newExecutor(t.TempDir(), nil, nil).Execute(context.Background(), "shell", raw(map[string]any{"command": command, "timeout": 10}), nil)
 	if !failed || !result.IsError || !strings.Contains(result.Content, "failing") || !strings.Contains(result.Content, "exit code: 3") {
 		t.Fatalf("failing shell = %q, failed=%v, IsError=%v", result.Content, failed, result.IsError)
 	}
@@ -116,7 +117,7 @@ func TestShellCapturesExitCode(t *testing.T) {
 }
 
 func TestShellRequiresTimeout(t *testing.T) {
-	executor := newExecutor(t.TempDir(), false, nil)
+	executor := newExecutor(t.TempDir(), nil, nil)
 	cases := map[string]json.RawMessage{
 		// A missing timeout must not quietly become a background job.
 		"missing":   json.RawMessage(`{"command":"true"}`),
@@ -139,7 +140,7 @@ func TestShellTimesOutWithPartialOutput(t *testing.T) {
 	if runtime.GOOS == "windows" && shellName() == "cmd.exe" {
 		command = "echo | set /p=before& timeout /t 5 >nul"
 	}
-	result, failed := newExecutor(t.TempDir(), false, nil).Execute(context.Background(), "shell", raw(map[string]any{"command": command, "timeout": 1}), nil)
+	result, failed := newExecutor(t.TempDir(), nil, nil).Execute(context.Background(), "shell", raw(map[string]any{"command": command, "timeout": 1}), nil)
 	if !failed {
 		t.Fatal("timed-out command reported success")
 	}
@@ -160,7 +161,7 @@ func TestShellCancelInterruptsCommand(t *testing.T) {
 		t.Skip("test relies on POSIX signal delivery")
 	}
 	dir := t.TempDir()
-	executor := newExecutor(dir, false, nil)
+	executor := newExecutor(dir, nil, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var failed bool
@@ -203,7 +204,7 @@ func TestShellKillsCommandThatIgnoresInterrupt(t *testing.T) {
 	shellInterruptGrace = 300 * time.Millisecond
 	defer func() { shellInterruptGrace = grace }()
 	dir := t.TempDir()
-	executor := newExecutor(dir, false, nil)
+	executor := newExecutor(dir, nil, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	// A failure would otherwise leave the loop spinning after the test exits.
@@ -241,7 +242,7 @@ func TestKillEscalationForceKillsRunningCommand(t *testing.T) {
 		t.Skip("test relies on POSIX signal delivery")
 	}
 	dir := t.TempDir()
-	executor := newExecutor(dir, false, nil)
+	executor := newExecutor(dir, nil, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	if executor.Interrupt(2) {
@@ -286,7 +287,7 @@ func TestShellReportsTickingProgressWhileRunning(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("test relies on POSIX shell timing")
 	}
-	executor := newExecutor(t.TempDir(), false, nil)
+	executor := newExecutor(t.TempDir(), nil, nil)
 	var mu sync.Mutex
 	var snapshots []Display
 	report := func(snapshot any) {
@@ -350,7 +351,7 @@ func TestShellReturnsWhenGrandchildHoldsOutput(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("test relies on POSIX signal delivery")
 	}
-	executor := newExecutor(t.TempDir(), false, nil)
+	executor := newExecutor(t.TempDir(), nil, nil)
 	start := time.Now()
 	// The backgrounded sleep inherits the output descriptor and ignores
 	// SIGINT; it must not stall the result or lose the exit status.
@@ -413,7 +414,10 @@ func raw(value any) json.RawMessage {
 	return b
 }
 
+// allInputs is a model that accepts every modality kon attaches.
+var allInputs = session.Modalities()
+
 // newExecutor runs kon's built-in tools the way a session does.
-func newExecutor(cwd string, vision bool, jobs *Jobs) *tool.Executor {
-	return tool.NewExecutor(Registry(jobs), cwd, vision)
+func newExecutor(cwd string, inputs []session.Modality, jobs *Jobs) *tool.Executor {
+	return tool.NewExecutor(Registry(jobs), cwd, inputs)
 }

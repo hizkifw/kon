@@ -44,44 +44,6 @@ func atomicWrite(path string, content []byte, mode os.FileMode) error {
 	return nil
 }
 
-// detectImageMIME identifies the image format of b from its magic bytes. It
-// returns "" for anything kon does not support sending.
-func detectImageMIME(b []byte) string {
-	switch {
-	case len(b) >= 8 && bytes.Equal(b[:8], []byte("\x89PNG\r\n\x1a\n")):
-		return "image/png"
-	case len(b) >= 3 && b[0] == 0xFF && b[1] == 0xD8 && b[2] == 0xFF:
-		return "image/jpeg"
-	case len(b) >= 6 && (bytes.Equal(b[:6], []byte("GIF87a")) || bytes.Equal(b[:6], []byte("GIF89a"))):
-		return "image/gif"
-	case len(b) >= 12 && bytes.Equal(b[:4], []byte("RIFF")) && bytes.Equal(b[8:12], []byte("WEBP")):
-		return "image/webp"
-	default:
-		return ""
-	}
-}
-
-// detectUnsendableImageMIME identifies common image formats kon cannot send
-// (BMP, TIFF, ICO, HEIF, AVIF). format is a human-readable name for error
-// messages; ok is false for non-images.
-func detectUnsendableImageMIME(b []byte) (mime, format string) {
-	switch {
-	case len(b) >= 2 && b[0] == 'B' && b[1] == 'M':
-		return "image/bmp", "BMP"
-	case len(b) >= 4 && (bytes.Equal(b[:4], []byte("II*\x00")) || bytes.Equal(b[:4], []byte("MM\x00*"))):
-		return "image/tiff", "TIFF"
-	case len(b) >= 4 && bytes.Equal(b[:4], []byte("\x00\x00\x01\x00")):
-		return "image/x-icon", "ICO"
-	case len(b) >= 12 && (bytes.Equal(b[4:8], []byte("ftypheic")) || bytes.Equal(b[4:8], []byte("ftypheif")) ||
-		bytes.Equal(b[4:8], []byte("ftypmif1")) || bytes.Equal(b[4:8], []byte("ftyphevc"))):
-		return "image/heic", "HEIF"
-	case len(b) >= 12 && bytes.Equal(b[4:8], []byte("ftypavif")):
-		return "image/avif", "AVIF"
-	default:
-		return "", ""
-	}
-}
-
 // headTailWriter keeps the first and last limit bytes of everything written to
 // it, collapsing the middle, so oversized command output stays bounded while
 // both the beginning (what happened) and the end (the outcome) survive.

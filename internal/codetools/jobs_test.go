@@ -98,7 +98,7 @@ func TestShellBackgroundStartsJobAndSharesEnv(t *testing.T) {
 	jobsDir := filepath.Join(dir, "jobs")
 	jobs := NewJobs(jobsDir, "ses_x", false, "", nil)
 	defer jobs.Close()
-	executor := newExecutor(dir, false, jobs)
+	executor := newExecutor(dir, nil, jobs)
 	result, failed := executor.Execute(context.Background(), "shell", raw(map[string]any{"command": "sleep 5", "timeout": 0}), nil)
 	if failed || !strings.HasPrefix(result.Content, "background job 1 started") || !strings.Contains(result.Content, filepath.Join(jobsDir, "1", "output")) {
 		t.Fatalf("background result = %q (failed %v)", result.Content, failed)
@@ -117,7 +117,7 @@ func TestShellBackgroundStartsJobAndSharesEnv(t *testing.T) {
 }
 
 func TestShellBackgroundNeedsJobs(t *testing.T) {
-	result, failed := newExecutor(t.TempDir(), false, nil).Execute(context.Background(), "shell", raw(map[string]any{"command": "true", "timeout": 0}), nil)
+	result, failed := newExecutor(t.TempDir(), nil, nil).Execute(context.Background(), "shell", raw(map[string]any{"command": "true", "timeout": 0}), nil)
 	if !failed || !strings.Contains(result.Content, "not available") {
 		t.Fatalf("result = %q (failed %v)", result.Content, failed)
 	}

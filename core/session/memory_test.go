@@ -24,12 +24,12 @@ func TestMemorySessionLeavesNothingBehind(t *testing.T) {
 		t.Fatalf("Context = (%#v, %v), want system and user messages", context, err)
 	}
 	image := []byte("png bytes")
-	part, err := store.SaveImage(image, "image/png")
+	part, err := store.SaveMedia(image, "image/png")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, err := store.ReadImage(part.ImageHash); err != nil || !bytes.Equal(got, image) {
-		t.Fatalf("ReadImage = (%q, %v), want the saved bytes", got, err)
+	if got, err := store.ReadMedia(part.MediaHash); err != nil || !bytes.Equal(got, image) {
+		t.Fatalf("ReadMedia = (%q, %v), want the saved bytes", got, err)
 	}
 	if err := store.Close(); err != nil {
 		t.Fatal(err)

@@ -208,9 +208,9 @@ func TestModelsRetryByDefault(t *testing.T) {
 	chatSpec, _ := wire.Lookup(wire.OpenAICompatible)
 	responsesSpec, _ := wire.Lookup(wire.OpenAIResponses)
 	messagesSpec, _ := wire.Lookup(wire.Anthropic)
-	chat, _ := newChatModel(spec, chatSpec, nil)
-	responses, _ := newResponsesModel(spec, responsesSpec, nil)
-	messages, _ := newMessagesModel(spec, messagesSpec, nil)
+	chat, _ := newChatModel(spec, chatSpec, mediaReader{})
+	responses, _ := newResponsesModel(spec, responsesSpec, mediaReader{})
+	messages, _ := newMessagesModel(spec, messagesSpec, mediaReader{})
 	for name, policy := range map[string]retryPolicy{"chat": chat.retry, "responses": responses.retry, "messages": messages.retry} {
 		if policy != defaultRetryPolicy {
 			t.Errorf("%s retry policy = %+v", name, policy)

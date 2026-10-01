@@ -31,7 +31,8 @@ history, or sessions are loaded, so it must read the old representation itself.
 Freeze every shape the step reads or writes inside `internal/migrations`: do not
 use `core/session` types, `session.SchemaVersion`, or `config.Config`. A
 step runs unchanged forever, and the live types move on. Session format v4 has
-frozen shapes and a validator in `session_v4.go`; config steps edit only the
+frozen shapes and a validator in `session_v4.go`, and the v5 step checks only
+what it changed; config steps edit only the
 fields they own in the raw JSON object and write the rest back.
 It may move files or transform them as needed. Check the context during long
 walks and return a useful error that identifies the file that failed.

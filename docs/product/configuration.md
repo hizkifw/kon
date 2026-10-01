@@ -64,8 +64,8 @@ the catalog:
 the provider reported and which are only known from the catalog. Choosing one
 saves its name as `default_model`, which new sessions use.
 
-A model chosen this way takes its context window, output limit, image
-support, reasoning levels, and prices from the catalog. For a model the
+A model chosen this way takes its context window, output limit, media
+inputs, reasoning levels, and prices from the catalog. For a model the
 catalog does not know, those are unknown; define it by hand to set them.
 
 Azure deployments have names you choose, so use `azure/<deployment-name>`.
@@ -188,15 +188,33 @@ kon sends a model's reasoning back with its earlier replies, so a model that
 thinks across tool calls keeps its chain of thought. After a model switch,
 reasoning from the previous model is left out where the provider cannot use it.
 
-## Images
+## Media
 
-Set `"vision": true` for a model that accepts images. The `read` tool then
-passes PNG, JPEG, GIF, and WebP files of up to 5 MiB to the model. Without it,
-reading an image returns a short text notice. Models from `/model` take this
-from the catalog.
+Set `inputs` to the media a model accepts beyond text: any of `"image"`,
+`"audio"`, `"video"`, and `"pdf"`. The `read` tool then passes such files to
+the model whole:
 
-After switching to a model without image support, images earlier in the
-session are sent as a text placeholder, so the conversation can continue.
+| Input | Formats | Largest |
+| --- | --- | --- |
+| `image` | PNG, JPEG, GIF, WebP | 5 MiB |
+| `audio` | WAV, MP3 | 20 MiB |
+| `video` | MP4, MOV, WebM | 20 MiB |
+| `pdf` | PDF | 20 MiB |
+
+For a modality the model does not accept, reading such a file returns a short
+text notice. Models from `/model` take their inputs from the catalog.
+
+```json
+{"name": "gemini", "type": "openrouter", "model": "google/gemini-3.1-flash-lite", "api_key": "...", "inputs": ["image", "audio", "video", "pdf"]}
+```
+
+Not every wire format can carry every modality. `anthropic` and
+`openai-responses` carry images and PDFs only. The chat formats carry all four;
+video goes as `video_url`, which OpenRouter, vLLM, and DashScope accept but
+OpenAI's own API does not.
+
+After switching to a model that does not accept some media, that media earlier
+in the session is sent as a text placeholder, so the conversation can continue.
 
 ## Cost
 
@@ -236,7 +254,7 @@ instructions it started with.
 ## Model catalog
 
 kon ships a copy of the [models.dev](https://models.dev) catalog, which it uses
-for `/login` autocomplete and for the limits, image support, reasoning levels,
+for `/login` autocomplete and for the limits, media inputs, reasoning levels,
 and prices of models chosen with `/model`. The catalog is reference data: a
 model listed there is not necessarily one your account can use.
 

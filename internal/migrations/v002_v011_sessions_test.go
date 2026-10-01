@@ -92,10 +92,10 @@ func TestV011SessionMigratesToV4(t *testing.T) {
 		t.Fatalf("assistant = %#v", assistant)
 	}
 	tool := entries[4].Message
-	if tool.Text() != "loaded image" || len(tool.Parts) != 2 || tool.Parts[1].Type != session.PartImage {
+	if tool.Text() != "loaded image" || len(tool.Parts) != 2 || tool.Parts[1].Type != session.PartMedia || tool.Parts[1].Modality() != session.ModalityImage {
 		t.Fatalf("tool result = %#v", tool)
 	}
-	imageBytes, err := store.ReadImage(tool.Parts[1].ImageHash)
+	imageBytes, err := store.ReadMedia(tool.Parts[1].MediaHash)
 	if err != nil {
 		t.Fatal(err)
 	}

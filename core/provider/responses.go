@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -37,7 +36,7 @@ type responsesModel struct {
 	spec      wire.Spec
 	effort    string
 	reasoning bool
-	readImage func(string) ([]byte, error)
+	media     mediaReader
 
 	// What the server has told this model about itself, each learned from
 	// one rejected request and kept, so later requests are right the first
@@ -51,7 +50,7 @@ type responsesModel struct {
 	noCacheKey bool
 }
 
-func newResponsesModel(model Spec, spec wire.Spec, readImage func(string) ([]byte, error)) (*responsesModel, error) {
+func newResponsesModel(model Spec, spec wire.Spec, media mediaReader) (*responsesModel, error) {
 	baseURL, err := spec.BaseURL(model.BaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("model %q: %w", model.Name, err)
@@ -67,7 +66,7 @@ func newResponsesModel(model Spec, spec wire.Spec, readImage func(string) ([]byt
 		spec:      spec,
 		effort:    model.ReasoningEffort,
 		reasoning: model.Reasoning,
-		readImage: imageReader(model, readImage),
+		media:     media,
 	}, nil
 }
 
@@ -112,6 +111,9 @@ type responsesContent struct {
 	Type     string `json:"type"`
 	Text     string `json:"text,omitempty"`
 	ImageURL string `json:"image_url,omitempty"`
+	// Filename and FileData carry an input_file, such as a PDF.
+	Filename string `json:"filename,omitempty"`
+	FileData string `json:"file_data,omitempty"`
 }
 
 type responsesFunctionCall struct {
@@ -205,30 +207,33 @@ func promptCacheKey(messages []session.Message) string {
 }
 
 // responsesContent renders a user message or tool output: a plain string when
-// it is only text, otherwise a list with images, using the chat backend's
-// placeholders for an image the request cannot carry.
+// it is only text, otherwise a list with images and PDFs. The Responses API
+// takes no audio or video input, so those, like media the model does not
+// accept, become placeholders.
 func (m *responsesModel) responsesContent(message session.Message) any {
 	var content []responsesContent
-	images := 0
+	attached := 0
 	for _, part := range message.Parts {
 		switch {
 		case part.Type == session.PartText && part.Text != "":
 			content = append(content, responsesContent{Type: "input_text", Text: part.Text})
 		case part.Type == session.PartToolResult && part.ToolOutput != "":
 			content = append(content, responsesContent{Type: "input_text", Text: part.ToolOutput})
-		case part.Type == session.PartImage && m.readImage == nil:
-			content = append(content, responsesContent{Type: "input_text", Text: imageOmittedText})
-		case part.Type == session.PartImage:
-			data, err := m.readImage(part.ImageHash)
-			if err != nil {
-				content = append(content, responsesContent{Type: "input_text", Text: imageUnavailableText})
+		case part.Type == session.PartMedia:
+			data, placeholder := m.media.load(part, session.ModalityImage, session.ModalityPDF)
+			if data == nil {
+				content = append(content, responsesContent{Type: "input_text", Text: placeholder})
 				continue
 			}
-			content = append(content, responsesContent{Type: "input_image", ImageURL: "data:" + part.ImageMIME + ";base64," + base64.StdEncoding.EncodeToString(data)})
-			images++
+			if part.Modality() == session.ModalityPDF {
+				content = append(content, responsesContent{Type: "input_file", Filename: mediaFilename(part), FileData: dataURI(part.MediaMIME, data)})
+			} else {
+				content = append(content, responsesContent{Type: "input_image", ImageURL: dataURI(part.MediaMIME, data)})
+			}
+			attached++
 		}
 	}
-	if images > 0 {
+	if attached > 0 {
 		return content
 	}
 	texts := make([]string, 0, len(content))

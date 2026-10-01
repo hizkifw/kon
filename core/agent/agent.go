@@ -35,9 +35,9 @@ type Store interface {
 	// how long a turn took.
 	AppendTurnStart() (typedid.EntryID, error)
 	AppendTurnEnd(time.Duration) (typedid.EntryID, error)
-	// SaveImage keeps a tool result's image and returns the part that refers
-	// to it.
-	SaveImage(data []byte, mime string) (session.Part, error)
+	// SaveMedia keeps a tool result's attachment and returns the part that
+	// refers to it.
+	SaveMedia(data []byte, mime string) (session.Part, error)
 }
 
 // Provider is the model a runner talks to. *provider.Client is one.
@@ -158,7 +158,7 @@ func New(config Config) *Runner {
 		r.compactionPrompt = DefaultCompactionPrompt
 	}
 	if r.tools == nil {
-		r.tools = tool.NewExecutor(tool.NewRegistry(), "", false)
+		r.tools = tool.NewExecutor(tool.NewRegistry(), "", nil)
 	}
 	r.seedUsage()
 	return r
@@ -214,7 +214,7 @@ func (r *Runner) measuredIndex(items []session.ContextMessage) int {
 }
 
 // usageFor sizes the context for compaction decisions. The provider's report
-// covers everything through the measured assistant message, images included,
+// covers everything through the measured assistant message, media included,
 // so only the messages after it are estimated. Those are usually tool results
 // or the new prompt; a result the store synthesized for an unanswered call is
 // estimated like any other. Without a measurement the whole context and the
@@ -350,10 +350,10 @@ func (r *Runner) run(ctx context.Context, prompt string, inbox *Inbox, emit func
 			result, isError := r.tools.Execute(ctx, call.Function.Name, call.Function.Arguments, report)
 			message := session.ToolResultMessage(call.ID, call.Function.Name, result.Content)
 			message.IsError, message.Details = isError, result.Details
-			// Image bytes are stored beside the session before the result
+			// Media bytes are stored beside the session before the result
 			// references them; only their hashes stay in the context tree.
-			for _, image := range result.Images {
-				part, err := r.session.SaveImage(image.Data, image.MIME)
+			for _, media := range result.Media {
+				part, err := r.session.SaveMedia(media.Data, media.MIME)
 				if err != nil {
 					return err
 				}
@@ -635,14 +635,15 @@ func estimateContext(items []session.ContextMessage, definitions []session.ToolD
 		message := item.Message
 		bytes += len(message.Role) + 32
 		for _, part := range message.Parts {
-			if part.Type != session.PartImage {
+			if part.Type != session.PartMedia {
 				bytes += len(part.Text) + len(part.ToolOutput) + len(part.ToolCallID.String()) + len(part.ToolName) + len(part.ToolInput) + 32
 			}
 		}
-		// Image parts are deliberately left out. Their true cost is decided by
-		// the model's vision encoder — dimensions and tiling, not byte size —
-		// and guessing from the base64 payload overcounts by two orders of
-		// magnitude, which forced compaction on every image. The provider
+		// Media parts are deliberately left out. Their true cost is decided by
+		// the model's encoder — image dimensions and tiling, audio and video
+		// duration, not byte size — and guessing from the base64 payload
+		// overcounts by orders of magnitude, which forced compaction on every
+		// attachment. The provider
 		// reports the real cost in PromptTokens from the first response on;
 		// a turn that genuinely exceeds the window is caught by the context
 		// overflow retry in Run instead.
