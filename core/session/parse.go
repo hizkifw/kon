@@ -5,13 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/hizkifw/kon/core/typedid"
 )
 
-// parsedSession is the mutable-free result of reading and validating a session
-// file. Open owns the file afterwards for append; Entries only reads it.
+// parsedSession is the result of reading and validating a session file. Open
+// owns the file afterwards for append; OpenView only reads it.
 type parsedSession struct {
 	header       Header
 	entries      []Entry
@@ -31,48 +30,51 @@ func (p parsedSession) leafID() *typedid.EntryID {
 	return &leaf
 }
 
-// parseSession reads a session file and validates its header and entries. A
-// single incomplete trailing record is reported through repairOffset instead of
-// an error, so a caller that owns the file can trim it while a read-only caller
-// can ignore it.
+// parseSession reads a session file and validates its header and entries. An
+// incomplete trailing record, cut short by a crash mid-append, is reported
+// through repairOffset instead of an error, so a caller that owns the file can
+// trim it while a read-only caller can ignore it.
 func parseSession(path string) (parsedSession, error) {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return parsedSession{}, fmt.Errorf("read session: %w", err)
-	}
-	lines := strings.Split(string(b), "\n")
-	last := len(lines) - 1
-	for last >= 0 && strings.TrimSpace(lines[last]) == "" {
-		last--
-	}
-	if last < 0 {
-		return parsedSession{}, errors.New("empty session")
-	}
-	header, err := ParseHeader([]byte(lines[0]))
-	if err != nil {
-		return parsedSession{}, err
-	}
-
-	result := parsedSession{header: header, byID: make(map[typedid.EntryID]int), repairOffset: -1, size: int64(len(b))}
-	for i := 1; i <= last; i++ {
-		if strings.TrimSpace(lines[i]) == "" {
-			continue
+	result := parsedSession{byID: make(map[typedid.EntryID]int), repairOffset: -1}
+	number := 0
+	end, err := ReadLines(path, 0, func(line []byte) error {
+		number++
+		if number == 1 {
+			header, err := ParseHeader(line)
+			result.header = header
+			return err
+		}
+		if len(line) == 0 {
+			return nil
 		}
 		var entry Entry
-		if err := json.Unmarshal([]byte(lines[i]), &entry); err != nil {
-			if i == last {
-				result.repairOffset = int64(len(strings.Join(lines[:i], "\n")) + 1)
-				result.size = result.repairOffset
-				break
-			}
-			return parsedSession{}, fmt.Errorf("parse session line %d: %w", i+1, err)
+		if err := json.Unmarshal(line, &entry); err != nil {
+			return fmt.Errorf("parse session line %d: %w", number, err)
 		}
-		if err := checkEntry(&entry, lines[i], result.byID); err != nil {
-			return parsedSession{}, fmt.Errorf("session line %d: %w", i+1, err)
+		if err := checkEntry(&entry, string(line), result.byID); err != nil {
+			return fmt.Errorf("session line %d: %w", number, err)
 		}
 		result.byID[entry.ID] = len(result.entries)
 		result.entries = append(result.entries, entry)
+		return nil
+	})
+	if errors.Is(err, ErrRemoved) {
+		return parsedSession{}, fmt.Errorf("read session: %w", os.ErrNotExist)
 	}
+	if err != nil {
+		return parsedSession{}, err
+	}
+	if number == 0 {
+		return parsedSession{}, errors.New("empty session")
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return parsedSession{}, fmt.Errorf("read session: %w", err)
+	}
+	if info.Size() > end {
+		result.repairOffset = end
+	}
+	result.size = end
 	return result, nil
 }
 
