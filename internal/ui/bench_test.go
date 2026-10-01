@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"io"
 	"strings"
 	"testing"
 
@@ -140,6 +141,28 @@ func BenchmarkViewportRefresh(b *testing.B) {
 				m.refreshTranscript(true)
 				_ = m.viewport.View()
 			}
+		})
+	}
+}
+
+// BenchmarkMarkdownPrinterOpenFence streams a reply that is one code fence
+// that never closes through kon run's printer, as fast as a socket delivers
+// it. Nothing in it ever closes, so how often the printer looks decides the
+// cost, and ns/delta should stay flat as the reply grows.
+func BenchmarkMarkdownPrinterOpenFence(b *testing.B) {
+	line := strings.SplitAfter("\tif err := run(ctx, cfg); err != nil {\n\t\treturn fmt.Errorf(\"run: %w\", err)\n\t}\n", " ")
+	for _, deltas := range []int{1_000, 10_000} {
+		b.Run(fmt.Sprintf("deltas=%d", deltas), func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				printer := NewMarkdownPrinter(io.Discard, 80)
+				printer.Write([]byte("```go\n"))
+				for i := range deltas {
+					printer.Write([]byte(line[i%len(line)]))
+				}
+				printer.Close()
+			}
+			b.ReportMetric(float64(b.Elapsed().Nanoseconds())/float64(b.N*deltas), "ns/delta")
 		})
 	}
 }

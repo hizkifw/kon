@@ -23,6 +23,7 @@ go test -run '^$' -bench DecodeChatStream -benchmem ./core/provider
 | `core/provider` `BenchmarkDecodeChatStream` | SSE decoding stays flat per delta as a reply grows |
 | `internal/markdown` `BenchmarkStream*`, `BenchmarkRender*` | streamed markdown rendering |
 | `internal/ui` `BenchmarkTranscriptRender*`, `BenchmarkViewportRefresh` | transcript folding and per-frame refresh; see [rendering-performance.md](rendering-performance.md) |
+| `internal/ui` `BenchmarkMarkdownPrinterOpenFence` | `kon run`'s printer on a reply that is one code fence that never closes: `ns/delta` stays flat as the reply grows |
 | `internal/catalog` `BenchmarkNew` | loading the bundled model catalog |
 | `internal/projectfiles` `BenchmarkList` | project-file discovery through Git and the directory fallback at 1k, 10k, 50k, and 100k files |
 | `internal/ui` `BenchmarkMentionCandidates` | per-keystroke file matching and ranking at 1k, 10k, and 50k cached paths |
@@ -148,7 +149,10 @@ the Markdown source as it would into a pipe. Until it asked whether stdout was
 really a terminal rather than any character device, it rendered into
 `/dev/null` as well, and `stream-code-50k` took 43 s: the printer re-parses
 the unsettled tail on every delta, and one fence that never closes never
-settles.
+settles. The printer now looks for closed blocks at most every 50 ms, which on a
+terminal took the same reply from the square of its length to linear:
+`BenchmarkMarkdownPrinterOpenFence` with 10k deltas went from 1.1 s and 2.2 GB
+to 15 ms and 3 MB.
 
 Before `BenchmarkDecodeChatStream` existed, the provider grew each streamed
 part with `+=`, so a 200k-delta reply took 46 s instead of 2.4 s. The rising

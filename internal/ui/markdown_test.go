@@ -389,6 +389,43 @@ func TestPrintMarkdownStreamsClosedBlocks(t *testing.T) {
 	}
 }
 
+// TestMarkdownPrinterLooksOncePerInterval checks that blocks closed less than
+// printInterval after the printer last looked wait for a later write or for
+// Close, and are never lost.
+func TestMarkdownPrinterLooksOncePerInterval(t *testing.T) {
+	var out strings.Builder
+	printer := NewMarkdownPrinter(&out, 40)
+	clock := time.Unix(0, 0)
+	printer.now = func() time.Time { return clock }
+	printed := func() string { return ansi.Strip(out.String()) }
+	write := func(text string, after time.Duration) {
+		t.Helper()
+		clock = clock.Add(after)
+		if _, err := printer.Write([]byte(text)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	write("first\n\n", 0)
+	if got := printed(); got != "first\n" {
+		t.Fatalf("after the first write: %q, want the first paragraph", got)
+	}
+	write("second\n\n", printInterval/2)
+	if got := printed(); got != "first\n" {
+		t.Fatalf("within the interval: %q, want the second paragraph held back", got)
+	}
+	write("third", printInterval/2)
+	if got := printed(); got != "first\n\nsecond\n" {
+		t.Fatalf("after the interval: %q, want the second paragraph", got)
+	}
+	if err := printer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if got := printed(); got != "first\n\nsecond\n\nthird\n" {
+		t.Fatalf("after Close: %q, want every paragraph", got)
+	}
+}
+
 // TestPrintMarkdownLeavesProseUnstyled checks that plain prose prints in the
 // terminal's own color, with no escapes, and that empty input prints nothing.
 func TestPrintMarkdownLeavesProseUnstyled(t *testing.T) {

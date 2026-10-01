@@ -4,6 +4,7 @@ import (
 	"image/color"
 	"io"
 	"strings"
+	"time"
 	"unicode"
 
 	"charm.land/lipgloss/v2"
@@ -339,23 +340,43 @@ func PrintMarkdown(dst io.Writer, src io.Reader, width int) error {
 }
 
 // MarkdownPrinter is PrintMarkdown as a writer, for markdown that arrives in
-// pieces: each Write prints the blocks it closed, and Close prints the rest.
+// pieces: a Write prints the blocks closed so far, and Close prints the rest.
 // One printer renders one document, so kon run uses one per message and an
 // unclosed code fence cannot swallow the next reply.
 type MarkdownPrinter struct {
 	dst     io.Writer
 	stream  *markdown.Stream
 	printed int
+	// looked is when the printer last looked for closed blocks, and now is
+	// its clock.
+	looked time.Time
+	now    func() time.Time
 }
+
+// printInterval is how often a printer looks for closed blocks. Looking means
+// parsing the whole block that is still open, which grows with every delta
+// and without bound inside a code fence that never closes, so looking on
+// every delta made a long reply cost the square of its length. The TUI paints
+// on a frame clock for the same reason; a block printed up to this much later
+// is not something a reader notices.
+const printInterval = 50 * time.Millisecond
 
 // NewMarkdownPrinter prints onto dst, wrapping lines at width, or not at all
 // when width is below 1.
 func NewMarkdownPrinter(dst io.Writer, width int) *MarkdownPrinter {
-	return &MarkdownPrinter{dst: dst, stream: markdown.NewStream(markdown.Theme{}, width)}
+	return &MarkdownPrinter{dst: dst, stream: markdown.NewStream(markdown.Theme{}, width), now: time.Now}
 }
 
+// Write adds b to the document and prints the blocks it has closed, unless
+// the printer looked less than printInterval ago; then they print with a
+// later Write, or with Close.
 func (p *MarkdownPrinter) Write(b []byte) (int, error) {
 	p.stream.Write(string(b))
+	now := p.now()
+	if now.Sub(p.looked) < printInterval {
+		return len(b), nil
+	}
+	p.looked = now
 	return len(b), p.flush()
 }
 
