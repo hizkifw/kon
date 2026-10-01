@@ -52,12 +52,13 @@ func TestFailedAppendLeavesNoTornLine(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		file := store.file
-		store.file = &tornFile{sessionFile: file}
+		backend := store.backend.(*fileBackend)
+		file := backend.file
+		backend.file = &tornFile{sessionFile: file}
 		if _, err := store.AppendMessage(userText("lost")); err == nil {
 			t.Fatal("torn write reported success")
 		}
-		store.file = file
+		backend.file = file
 		if _, err := store.AppendMessage(userText("after")); err != nil {
 			t.Fatalf("reopen=%v: append after a rolled-back failure: %v", reopen, err)
 		}
@@ -102,12 +103,13 @@ func TestUnrecoverableAppendStopsLaterAppends(t *testing.T) {
 	if _, err := store.AppendMessage(userText("before")); err != nil {
 		t.Fatal(err)
 	}
-	file := store.file
-	store.file = &tornFile{sessionFile: file, truncateErr: errors.New("read-only file system")}
+	backend := store.backend.(*fileBackend)
+	file := backend.file
+	backend.file = &tornFile{sessionFile: file, truncateErr: errors.New("read-only file system")}
 	if _, err := store.AppendMessage(userText("lost")); err == nil {
 		t.Fatal("torn write reported success")
 	}
-	store.file = file
+	backend.file = file
 	// The torn line is still on disk, so a later record would join it.
 	if _, err := store.AppendMessage(userText("after")); err == nil {
 		t.Fatal("append after an unrecoverable failure was accepted")

@@ -38,7 +38,7 @@ the model's context with `session.Project`.
    `--resume`, open the newest existing session for the directory (or a named
    one) instead of creating a session, and replay its active path for display.
    With `--incognito`, the session is `session.NewMemory`: the same store
-   and append path, writing to a discarded file, with images held in memory.
+   and append path, with nothing written and images held in memory.
 3. Render the alternate-screen TUI. No provider request occurs during startup.
 4. Persist a submitted user message before starting network work.
 5. Stream one assistant message. A completed message is persisted atomically as

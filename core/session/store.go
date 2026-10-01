@@ -1,26 +1,26 @@
 package session
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"os"
 	"sync"
 	"time"
 
 	"github.com/hizkifw/kon/core/tokens"
 	"github.com/hizkifw/kon/core/typedid"
-
-	"github.com/gofrs/flock"
 )
 
+// Store is a session open for appending: an append-only, parent-linked list
+// of entries, kept in memory and in a backend. Create and Open keep it in a
+// file, and NewMemory nowhere. It is safe for concurrent use.
 type Store struct {
 	mu      sync.Mutex
 	header  Header
 	path    string
-	file    sessionFile
-	lock    *flock.Flock
+	backend backend
 	entries []Entry
 	byID    map[typedid.EntryID]int
 	leafID  *typedid.EntryID
@@ -28,127 +28,57 @@ type Store struct {
 	// message. Such a session is discarded on close so an accidental launch does
 	// not leave a resumable file behind, which would otherwise shadow an earlier
 	// session that actually has content.
-	empty bool
-	// broken is set when a failed append could not be rolled back. The file
-	// then ends in a torn line, and appending after it would bury that line
-	// mid-file where Open refuses it, so every later append fails instead.
-	broken error
-	// images holds a memory session's image bytes by hash, which a persisted
-	// session keeps beside its file.
-	images map[string][]byte
+	empty  bool
+	closed bool
 }
 
-// sessionFile is the part of *os.File the store writes through, so tests can
-// simulate a write that fails partway.
-type sessionFile interface {
-	Write([]byte) (int, error)
-	Seek(offset int64, whence int) (int64, error)
-	Truncate(size int64) error
-	Sync() error
-	Close() error
+// backend is where a store's records and images go.
+type backend interface {
+	// write appends one encoded record, syncing it to stable storage when
+	// sync is set. A record that fails to write must leave no trace.
+	write(record []byte, sync bool) error
+	saveImage(hash string, data []byte) error
+	readImage(hash string) ([]byte, error)
+	// close releases the backend, first discarding everything it holds when
+	// discard is set.
+	close(discard bool) error
 }
 
-// Create starts a session file at path, which must not exist, holding header
-// and the root system message. The header's type and version are kon's; a
-// zero ID or timestamp is filled in. The store is the file's only writer
-// until Close.
-func Create(path string, header Header, systemPrompt string) (*Store, error) {
-	header, err := completeHeader(header)
-	if err != nil {
-		return nil, err
-	}
-	// Lock before the file exists, so no other process can find the session
-	// unlocked and open it as a second writer.
-	l, err := lock(path)
-	if err != nil {
-		return nil, err
-	}
-	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		_ = l.Unlock()
-		return nil, fmt.Errorf("create session: %w", err)
-	}
-	s := &Store{
-		header: header,
-		path:   path,
-		file:   f,
-		lock:   l,
-		byID:   make(map[typedid.EntryID]int),
-		empty:  true,
-	}
-	if err := s.writeLine(s.header, false); err != nil {
-		f.Close()
-		_ = l.Unlock()
-		return nil, err
-	}
-	if _, err := s.AppendMessage(TextMessage(RoleSystem, systemPrompt)); err != nil {
-		f.Close()
-		_ = l.Unlock()
-		return nil, err
-	}
-	return s, nil
-}
+// maxImageBytes bounds one stored image.
+const maxImageBytes = 20 << 20
 
-// completeHeader stamps a new session's header with the current format and
-// fills in its identity and creation time when the caller left them zero.
-func completeHeader(header Header) (Header, error) {
+// start begins a new session in b: its header, then its root system message.
+func start(path string, header Header, b backend, systemPrompt string) (*Store, error) {
 	header.Type, header.Version = "session", SchemaVersion
 	if header.ID.IsZero() {
 		id, err := typedid.NewSessionID()
 		if err != nil {
-			return Header{}, err
+			return nil, err
 		}
 		header.ID = id
 	}
 	if header.Timestamp.IsZero() {
 		header.Timestamp = time.Now().UTC()
 	}
-	return header, nil
-}
-
-// Open opens a persisted session as its only writer. It returns ErrInUse while
-// another process has the session open.
-func Open(path string) (_ *Store, err error) {
-	// The lock comes before parsing: an incomplete tail is only safe to trim
-	// once no other writer can be partway through appending it.
-	l, err := lock(path)
+	record, err := json.Marshal(header)
 	if err != nil {
+		return nil, fmt.Errorf("encode session header: %w", err)
+	}
+	if err := b.write(record, false); err != nil {
 		return nil, err
 	}
-	defer func() {
-		if err != nil {
-			_ = l.Unlock()
-		}
-	}()
-	parsed, err := parseSession(path)
-	if err != nil {
+	s := &Store{header: header, path: path, backend: b, byID: make(map[typedid.EntryID]int), empty: true}
+	if _, err := s.AppendMessage(TextMessage(RoleSystem, systemPrompt)); err != nil {
 		return nil, err
 	}
-	if parsed.repairOffset >= 0 {
-		if err := os.Truncate(path, parsed.repairOffset); err != nil {
-			return nil, fmt.Errorf("repair incomplete session tail: %w", err)
-		}
-	}
-	f, err := os.OpenFile(path, os.O_RDWR|os.O_APPEND, 0o600)
-	if err != nil {
-		return nil, fmt.Errorf("open session for append: %w", err)
-	}
-	s := &Store{header: parsed.header, path: path, file: f, lock: l, entries: parsed.entries, byID: parsed.byID}
-	// A session holding only its root system message and structural entries has
-	// no conversation to keep.
-	s.empty = true
-	for _, entry := range parsed.entries {
-		if entry.Type == EntryTypeCompaction || (entry.Message != nil && entry.Message.Role != RoleSystem) {
-			s.empty = false
-			break
-		}
-	}
-	s.leafID = parsed.leafID()
 	return s, nil
 }
 
+// Path is the session's file, or "" for a session kept in memory.
 func (s *Store) Path() string { return s.path }
-func (s *Store) CWD() string  { return s.header.CWD }
+
+// CWD is the working directory the header records.
+func (s *Store) CWD() string { return s.header.CWD }
 
 // ID is the stable session identifier persisted in the header.
 func (s *Store) ID() typedid.SessionID { return s.header.ID }
@@ -177,41 +107,19 @@ func (s *Store) ActivePath() []Entry {
 	return path
 }
 
+// Close releases the session. A session that never held a conversation is
+// discarded rather than kept.
 func (s *Store) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.file == nil {
+	if s.closed {
 		return nil
 	}
-	if s.ephemeral() {
-		s.file, s.images = nil, nil
-		return nil
-	}
-	err := s.file.Sync()
-	closeErr := s.file.Close()
-	s.file = nil
-	// A session that never grew past its root system message is an accidental
-	// launch: remove it so it does not become the newest resume target.
-	if s.empty {
-		if removeErr := os.Remove(s.path); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
-			err = errors.Join(err, fmt.Errorf("discard empty session: %w", removeErr))
-		}
-		if removeErr := os.RemoveAll(s.blobDir()); removeErr != nil {
-			err = errors.Join(err, fmt.Errorf("discard empty session blobs: %w", removeErr))
-		}
-	}
-	// Release only after the file is closed or discarded, so the next writer
-	// never sees it mid-close. A discarded session's lock file goes with it;
-	// with the session gone, nothing can lock it again.
-	if s.lock != nil {
-		closeErr = errors.Join(closeErr, s.lock.Unlock())
-		if s.empty {
-			_ = os.Remove(lockPath(s.path))
-		}
-	}
-	return errors.Join(err, closeErr)
+	s.closed = true
+	return s.backend.close(s.empty)
 }
 
+// AppendMessage appends message after the active leaf.
 func (s *Store) AppendMessage(message Message) (typedid.EntryID, error) {
 	if err := message.Validate(); err != nil {
 		return typedid.EntryID{}, fmt.Errorf("append message: %w", err)
@@ -219,6 +127,10 @@ func (s *Store) AppendMessage(message Message) (typedid.EntryID, error) {
 	return s.append(Entry{Type: EntryTypeMessage, Message: &message})
 }
 
+// AppendCompaction records a summary that replaces everything before
+// firstKeptID in the projected context. tokensBefore is the context's size
+// when it was compacted, and estimated whether that size is a guess; usage is
+// what writing the summary cost.
 func (s *Store) AppendCompaction(summary string, firstKeptID typedid.EntryID, tokensBefore tokens.Count, estimated bool, usage *Usage) (typedid.EntryID, error) {
 	if firstKeptID.IsZero() {
 		return typedid.EntryID{}, errors.New("compaction requires a retained entry")
@@ -233,6 +145,7 @@ func (s *Store) AppendCompaction(summary string, firstKeptID typedid.EntryID, to
 	})
 }
 
+// AppendModelChange records the model the conversation continues with.
 func (s *Store) AppendModelChange(selection ModelSelection) (typedid.EntryID, error) {
 	if selection.Name == "" || selection.WireFormat == "" || selection.ExternalID.String() == "" {
 		return typedid.EntryID{}, errors.New("model change requires name, wire format, and external ID")
@@ -240,10 +153,12 @@ func (s *Store) AppendModelChange(selection ModelSelection) (typedid.EntryID, er
 	return s.append(Entry{Type: EntryTypeModelChange, Model: &selection})
 }
 
+// AppendTurnStart marks the start of a turn.
 func (s *Store) AppendTurnStart() (typedid.EntryID, error) {
 	return s.append(Entry{Type: EntryTypeTurnStart})
 }
 
+// AppendTurnEnd marks the end of a turn that took duration.
 func (s *Store) AppendTurnEnd(duration time.Duration) (typedid.EntryID, error) {
 	if duration < 0 {
 		return typedid.EntryID{}, errors.New("turn end requires a non-negative duration")
@@ -254,11 +169,8 @@ func (s *Store) AppendTurnEnd(duration time.Duration) (typedid.EntryID, error) {
 func (s *Store) append(entry Entry) (typedid.EntryID, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.file == nil {
+	if s.closed {
 		return typedid.EntryID{}, errors.New("session is closed")
-	}
-	if s.broken != nil {
-		return typedid.EntryID{}, s.broken
 	}
 	id, err := typedid.NewEntryID()
 	if err != nil {
@@ -270,11 +182,20 @@ func (s *Store) append(entry Entry) (typedid.EntryID, error) {
 		parent := *s.leafID
 		entry.ParentID = &parent
 	}
+	record, err := json.Marshal(entry)
+	if err != nil {
+		return typedid.EntryID{}, fmt.Errorf("encode session entry: %w", err)
+	}
 	// The root system message is written through this path on creation, and model
 	// changes and turn starts are structural; none makes the session worth
 	// keeping. The first appended conversation or compaction entry does.
+	//
+	// An empty session skips the sync: Close discards it, discovery ignores it
+	// if a crash leaves it behind, and each fsync costs milliseconds of
+	// startup. The first substantive entry's sync makes every earlier line
+	// durable along with it.
 	substantive := len(s.entries) > 0 && entry.Type != EntryTypeModelChange && entry.Type != EntryTypeTurnStart
-	if err := s.writeLine(entry, !s.empty || substantive); err != nil {
+	if err := s.backend.write(record, !s.empty || substantive); err != nil {
 		return typedid.EntryID{}, err
 	}
 	if substantive {
@@ -286,44 +207,44 @@ func (s *Store) append(entry Entry) (typedid.EntryID, error) {
 	return id, nil
 }
 
-// writeLine appends one record, syncing it when sync is set. An empty session
-// skips the sync: Close discards it, discovery ignores it if a crash leaves it
-// behind, and each fsync costs milliseconds of startup. The first substantive
-// entry's sync makes every earlier line durable along with it.
-//
-// A failed write or sync truncates the file back to where the record began.
-// The entry is not added in memory either, so file and memory stay in step,
-// and a partial line from a full disk is never followed by the next record.
-func (s *Store) writeLine(value any, sync bool) error {
-	b, err := json.Marshal(value)
-	if err != nil {
-		return fmt.Errorf("encode session entry: %w", err)
+// SaveImage stores an image before a session entry can refer to it, and
+// returns the part that does. Equal bytes are stored once per session, and
+// the entry keeps only their hash.
+func (s *Store) SaveImage(data []byte, mime string) (Part, error) {
+	if len(data) == 0 || len(data) > maxImageBytes || mime == "" {
+		return Part{}, errors.New("image requires bounded bytes and a MIME type")
 	}
-	offset, err := s.file.Seek(0, io.SeekEnd)
-	if err != nil {
-		return fmt.Errorf("find session end: %w", err)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return Part{}, errors.New("session is closed")
 	}
-	if _, err := s.file.Write(append(b, '\n')); err != nil {
-		return s.rollback(offset, fmt.Errorf("append session entry: %w", err))
+	digest := sha256.Sum256(data)
+	hash := hex.EncodeToString(digest[:])
+	if err := s.backend.saveImage(hash, data); err != nil {
+		return Part{}, err
 	}
-	if !sync {
-		return nil
-	}
-	if err := s.file.Sync(); err != nil {
-		return s.rollback(offset, fmt.Errorf("sync session entry: %w", err))
-	}
-	return nil
+	return Part{Type: PartImage, ImageHash: hash, ImageMIME: mime}, nil
 }
 
-// rollback removes a record that failed partway. The next writeLine seeks to
-// the new end, which also covers a new session's file, opened without append
-// mode.
-func (s *Store) rollback(offset int64, cause error) error {
-	if err := s.file.Truncate(offset); err != nil {
-		s.broken = fmt.Errorf("session file has an incomplete record: %w", errors.Join(cause, err))
-		return s.broken
+// ReadImage loads a stored image by hash, as a provider request needs it.
+func (s *Store) ReadImage(hash string) ([]byte, error) {
+	if !validImageHash(hash) {
+		return nil, errors.New("invalid image blob hash")
 	}
-	return cause
+	return s.backend.readImage(hash)
+}
+
+func validImageHash(hash string) bool {
+	if len(hash) != 64 {
+		return false
+	}
+	for _, c := range hash {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Store) activePathLocked() ([]Entry, error) {

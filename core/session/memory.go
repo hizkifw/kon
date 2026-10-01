@@ -1,41 +1,47 @@
 package session
 
 import (
-	"github.com/hizkifw/kon/core/typedid"
+	"bytes"
+	"errors"
+	"sync"
 )
 
 // NewMemory creates a session that lives only in memory: the same store and
 // append path as a persisted session, with nothing written anywhere. Close
-// discards it. header is completed as Create completes it.
+// discards it. The header is completed as Create completes it.
 func NewMemory(header Header, systemPrompt string) (*Store, error) {
-	header, err := completeHeader(header)
-	if err != nil {
-		return nil, err
-	}
-	s := &Store{
-		header: header,
-		file:   discard{},
-		byID:   make(map[typedid.EntryID]int),
-		empty:  true,
-		images: make(map[string][]byte),
-	}
-	if _, err := s.AppendMessage(TextMessage(RoleSystem, systemPrompt)); err != nil {
-		return nil, err
-	}
-	return s, nil
+	return start("", header, &memoryBackend{images: make(map[string][]byte)}, systemPrompt)
 }
 
-// ephemeral reports whether the session lives only in memory; see
-// NewMemory.
-func (s *Store) ephemeral() bool { return s.path == "" }
+// memoryBackend keeps no records, since the store already holds every entry,
+// and keeps images by hash.
+type memoryBackend struct {
+	mu     sync.Mutex
+	images map[string][]byte
+}
 
-// discard is an ephemeral session's file. Appends take the same path as a
-// persisted session's, so both keep their entries identically, but the bytes
-// go nowhere.
-type discard struct{}
+func (*memoryBackend) write([]byte, bool) error { return nil }
 
-func (discard) Write(b []byte) (int, error)    { return len(b), nil }
-func (discard) Seek(int64, int) (int64, error) { return 0, nil }
-func (discard) Truncate(int64) error           { return nil }
-func (discard) Sync() error                    { return nil }
-func (discard) Close() error                   { return nil }
+func (m *memoryBackend) saveImage(hash string, data []byte) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.images[hash] = bytes.Clone(data)
+	return nil
+}
+
+func (m *memoryBackend) readImage(hash string) ([]byte, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	data, ok := m.images[hash]
+	if !ok {
+		return nil, errors.New("image blob not found")
+	}
+	return data, nil
+}
+
+func (m *memoryBackend) close(bool) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.images = nil
+	return nil
+}
