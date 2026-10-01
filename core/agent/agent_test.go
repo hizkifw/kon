@@ -674,6 +674,38 @@ func newSession(dir, cwd, appVersion, systemPrompt string) (*session.Store, erro
 
 // newRunner builds a runner over tools, rooted at the store's working
 // directory with vision on.
+// TestRunnerNeedsNoToolsOrListener drives a runner built without tools and
+// called without an event callback, as a program that only reads the store
+// afterwards would.
+func TestRunnerNeedsNoToolsOrListener(t *testing.T) {
+	store, err := newSession(t.TempDir(), t.TempDir(), "test", "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	for i := 0; i < 3; i++ {
+		if _, err := store.AppendMessage(session.TextMessage(session.RoleUser, strings.Repeat("question ", 80))); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.AppendMessage(session.TextMessage(session.RoleAssistant, strings.Repeat("answer ", 80))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	limits := testLimits
+	limits.KeepRecentTokens = 100
+	runner := New(Config{Limits: limits, Provider: &fakeProvider{}, Store: store})
+	if err := runner.Compact(context.Background(), nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.Run(context.Background(), "hello", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	path := store.ActivePath()
+	if last := path[len(path)-2].Message; last == nil || last.Text() != "done" {
+		t.Fatalf("last message = %+v", last)
+	}
+}
+
 func newRunner(limits Limits, provider Provider, store *session.Store, tools ...tool.Tool) *Runner {
 	return New(Config{Limits: limits, Provider: provider, Store: store, Tools: tool.NewExecutor(tool.NewRegistry(tools...), store.CWD(), true)})
 }

@@ -120,7 +120,8 @@ type Config struct {
 	Limits   Limits
 	Provider Provider
 	Store    Store
-	Tools    *tool.Executor
+	// Tools runs the model's tool calls, or nil for a model with no tools.
+	Tools *tool.Executor
 	// CompactionPrompt is the instruction a compaction summary is written to,
 	// or "" for DefaultCompactionPrompt.
 	CompactionPrompt string
@@ -155,6 +156,9 @@ func New(config Config) *Runner {
 	}
 	if r.compactionPrompt == "" {
 		r.compactionPrompt = DefaultCompactionPrompt
+	}
+	if r.tools == nil {
+		r.tools = tool.NewExecutor(tool.NewRegistry(), "", false)
 	}
 	r.seedUsage()
 	return r
@@ -241,7 +245,9 @@ func (r *Runner) Interrupt(attempt int) bool {
 // the run. The turn is bracketed by start and end entries so a replay can show
 // its duration; the end is written however the turn returns, including on
 // cancellation, so only a process that dies mid-turn leaves a start unmatched.
+// emit may be nil when only the stored conversation matters.
 func (r *Runner) Run(ctx context.Context, prompt string, inbox *Inbox, emit func(Event)) (err error) {
+	emit = orDiscard(emit)
 	start := time.Now()
 	if _, err := r.session.AppendTurnStart(); err != nil {
 		return err
@@ -420,6 +426,7 @@ func (r *Runner) messages() ([]session.Message, error) {
 // path. When everything since the last summary still fits in the kept window
 // it returns ErrNothingToCompact.
 func (r *Runner) Compact(ctx context.Context, emit func(Event)) error {
+	emit = orDiscard(emit)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -517,6 +524,14 @@ var DefaultCompactionPrompt = strings.TrimSuffix(compactionPrompt, "\n")
 
 //go:embed compaction_prompt.txt
 var compactionPrompt string
+
+// orDiscard lets a caller pass a nil emit, so the runner can always call it.
+func orDiscard(emit func(Event)) func(Event) {
+	if emit == nil {
+		return func(Event) {}
+	}
+	return emit
+}
 
 // summarize asks the provider for a compaction summary.
 //
