@@ -102,9 +102,9 @@ Intel i5-8500T, 4 cores, Linux:
 | --- | ---: | ---: | ---: | --- |
 | `startup` | 21 ms | 9 ms | 10.9 MB | one short reply, including process start |
 | `first-paint` | 27 ms | 18 ms | 15.9 MB | exec to the first frame; fastest 26.5 ms, p90 29 ms |
-| `stream-doc-50k` | 0.67 s | 0.64 s | 17.8 MB | 50k deltas as fast as the socket allows |
-| `stream-doc-200k` | 2.4 s | 2.3 s | 26.8 MB | linear in reply length |
-| `stream-code-50k` | 0.64 s | 0.59 s | 17.7 MB | |
+| `stream-doc-50k` | 0.61 s | 0.58 s | 17.1 MB | 50k deltas as fast as the socket allows |
+| `stream-doc-200k` | 2.2 s | 2.3 s | 25.8 MB | linear in reply length |
+| `stream-code-50k` | 0.59 s | 0.58 s | 17.6 MB | |
 | `tools-100` | 1.9 s | 0.93 s | 27.8 MB | 100 sequential shell calls |
 | `tools-25x8` | 2.1 s | 1.06 s | 35.1 MB | 8 parallel calls per turn |
 | `tools-bigout-30` | 1.1 s | 0.75 s | 30.3 MB | each call prints 1.3 MB |
@@ -142,6 +142,13 @@ waits 100 ms (`catalogDelay` in `internal/ui`) before starting the load.
 Startup was 50 ms until `go-runewidth` v0.0.30, whose predecessors built a
 width table for every Unicode code point in their package `init`; check
 `GODEBUG=inittrace=1 bin/kon --version` when a dependency changes.
+
+The headless scenarios send kon's stdout to `/dev/null`, so `kon run` prints
+the Markdown source as it would into a pipe. Until it asked whether stdout was
+really a terminal rather than any character device, it rendered into
+`/dev/null` as well, and `stream-code-50k` took 43 s: the printer re-parses
+the unsettled tail on every delta, and one fence that never closes never
+settles.
 
 Before `BenchmarkDecodeChatStream` existed, the provider grew each streamed
 part with `+=`, so a 200k-delta reply took 46 s instead of 2.4 s. The rising

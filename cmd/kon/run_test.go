@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
@@ -90,4 +91,17 @@ type blockingReader struct{ t *testing.T }
 func (r blockingReader) Read([]byte) (int, error) {
 	r.t.Fatal("stdin was read")
 	return 0, nil
+}
+
+// TestNullDeviceIsNotATerminal keeps kon run from rendering Markdown into
+// /dev/null, which is a character device like a terminal is.
+func TestNullDeviceIsNotATerminal(t *testing.T) {
+	null, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer null.Close()
+	if isTerminal(null) {
+		t.Fatalf("%s reported as a terminal", os.DevNull)
+	}
 }

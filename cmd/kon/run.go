@@ -301,7 +301,9 @@ func terminalWidth(f *os.File) int {
 	return width
 }
 
+// isTerminal reports whether f is a terminal. Being a character device is not
+// enough: /dev/null is one too, and output sent there must not be rendered
+// for a reader who is not there.
 func isTerminal(f *os.File) bool {
-	info, err := f.Stat()
-	return err == nil && info.Mode()&os.ModeCharDevice != 0
+	return term.IsTerminal(f.Fd())
 }
