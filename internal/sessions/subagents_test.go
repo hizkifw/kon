@@ -1,6 +1,7 @@
 package sessions
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -107,3 +108,38 @@ func TestSubagentsSkipSessionsOlderThanTheParent(t *testing.T) {
 		}
 	}
 }
+
+// TestSubagentsCountASubagentNamedBeforeItsParent follows a grandchild whose
+// file sorts before its parent's. Names carry the creation time to the
+// millisecond, so two sessions made within one sort by their random IDs.
+func TestSubagentsCountASubagentNamedBeforeItsParent(t *testing.T) {
+	dir := t.TempDir()
+	body := func(cost float64) []byte {
+		b, err := json.Marshal(session.Entry{Type: session.EntryTypeMessage, ID: mustEntryID(t), Message: ptr(reply(10, cost))})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return append(b, '\n')
+	}
+	parent := writeSession(t, dir, 0, typedid.SessionID{}, nil)
+	child := writeSession(t, dir, 2, parent, body(1))
+	writeSession(t, dir, 1, child, body(0.5))
+	path, err := filepath.Glob(filepath.Join(dir, "*_"+parent.String()+fileSuffix))
+	if err != nil || len(path) != 1 {
+		t.Fatalf("parent file: %v, %v", path, err)
+	}
+	if got := NewSubagents(path[0], parent).Usage(); got.Cost != 1.5 {
+		t.Fatalf("usage = %+v, want the child and the grandchild", got)
+	}
+}
+
+func mustEntryID(t *testing.T) typedid.EntryID {
+	t.Helper()
+	id, err := typedid.NewEntryID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+func ptr[T any](v T) *T { return &v }
