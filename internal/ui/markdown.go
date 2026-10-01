@@ -5,10 +5,8 @@ import (
 	"io"
 	"strings"
 	"time"
-	"unicode"
 
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/x/ansi"
 	"github.com/hizkifw/kon/internal/markdown"
 )
 
@@ -210,82 +208,6 @@ func bgFiller(base part, text string) part {
 	s.text = text
 	return s
 }
-
-// slabLineContinuous paints segments with no separator between them and the
-// same full-width background fill as slabLine. Each segment carries the slab
-// background so its resets cannot punch holes in the slab.
-func slabLineContinuous(bg color.Color, width int, segments ...part) string {
-	var out strings.Builder
-	used := 1 // left padding cell
-	out.WriteString(bgSpaces(bg, 1))
-	for _, segment := range segments {
-		if segment.text == "" {
-			continue
-		}
-		avail := width - used - 1 // keep one cell of right padding
-		if avail < 1 {
-			break
-		}
-		if lipgloss.Width(segment.text) > avail {
-			segment.text = ansi.Truncate(segment.text, avail, "…")
-		}
-		out.WriteString(paintPart(segment, bg))
-		used += lipgloss.Width(segment.text)
-	}
-	out.WriteString(bgSpaces(bg, max(0, width-used)))
-	return out.String()
-}
-
-// paintPart renders one segment on bg, or on the segment's own background
-// when it has one.
-func paintPart(segment part, bg color.Color) string {
-	style := lipgloss.NewStyle().Foreground(segment.fg).Background(bg)
-	if segment.bg != nil {
-		style = style.Background(segment.bg)
-	}
-	if segment.bold {
-		style = style.Bold(true)
-	}
-	if segment.italic {
-		style = style.Italic(true)
-	}
-	if segment.underline {
-		style = style.Underline(true)
-	}
-	if segment.strike {
-		style = style.Strikethrough(true)
-	}
-	rendered := style.Render(segment.text)
-	if segment.link != "" {
-		// OSC 8 hyperlink: terminals that support it make the span
-		// clickable; others show the text (and the visible URL) unchanged.
-		// The sequence is zero-width, so width accounting is unaffected.
-		rendered = osc8Link(segment.link) + rendered + osc8Close()
-	}
-	return rendered
-}
-
-// osc8Link opens an OSC 8 hyperlink to target. Control bytes are stripped
-// from the target first: the destination comes from model-authored markdown,
-// and an embedded ESC or BEL could otherwise terminate the sequence early and
-// inject terminal escapes (the same class kon strips on input).
-func osc8Link(target string) string {
-	return "\x1b]8;;" + oscSafe(target) + "\x1b\\"
-}
-
-// oscSafe removes control characters (C0, DEL, and C1, whose ST and CSI also
-// end or start sequences) from an OSC 8 target.
-func oscSafe(s string) string {
-	return strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) {
-			return -1
-		}
-		return r
-	}, s)
-}
-
-// osc8Close terminates an OSC 8 hyperlink.
-func osc8Close() string { return "\x1b]8;;\x1b\\" }
 
 // markdownLive renders an assistant message incrementally through the
 // markdown package's streaming renderer. Frozen blocks are painted once into

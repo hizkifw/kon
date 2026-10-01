@@ -22,10 +22,6 @@ type menuItem struct {
 	Preview func() *transcript
 }
 
-// selectedRowStyle marks the highlighted row of the popup and of a drawer's
-// list.
-var selectedRowStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#DADADA")).Background(lipgloss.Color("#333333"))
-
 // menu is a generic selectable popup rendered above the prompt. It owns only
 // presentation and navigation; committing a choice is the job of the
 // menuSource that produced it. Slash-command completion is one source; file

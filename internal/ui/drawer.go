@@ -12,9 +12,6 @@ type drawer = tui.Drawer[*Model]
 
 type drawerAction = tui.Action[*Model]
 
-// colorDim paints everything under the top drawer.
-var colorDim = lipgloss.Color("#4A4A4A")
-
 // drawerTheme colors the drawer stack in kon's palette.
 func drawerTheme() tui.Theme {
 	return tui.Theme{
