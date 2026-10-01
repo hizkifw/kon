@@ -48,6 +48,7 @@ them with its own prompt and tools. Everything kon-specific lives in `internal/`
 | --- | --- | --- |
 | `cmd/kon` | startup wiring and CLI metadata | business logic |
 | `internal/ui` | terminal state and presentation | HTTP or JSONL encoding |
+| `internal/tui` | kon-agnostic terminal widgets: scroll container, word wrap, line fitting, and the drawer stack with its lists | anything kon-specific: colors, transcripts, sessions, or actions |
 | `internal/markdown` | Markdown to styled, wrapped lines, streaming, and selections cut back out as Markdown | colors, terminal output, or transcript state |
 | `internal/headless` | `kon run` output: streamed text or JSON events, one run per process | terminal state or session policy |
 | `internal/app` | live runner/store lifecycle and model switching | terminal presentation |

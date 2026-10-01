@@ -125,16 +125,16 @@ segmentation over every line per frame to compute the longest line width — a
 value the transcript never needs because it already wraps every line to the
 viewport width.
 
-- `scrollView` (`internal/ui/scroll.go`) replaces `bubbles/viewport`. It holds
+- `tui.Scroll` (`internal/tui/scroll.go`) replaces `bubbles/viewport`. It holds
   the display lines as-is, keeps a `yOffset`, and its `AtBottom`/`GotoBottom`/
   `maxYOffset` are pure integer arithmetic. `View` slices `lines[yOffset:yOffset+height]`
   and pads to height, so no line is measured.
 - `SetContentLines` only stores the slice and clamps the offset; the transcript's
   line cache is passed straight through with no copy.
 - Keyboard paging stays in `handleKey` (PgUp/PgDn) and the wheel is handled in
-  `scrollView.Update`, preserving the "plain keys go to the prompt" behavior.
+  `Scroll.Update`, preserving the "plain keys go to the prompt" behavior.
 
-Result (per-frame refresh + `scrollView.View`):
+Result (per-frame refresh + `Scroll.View`):
 
 | blocks | before |       after |
 | -----: | -----: | ----------: |
@@ -151,7 +151,7 @@ wheel, fixed-height render, shrink).
 `pending` re-wrapped the entire accumulated stream every frame, so a single long
 streamed message cost O(n) per frame and O(n^2) across the stream.
 
-- `plainWrapper` (`internal/ui/wrap.go`) is a streaming word wrapper that mirrors
+- `tui.Wrapper` (`internal/tui/wrap.go`) is a streaming word wrapper that mirrors
   `lipgloss.Wrap` with no breakpoints byte-for-byte (guarded by
   `TestPlainWrapperMatchesLipgloss`). Its `Finalized()` lines are append-only and
   `Current()` returns the single still-growing line, so `Write` can be fed
@@ -159,7 +159,7 @@ streamed message cost O(n) per frame and O(n^2) across the stream.
 - `liveStream` (`internal/ui/live.go`) folds deltas through a streaming
   normalizer (equivalent to `normalizeText`) into the wrapper and paints the
   finished lines once. Per frame it only repaints the current line.
-- `messageSlab` and `thinkingLines` now share `linePainter` and `wrapPlain`, so
+- `messageSlab` and `thinkingLines` now share `linePainter` and `tui.WrapPlain`, so
   a message rendered live and later folded into a stable block is byte-identical
   (guarded by `TestStreamRenderMatchesFullRender` across widths and chunk sizes).
 - `transcript.linesFor` keeps the stable prefix and the live stream's finalized
@@ -182,8 +182,8 @@ Two costs outside the wrapper were found and fixed while measuring this:
 - The stream buffer itself was accumulated with `+=`, re-copying the whole
   message on every delta — O(n²) across the stream, and the dominant term
   once a message reached a few hundred KB. It is an append-only `[]byte` now.
-- Stream deltas pass through `ansiStripper` before the wrapper, because
-  `plainWrapper` treats escape bytes as printable word text and would split a
+- Stream deltas pass through a `tui.Stripper` before the wrapper, because
+  the wrapper treats escape bytes as printable word text and would split a
   sequence mid-escape. The stripper is stateful, so a sequence split across
   deltas is dropped whole; stripping happens at the transcript boundary so the
   buffered text and the live render always see identical bytes.
@@ -206,7 +206,7 @@ on every frame, and `linesFor` then compared that fresh string against
 `joined` string short-circuits the compare, so the benchmark looked flat while
 the real UI paid for the whole history each frame.
 
-Measured per-frame refresh + `scrollView.View` with the banner present:
+Measured per-frame refresh + `Scroll.View` with the banner present:
 
 | blocks | before |    after |
 | -----: | -----: | -------: |

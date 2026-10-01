@@ -40,6 +40,7 @@ them with its own prompt and tools. Everything kon-specific lives in `internal/`
 | `cmd/kon` | startup wiring and CLI metadata | business logic |
 | `docs/product` | bundled user guide and on-demand extraction | terminal state or config mutation |
 | `internal/ui` | terminal state and presentation | HTTP or JSONL encoding |
+| `internal/tui` | kon-agnostic terminal widgets: scroll container, word wrap, line fitting, and the drawer stack with its lists | anything kon-specific: colors, transcripts, sessions, or actions |
 | `internal/headless` | `kon run` output: streamed text or JSON events, one run per process | terminal state or session policy |
 | `internal/app` | live runner/store lifecycle and model switching | terminal presentation |
 | `core/agent` | the model/tool loop, retry events, and compaction policy | prompts, concrete tools, or terminal rendering |
