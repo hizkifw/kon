@@ -21,7 +21,7 @@ import (
 	"kon.kitsu.red/core/typedid"
 )
 
-// chatModel implements Model for OpenAI chat completions, the protocol behind
+// chatModel implements backend for OpenAI chat completions, the protocol behind
 // every format in the wire table. The format's spec supplies the dialect
 // details. kon builds and parses every message itself: request bodies, SSE
 // events, tool-call deltas, and usage reports are all owned here.
@@ -389,10 +389,10 @@ func toChatTools(tools []session.ToolDefinition) []chatTool {
 
 // Stream runs one streamed generation and forwards text and reasoning deltas
 // through emit as they arrive.
-func (m *chatModel) Stream(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, emit func(Event)) (Response, error) {
+func (m *chatModel) Stream(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, emit func(Event)) (generation, error) {
 	wireMessages, err := toChatMessages(messages, m.replay(), m.readImage)
 	if err != nil {
-		return Response{}, err
+		return generation{}, err
 	}
 	payload := m.request(wireMessages)
 	payload.Tools = toChatTools(tools)
@@ -400,7 +400,7 @@ func (m *chatModel) Stream(ctx context.Context, messages []session.Message, tool
 }
 
 // streamWithUsage streams payload, asking the server to report usage.
-func (m *chatModel) streamWithUsage(ctx context.Context, payload chatRequest, emit func(Event)) (Response, error) {
+func (m *chatModel) streamWithUsage(ctx context.Context, payload chatRequest, emit func(Event)) (generation, error) {
 	payload.Stream = true
 	payload.StreamOptions = &chatStreamOptions{IncludeUsage: true}
 	response, err := m.stream(ctx, payload, emit)
@@ -414,24 +414,24 @@ func (m *chatModel) streamWithUsage(ctx context.Context, payload chatRequest, em
 }
 
 // stream sends payload, retrying transient failures.
-func (m *chatModel) stream(ctx context.Context, payload chatRequest, emit func(Event)) (Response, error) {
-	return withRetries(ctx, m.retry, emit, func(emit func(Event)) (Response, error) {
+func (m *chatModel) stream(ctx context.Context, payload chatRequest, emit func(Event)) (generation, error) {
+	return withRetries(ctx, m.retry, emit, func(emit func(Event)) (generation, error) {
 		return m.streamOnce(ctx, payload, emit)
 	})
 }
 
-func (m *chatModel) streamOnce(ctx context.Context, payload chatRequest, emit func(Event)) (Response, error) {
+func (m *chatModel) streamOnce(ctx context.Context, payload chatRequest, emit func(Event)) (generation, error) {
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return Response{}, fmt.Errorf("encode chat request: %w", err)
+		return generation{}, fmt.Errorf("encode chat request: %w", err)
 	}
 	response, err := m.send(ctx, body, "text/event-stream")
 	if err != nil {
-		return Response{}, err
+		return generation{}, err
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return Response{}, responseError(response)
+		return generation{}, responseError(response)
 	}
 	result, err := decodeChatStream(response.Body, emit)
 	if err != nil {
@@ -443,7 +443,7 @@ func (m *chatModel) streamOnce(ctx context.Context, payload chatRequest, emit fu
 		return result, err
 	}
 	if err := finalizeToolCalls(&result); err != nil {
-		return Response{}, err
+		return generation{}, err
 	}
 	return result, nil
 }
@@ -451,10 +451,10 @@ func (m *chatModel) streamOnce(ctx context.Context, payload chatRequest, emit fu
 // Complete runs one capped generation, forwarding its deltas through emit
 // when set. tools, when non-empty, matches the streaming turn's tool roster so
 // the request can reuse the provider's cached prefix.
-func (m *chatModel) Complete(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, maxTokens tokens.Count, emit func(Event)) (Response, error) {
+func (m *chatModel) Complete(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, maxTokens tokens.Count, emit func(Event)) (generation, error) {
 	wireMessages, err := toChatMessages(messages, m.replay(), m.readImage)
 	if err != nil {
-		return Response{}, err
+		return generation{}, err
 	}
 	payload := m.request(wireMessages)
 	payload.MaxTokens = maxTokens
@@ -701,7 +701,7 @@ func (u *chatUsage) usage() *session.Usage {
 // decodeChatStream reads an SSE event stream, assembling assistant text,
 // reasoning, and tool calls from deltas. Events are buffered per the SSE spec:
 // consecutive data lines join with newlines until a blank line.
-func decodeChatStream(r io.Reader, emit func(Event)) (Response, error) {
+func decodeChatStream(r io.Reader, emit func(Event)) (generation, error) {
 	state := chatStreamState{callParts: make(map[int]int)}
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 64*1024), maxEventSize)
@@ -768,7 +768,7 @@ func decodeChatStream(r io.Reader, emit func(Event)) (Response, error) {
 }
 
 type chatStreamState struct {
-	Response
+	generation
 	callParts map[int]int
 	options   chatOptions
 	text      strings.Builder
@@ -776,8 +776,8 @@ type chatStreamState struct {
 
 // result is the assembled response with its reasoning metadata attached. Every
 // return path uses it, so a partial turn keeps the metadata that arrived too.
-func (state *chatStreamState) result() Response {
-	response := state.Response
+func (state *chatStreamState) result() generation {
+	response := state.generation
 	response.ProviderOptions = state.options.encode()
 	return response
 }
@@ -869,7 +869,7 @@ func applyChatToolCallDelta(state *chatStreamState, delta chatToolCall) {
 // compatible servers omit — get stable synthetic ones. A response the provider
 // ended short is left alone: its last call's arguments may be cut off, and the
 // client drops its calls unrun (assistantOrPartial).
-func finalizeToolCalls(response *Response) error {
+func finalizeToolCalls(response *generation) error {
 	if finishError(response.Finish) != nil {
 		return nil
 	}

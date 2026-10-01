@@ -21,7 +21,7 @@ import (
 	"kon.kitsu.red/core/typedid"
 )
 
-// responsesModel implements Model for OpenAI's Responses API. kon runs it
+// responsesModel implements backend for OpenAI's Responses API. kon runs it
 // stateless (store: false): the session file stays the only copy of the
 // conversation, so every request carries the whole history, with reasoning
 // replayed from the encrypted items the server returned.
@@ -260,13 +260,13 @@ func (m *responsesModel) request(messages []session.Message, tools []session.Too
 	return payload
 }
 
-func (m *responsesModel) Stream(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, emit func(Event)) (Response, error) {
+func (m *responsesModel) Stream(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, emit func(Event)) (generation, error) {
 	return m.run(ctx, messages, tools, 0, emit)
 }
 
 // Complete runs one capped generation, forwarding its deltas through emit when
 // set. tools, when set, keeps the streaming turn's cached prefix.
-func (m *responsesModel) Complete(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, maxTokens tokens.Count, emit func(Event)) (Response, error) {
+func (m *responsesModel) Complete(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, maxTokens tokens.Count, emit func(Event)) (generation, error) {
 	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, completeTimeout)
@@ -277,7 +277,7 @@ func (m *responsesModel) Complete(ctx context.Context, messages []session.Messag
 
 // run sends the request, adapting once to each fact a rejection teaches, and
 // keeps what it learned for later requests.
-func (m *responsesModel) run(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, maxTokens tokens.Count, emit func(Event)) (Response, error) {
+func (m *responsesModel) run(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, maxTokens tokens.Count, emit func(Event)) (generation, error) {
 	for attempt := 0; ; attempt++ {
 		response, err := m.stream(ctx, m.request(messages, tools, maxTokens), emit)
 		if err == nil || attempt >= 2 || !m.learn(err) {
@@ -315,21 +315,21 @@ func isSummaryRejected(err error) bool {
 }
 
 // stream sends payload, retrying transient failures.
-func (m *responsesModel) stream(ctx context.Context, payload responsesRequest, emit func(Event)) (Response, error) {
-	return withRetries(ctx, m.retry, emit, func(emit func(Event)) (Response, error) {
+func (m *responsesModel) stream(ctx context.Context, payload responsesRequest, emit func(Event)) (generation, error) {
+	return withRetries(ctx, m.retry, emit, func(emit func(Event)) (generation, error) {
 		return m.streamOnce(ctx, payload, emit)
 	})
 }
 
-func (m *responsesModel) streamOnce(ctx context.Context, payload responsesRequest, emit func(Event)) (Response, error) {
+func (m *responsesModel) streamOnce(ctx context.Context, payload responsesRequest, emit func(Event)) (generation, error) {
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return Response{}, fmt.Errorf("encode responses request: %w", err)
+		return generation{}, fmt.Errorf("encode responses request: %w", err)
 	}
 	url := strings.TrimRight(m.baseURL, "/") + "/responses"
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
-		return Response{}, fmt.Errorf("build responses request: %w", err)
+		return generation{}, fmt.Errorf("build responses request: %w", err)
 	}
 	if m.userAgent != "" {
 		request.Header.Set("User-Agent", m.userAgent)
@@ -344,18 +344,18 @@ func (m *responsesModel) streamOnce(ctx context.Context, payload responsesReques
 	}
 	response, err := m.client.Do(request)
 	if err != nil {
-		return Response{}, fmt.Errorf("responses request: %w", err)
+		return generation{}, fmt.Errorf("responses request: %w", err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return Response{}, responseError(response)
+		return generation{}, responseError(response)
 	}
 	result, err := decodeResponsesStream(response.Body, emit)
 	if err != nil {
 		return result, err
 	}
 	if err := finalizeToolCalls(&result); err != nil {
-		return Response{}, err
+		return generation{}, err
 	}
 	return result, nil
 }
@@ -426,7 +426,7 @@ type responsesItem struct {
 }
 
 type responsesStreamState struct {
-	Response
+	generation
 	// items maps an output index to its part; texts collects streamed text
 	// until the finished item replaces it.
 	items map[int]int
@@ -437,8 +437,8 @@ type responsesStreamState struct {
 	refused bool
 }
 
-func (state *responsesStreamState) result() Response {
-	response := state.Response
+func (state *responsesStreamState) result() generation {
+	response := state.generation
 	response.Parts = append([]session.Part(nil), state.Parts...)
 	for index, text := range state.texts {
 		response.Parts[state.items[index]].Text = text.String()
@@ -449,7 +449,7 @@ func (state *responsesStreamState) result() Response {
 // decodeResponsesStream assembles a response from the SSE stream. Each output
 // item opens a part when it is added, streams into it, and is replaced by the
 // finished item, which is what gets replayed.
-func decodeResponsesStream(r io.Reader, emit func(Event)) (Response, error) {
+func decodeResponsesStream(r io.Reader, emit func(Event)) (generation, error) {
 	state := &responsesStreamState{items: map[int]int{}, texts: map[int]*strings.Builder{}}
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 64*1024), maxEventSize)

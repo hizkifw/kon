@@ -1,13 +1,12 @@
-// Package provider owns model access. kon's durable conversation format
-// (core/session) is the single source of truth: a backend implements
-// Model to map it onto one wire protocol, and Client turns the neutral result
-// back into durable messages. The wire formats kon accepts, and what each
-// implies, are listed in the wire subpackage. OpenAI chat completions and its
-// dialects are implemented in chat.go, OpenAI Responses in responses.go, and
-// Anthropic's Messages API in messages.go.
+// Package provider connects to language models. A Client is built from a
+// Spec naming a wire format, an endpoint, and a model; it sends the durable
+// conversation (core/session) to the model, retries transient failures, and
+// turns the answer back into durable messages. The wire formats it speaks,
+// and what each implies, are listed in the wire subpackage: OpenAI chat
+// completions and its dialects, OpenAI Responses, and Anthropic's Messages API.
 //
-// Which service a connection reaches, and how /login sets one up, belongs to
-// internal/login; this package only learns how to talk to it, through Spec.
+// A Spec is resolved by the caller: this package never reads configuration
+// or decides which service a connection reaches, only how to talk to it.
 package provider
 
 import (
@@ -72,7 +71,7 @@ func (p Pricing) Cost(u session.Usage) float64 {
 // Client drives one configured model. It is the kon-facing half of the
 // abstraction: everything above this package only ever sees session messages.
 type Client struct {
-	model   Model
+	model   backend
 	modelID typedid.ModelID
 	pricing Pricing
 }
@@ -82,16 +81,16 @@ func New(spec Spec, readImage func(string) ([]byte, error)) (*Client, error) {
 	if strings.TrimSpace(spec.ModelID) == "" {
 		return nil, fmt.Errorf("model %q has no model ID", spec.Name)
 	}
-	model, err := newModel(spec, readImage)
+	model, err := newBackend(spec, readImage)
 	if err != nil {
 		return nil, err
 	}
 	return &Client{model: model, modelID: typedid.ExternalModelID(spec.ModelID), pricing: spec.Pricing}, nil
 }
 
-// newModel builds the backend for a spec's wire format, chosen by its
+// newBackend builds the backend for a spec's wire format, chosen by its
 // protocol.
-func newModel(spec Spec, readImage func(string) ([]byte, error)) (Model, error) {
+func newBackend(spec Spec, readImage func(string) ([]byte, error)) (backend, error) {
 	dialect, ok := wire.Lookup(spec.Format)
 	if !ok {
 		return nil, fmt.Errorf("unsupported wire format %q", spec.Format)
@@ -127,7 +126,7 @@ func (c *Client) Stream(ctx context.Context, messages []session.Message, tools [
 // request continues from it. A response the provider itself ended short
 // (FinishError) is kept the same way. When nothing arrived there is no partial
 // turn to keep and the original error is returned unchanged.
-func (c *Client) assistantOrPartial(response Response, err error) (session.Message, error) {
+func (c *Client) assistantOrPartial(response generation, err error) (session.Message, error) {
 	if response.Text() == "" && !hasReasoning(response.Parts) {
 		return session.Message{}, err
 	}
@@ -225,14 +224,14 @@ func IsOutputLimit(err error) bool {
 // Content and ToolCalls feed the wire mapping directly; Parts additionally
 // preserve the reasoning trace and the original ordering so future formats
 // and tooling can replay the turn exactly.
-func (c *Client) assistant(response Response) (session.Message, error) {
+func (c *Client) assistant(response generation) (session.Message, error) {
 	return c.buildAssistant(response, false)
 }
 
 // buildAssistant assembles the durable assistant message. When partial is true
 // an otherwise-empty response is allowed as long as it carries reasoning: an
 // interrupted turn can hold reasoning with no answer text yet.
-func (c *Client) buildAssistant(response Response, partial bool) (session.Message, error) {
+func (c *Client) buildAssistant(response generation, partial bool) (session.Message, error) {
 	if response.Text() == "" && len(response.ToolCalls()) == 0 && !(partial && hasReasoning(response.Parts)) {
 		return session.Message{}, errors.New("provider returned an empty assistant message")
 	}

@@ -21,7 +21,7 @@ import (
 	"kon.kitsu.red/core/typedid"
 )
 
-// messagesModel implements Model for Anthropic's Messages API. Like the chat
+// messagesModel implements backend for Anthropic's Messages API. Like the chat
 // backend it owns every byte on the wire; there is no SDK in between.
 type messagesModel struct {
 	client *http.Client
@@ -341,13 +341,13 @@ func (m *messagesModel) request(messages []session.Message, tools []session.Tool
 }
 
 // Stream runs one streamed generation.
-func (m *messagesModel) Stream(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, emit func(Event)) (Response, error) {
+func (m *messagesModel) Stream(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, emit func(Event)) (generation, error) {
 	return m.run(ctx, messages, tools, defaultMessagesMaxTokens, emit)
 }
 
 // Complete runs one capped generation, forwarding its deltas through emit when
 // set. tools, when set, keeps the cached prefix of the streaming turn.
-func (m *messagesModel) Complete(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, maxTokens tokens.Count, emit func(Event)) (Response, error) {
+func (m *messagesModel) Complete(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, maxTokens tokens.Count, emit func(Event)) (generation, error) {
 	if maxTokens <= 0 {
 		maxTokens = defaultMessagesMaxTokens
 	}
@@ -363,7 +363,7 @@ func (m *messagesModel) Complete(ctx context.Context, messages []session.Message
 // output limit below the budget, a model without adaptive thinking, and
 // thinking blocks the server no longer accepts. Each is kept for later
 // requests.
-func (m *messagesModel) run(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, maxTokens tokens.Count, emit func(Event)) (Response, error) {
+func (m *messagesModel) run(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, maxTokens tokens.Count, emit func(Event)) (generation, error) {
 	for attempt := 0; ; attempt++ {
 		payload := m.request(messages, tools, maxTokens)
 		response, err := m.stream(ctx, payload, emit)
@@ -449,21 +449,21 @@ func withBeta(betas, beta string) string {
 }
 
 // stream sends payload, retrying transient failures.
-func (m *messagesModel) stream(ctx context.Context, payload messagesRequest, emit func(Event)) (Response, error) {
-	return withRetries(ctx, m.retry, emit, func(emit func(Event)) (Response, error) {
+func (m *messagesModel) stream(ctx context.Context, payload messagesRequest, emit func(Event)) (generation, error) {
+	return withRetries(ctx, m.retry, emit, func(emit func(Event)) (generation, error) {
 		return m.streamOnce(ctx, payload, emit)
 	})
 }
 
-func (m *messagesModel) streamOnce(ctx context.Context, payload messagesRequest, emit func(Event)) (Response, error) {
+func (m *messagesModel) streamOnce(ctx context.Context, payload messagesRequest, emit func(Event)) (generation, error) {
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return Response{}, fmt.Errorf("encode messages request: %w", err)
+		return generation{}, fmt.Errorf("encode messages request: %w", err)
 	}
 	url := strings.TrimRight(m.baseURL, "/") + "/messages"
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
-		return Response{}, fmt.Errorf("build messages request: %w", err)
+		return generation{}, fmt.Errorf("build messages request: %w", err)
 	}
 	if m.userAgent != "" {
 		request.Header.Set("User-Agent", m.userAgent)
@@ -484,18 +484,18 @@ func (m *messagesModel) streamOnce(ctx context.Context, payload messagesRequest,
 	}
 	response, err := m.client.Do(request)
 	if err != nil {
-		return Response{}, fmt.Errorf("messages request: %w", err)
+		return generation{}, fmt.Errorf("messages request: %w", err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return Response{}, responseError(response)
+		return generation{}, responseError(response)
 	}
 	result, err := decodeMessagesStream(response.Body, emit)
 	if err != nil {
 		return result, err
 	}
 	if err := finalizeToolCalls(&result); err != nil {
-		return Response{}, err
+		return generation{}, err
 	}
 	return result, nil
 }
@@ -575,7 +575,7 @@ func (u messagesUsage) usage() *session.Usage {
 }
 
 type messagesStreamState struct {
-	Response
+	generation
 	// blocks maps a content block's index to its part, and texts collects
 	// that part's text: appending to a string per delta would copy the whole
 	// answer every time.
@@ -586,8 +586,8 @@ type messagesStreamState struct {
 }
 
 // result is the response assembled so far, whether or not the stream ended.
-func (state *messagesStreamState) result() Response {
-	response := state.Response
+func (state *messagesStreamState) result() generation {
+	response := state.generation
 	response.Parts = append([]session.Part(nil), state.Parts...)
 	for index, text := range state.texts {
 		response.Parts[state.blocks[index]].Text = text.String()
@@ -599,7 +599,7 @@ func (state *messagesStreamState) result() Response {
 // decodeMessagesStream assembles a response from the SSE stream, forwarding
 // text and thinking deltas through emit. A stream cut short returns what had
 // arrived with an error, so the partial turn survives.
-func decodeMessagesStream(r io.Reader, emit func(Event)) (Response, error) {
+func decodeMessagesStream(r io.Reader, emit func(Event)) (generation, error) {
 	state := &messagesStreamState{blocks: map[int]int{}, texts: map[int]*strings.Builder{}}
 	result := state.result
 	scanner := bufio.NewScanner(r)

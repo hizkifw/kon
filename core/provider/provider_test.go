@@ -21,7 +21,7 @@ import (
 // passes through as the backend assembled it.
 func TestAssistantAssemblesDurableMessage(t *testing.T) {
 	client := &Client{modelID: typedid.ExternalModelID("gpt-4o")}
-	response := Response{
+	response := generation{
 		Parts: []session.Part{
 			{Type: session.PartText, Text: "checking"},
 			{Type: session.PartReasoning, Text: "thought", ProviderOptions: json.RawMessage(`{"signature":"opaque-value"}`)},
@@ -70,7 +70,7 @@ func TestPricingBillsEachShareOfInputAtItsRate(t *testing.T) {
 
 func TestAssistantPricesItsUsage(t *testing.T) {
 	client := &Client{pricing: Pricing{Input: 2, Output: 8}}
-	message, err := client.assistant(Response{
+	message, err := client.assistant(generation{
 		Parts: []session.Part{{Type: session.PartText, Text: "done"}},
 		Usage: &session.Usage{PromptTokens: 1000, CompletionTokens: 500, TotalTokens: 1500},
 	})
@@ -84,13 +84,13 @@ func TestAssistantPricesItsUsage(t *testing.T) {
 
 func TestAssistantRejectsEmptyResponse(t *testing.T) {
 	client := &Client{}
-	if _, err := client.assistant(Response{}); err == nil {
+	if _, err := client.assistant(generation{}); err == nil {
 		t.Fatal("empty response was accepted")
 	}
 	// A completed turn with reasoning but no answer text is still empty from
 	// the wire's point of view and must be rejected; only an interrupted turn
 	// may persist reasoning alone.
-	if _, err := client.assistant(Response{Parts: []session.Part{{Type: session.PartReasoning, Text: "thinking"}}}); err == nil {
+	if _, err := client.assistant(generation{Parts: []session.Part{{Type: session.PartReasoning, Text: "thinking"}}}); err == nil {
 		t.Fatal("reasoning-only completed response was accepted")
 	}
 }
@@ -99,7 +99,7 @@ func TestAssistantOrPartialPersistsInterruptedTurn(t *testing.T) {
 	client := &Client{modelID: typedid.ExternalModelID("gpt")}
 	cause := errors.New("stream interrupted")
 	options := json.RawMessage(`{"reasoning_field":"reasoning_text"}`)
-	message, err := client.assistantOrPartial(Response{Parts: []session.Part{{Type: session.PartReasoning, Text: "hm"}, {Type: session.PartText, Text: "half"}}, Finish: "stop", Usage: &session.Usage{PromptTokens: 5}, ProviderOptions: options}, cause)
+	message, err := client.assistantOrPartial(generation{Parts: []session.Part{{Type: session.PartReasoning, Text: "hm"}, {Type: session.PartText, Text: "half"}}, Finish: "stop", Usage: &session.Usage{PromptTokens: 5}, ProviderOptions: options}, cause)
 	if !errors.Is(err, cause) {
 		t.Fatalf("interruption not surfaced: %v", err)
 	}
@@ -155,7 +155,7 @@ func TestStreamInterruptedTurnDropsToolCalls(t *testing.T) {
 func TestAssistantOrPartialKeepsReasoningOnlyTurn(t *testing.T) {
 	client := &Client{modelID: typedid.ExternalModelID("gpt")}
 	cause := errors.New("interrupted")
-	message, err := client.assistantOrPartial(Response{Parts: []session.Part{{Type: session.PartReasoning, Text: "still thinking"}}}, cause)
+	message, err := client.assistantOrPartial(generation{Parts: []session.Part{{Type: session.PartReasoning, Text: "still thinking"}}}, cause)
 	if !errors.Is(err, cause) {
 		t.Fatalf("interruption not surfaced: %v", err)
 	}
@@ -170,7 +170,7 @@ func TestAssistantOrPartialKeepsReasoningOnlyTurn(t *testing.T) {
 func TestAssistantOrPartialPassesThroughEmptyFailure(t *testing.T) {
 	client := &Client{}
 	cause := errors.New("connection refused")
-	message, err := client.assistantOrPartial(Response{}, cause)
+	message, err := client.assistantOrPartial(generation{}, cause)
 	if !errors.Is(err, cause) {
 		t.Fatalf("error not surfaced: %v", err)
 	}

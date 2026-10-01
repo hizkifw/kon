@@ -51,7 +51,7 @@ var errStreamClosed = errors.New("connection closed before the stream finished")
 // retry would repeat what the caller already showed. When the retries run
 // out the error says so, since the marker that showed them is gone by the
 // time the error is read; it still wraps the last failure for errors.As.
-func withRetries(ctx context.Context, policy retryPolicy, emit func(Event), attempt func(emit func(Event)) (Response, error)) (Response, error) {
+func withRetries(ctx context.Context, policy retryPolicy, emit func(Event), attempt func(emit func(Event)) (generation, error)) (generation, error) {
 	for retry := 1; ; retry++ {
 		emitted := false
 		response, err := attempt(func(event Event) {
