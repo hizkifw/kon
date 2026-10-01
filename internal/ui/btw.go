@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/hizkifw/kon/core/agent"
 	"github.com/hizkifw/kon/internal/app"
+	"github.com/hizkifw/kon/internal/tui"
 )
 
 // sideChat is a side answer streaming into its own drawer; the main
@@ -41,7 +42,7 @@ func (m Model) startSideChat(question string) (tea.Model, tea.Cmd) {
 		return runtime.SideChat(ctx, question, emit)
 	})
 	m.side = &sideChat{transcript: transcript{cwd: m.cwd}, run: r}
-	m.side.transcript.add(block{kind: blockUser, text: sanitize(question)})
+	m.side.transcript.add(block{kind: blockUser, text: tui.Sanitize(question)})
 	r.paint(&m.side.transcript, time.Now())
 	m.input.Reset()
 	m.resetMenu()
@@ -54,7 +55,7 @@ func (m Model) applySideEvent(event agent.Event) (tea.Model, tea.Cmd) {
 	m.side.run.track(t, event)
 	switch event.Kind {
 	case agent.EventText:
-		t.appendStream(sanitize(event.Text))
+		t.appendStream(tui.Sanitize(event.Text))
 		m.side.run.setVerb(t, "Answering")
 	case agent.EventThinking:
 		m.side.run.setVerb(t, "Thinking")
@@ -74,7 +75,7 @@ func (m Model) finishSideChat(err error) (tea.Model, tea.Cmd) {
 		t.add(block{kind: blockError, text: sideToolsNotice})
 	}
 	if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, app.ErrSideChatTools) {
-		t.add(block{kind: blockError, text: sanitize(err.Error())})
+		t.add(block{kind: blockError, text: tui.Sanitize(err.Error())})
 	} else {
 		t.add(block{kind: blockElapsed, text: markFilled + " Answered in " + formatDuration(elapsed)})
 	}

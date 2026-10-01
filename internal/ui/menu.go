@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/hizkifw/kon/internal/tui"
 )
 
 // maxMenuRows caps how many popup rows are shown at once.
@@ -83,7 +84,7 @@ func (m menu) height() int {
 func (m menu) render(width int) string {
 	if !m.open() {
 		if m.note != "" {
-			return lipgloss.NewStyle().Foreground(colorFaint).Render(fitLine(" "+m.note, width))
+			return lipgloss.NewStyle().Foreground(colorFaint).Render(tui.Fit(" "+m.note, width))
 		}
 		return ""
 	}
@@ -115,12 +116,12 @@ func (m menu) render(width int) string {
 			line += "  " + description.Render(item.Description)
 		}
 		if i == m.index {
-			line = selected.Render(fitLine(line, width))
+			line = selected.Render(tui.Fit(line, width))
 		}
-		lines = append(lines, fitLine(line, width))
+		lines = append(lines, tui.Fit(line, width))
 	}
 	if footer {
-		lines = append(lines, description.Render(fitLine(" "+m.note, width)))
+		lines = append(lines, description.Render(tui.Fit(" "+m.note, width)))
 	}
 	return strings.Join(lines, "\n")
 }

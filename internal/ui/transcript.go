@@ -10,6 +10,7 @@ import (
 	"github.com/hizkifw/kon/core/session"
 	"github.com/hizkifw/kon/internal/codetools"
 	"github.com/hizkifw/kon/internal/markdown"
+	"github.com/hizkifw/kon/internal/tui"
 )
 
 type blockKind uint8
@@ -144,10 +145,10 @@ type transcript struct {
 	// It is nil when no stream is open; activeThinking selects the renderer.
 	// strip removes escapes/control bytes from incoming deltas; the stateful
 	// machine survives across deltas so a sequence split between them is
-	// dropped whole (see ansiStripper).
+	// dropped whole (see tui.Stripper).
 	active         liveRenderer
 	activeThinking bool
-	strip          ansiStripper
+	strip          tui.Stripper
 	// compacting marks t.stream as a compaction summary rather than a reply:
 	// it streams in the tool slab's colors and ends as a blockCompaction.
 	compacting bool
@@ -266,7 +267,7 @@ func (t *transcript) appendCompaction(text string) {
 	if !t.compacting {
 		t.beginCompaction()
 	}
-	clean := t.strip.strip(text)
+	clean := t.strip.Strip(text)
 	t.stream = append(t.stream, clean...)
 	t.ensureMessage().append(clean)
 }
@@ -290,15 +291,15 @@ func (t *transcript) appendThinking(text string) {
 	}
 	// Stripped bytes feed both the live stream and the buffered text, so the
 	// block this stream later becomes wraps identically on the stable path
-	// (plainWrapper cannot parse escape sequences; see ansiStripper).
-	clean := t.strip.strip(text)
+	// (plainWrapper cannot parse escape sequences; see tui.Stripper).
+	clean := t.strip.Strip(text)
 	t.ensureThinking().append(clean)
 	t.thinking += clean
 }
 
 // appendStream buffers an assistant text delta, finalizing any pending
 // thinking block first. Deltas are stripped of ANSI escapes and control bytes
-// (see ansiStripper) so the streaming wrapper only ever sees plain text; the
+// (see tui.Stripper) so the streaming wrapper only ever sees plain text; the
 // buffered t.stream keeps the same stripped bytes, so the block the stream is
 // later rendered from wraps identically and nothing shifts on finalize.
 // The buffer is reused across deltas: `+=` would re-copy the whole accumulated
@@ -309,7 +310,7 @@ func (t *transcript) appendStream(text string) {
 		t.add(block{kind: blockThinking, text: t.thinking})
 		t.thinking = ""
 	}
-	clean := t.strip.strip(text)
+	clean := t.strip.Strip(text)
 	t.stream = append(t.stream, clean...)
 	t.ensureMessage().append(clean)
 }
@@ -345,7 +346,7 @@ func (t *transcript) reset() {
 	t.selection = nil
 	t.active = nil
 	t.activeThinking = false
-	t.strip = ansiStripper{}
+	t.strip = tui.Stripper{}
 	t.liveTimer = ""
 	t.lines = nil
 	t.cacheBase = ""
@@ -701,7 +702,7 @@ func (t *transcript) toolBodyLines(start, done *block, width int) []string {
 	}
 	var out []string
 	for _, line := range display.Lines {
-		out = append(out, slabLine(colorToolBg, width, part{text: "  " + expandTabs(line), fg: fg}))
+		out = append(out, slabLine(colorToolBg, width, part{text: "  " + tui.ExpandTabs(line), fg: fg}))
 	}
 	if display.More > 0 {
 		more := fmt.Sprintf("  … %d more lines", display.More)
@@ -732,7 +733,7 @@ func (t *transcript) toolBodyLines(start, done *block, width int) []string {
 // live and later folded into a stable block does not shift.
 func messageSlab(body string, bg, fg color.Color, width int) []string {
 	p := linePainter{width: width, bg: bg, fg: fg, padLeft: 1}
-	return paintBody(p, wrapPlain(expandTabs(body), max(1, width-2)))
+	return paintBody(p, tui.WrapPlain(tui.ExpandTabs(body), max(1, width-2)))
 }
 
 // thinkingLines renders a reasoning trace in a muted gray, visually quieter
@@ -740,7 +741,7 @@ func messageSlab(body string, bg, fg color.Color, width int) []string {
 // reasoning aligns with the text it belongs to; it just carries no background.
 func thinkingLines(body string, width int) []string {
 	p := linePainter{width: width, fg: colorFaint, italic: true, padLeft: 1}
-	return paintBody(p, wrapPlain(body, max(1, width-2)))
+	return paintBody(p, tui.WrapPlain(body, max(1, width-2)))
 }
 
 // paintBody renders a painter's wrapped body lines.
@@ -775,7 +776,7 @@ func dimLines(text string, width int) []string {
 func outputLines(text string, width int) []string {
 	var out []string
 	for _, line := range strings.Split(text, "\n") {
-		for _, part := range wrapPlain(line, max(1, width-1)) {
+		for _, part := range tui.WrapPlain(line, max(1, width-1)) {
 			out = append(out, " "+part)
 		}
 	}
@@ -786,7 +787,7 @@ func outputLines(text string, width int) []string {
 // a muted gray, inset one cell like message slabs so it aligns with the text
 // above it. A wrapped continuation keeps the inset too.
 func markerLines(text string, width int) []string {
-	body := wrapPlain(text, max(1, width-1))
+	body := tui.WrapPlain(text, max(1, width-1))
 	out := make([]string, 0, len(body))
 	for _, line := range body {
 		out = append(out, " "+lipgloss.NewStyle().Foreground(colorFaint).Render(line))

@@ -10,6 +10,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/hizkifw/kon/internal/codetools"
+	"github.com/hizkifw/kon/internal/tui"
 )
 
 // copyUsage is /copy's usage line, shown when its argument is not one it
@@ -82,7 +83,7 @@ func (t *transcript) conversation() string {
 		case blockAssistant:
 			parts, inRun = append(parts, b.text), false
 		case blockError:
-			parts, inRun = append(parts, "error: "+sanitize(b.text)), false
+			parts, inRun = append(parts, "error: "+tui.Sanitize(b.text)), false
 		case blockResult:
 			if inRun {
 				parts[len(parts)-1] += "\n" + toolLine(b)

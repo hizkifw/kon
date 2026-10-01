@@ -6,13 +6,14 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/hizkifw/kon/internal/codetools"
+	"github.com/hizkifw/kon/internal/tui"
 )
 
 // plain renders a transcript with ANSI escapes and trailing slab padding
 // stripped, so assertions see layout regardless of the color profile detected
 // during tests.
 func plain(s string) string {
-	lines := strings.Split(sanitize(s), "\n")
+	lines := strings.Split(tui.Sanitize(s), "\n")
 	for i, line := range lines {
 		lines[i] = strings.TrimRight(line, " ")
 	}
@@ -453,30 +454,10 @@ func TestStreamWidthChangeRebuilds(t *testing.T) {
 	}
 }
 
-// TestStripANSI pins the transcript-boundary stripping: escapes and control
-// bytes are removed, newlines and tabs survive, plain text passes through
-// untouched, and a sequence split across deltas is dropped whole because the
-// machine's state carries over.
-func TestStripANSI(t *testing.T) {
-	cases := []struct{ in, want string }{
-		{"plain", "plain"},
-		{"\x1b[31mred\x1b[0m", "red"},
-		{"a\x1b[0mb", "ab"},
-		{"\x1b]8;;http://x\x1b\\link\x1b[m", "link"},
-		{"bell\x07end", "bellend"},
-		{"keep\nnewlines\r\nand\ttabs", "keep\nnewlines\r\nand\ttabs"},
-		{"\x1b", ""},                           // bare escape ends the delta
-		{"\x1b[", ""},                          // unterminated CSI ends the delta
-		{"\x1b]8;;unterminated", ""},           // unterminated OSC ends the delta
-		{"\x1bMtwo-byte", "two-byte"},          // ESC M consumes only itself
-		{"\x1b(Bintermediate", "intermediate"}, // ESC ( B is a three-byte escape
-	}
-	for _, tc := range cases {
-		var s ansiStripper
-		if got := s.strip(tc.in); got != tc.want {
-			t.Errorf("stripANSI(%q) = %q, want %q", tc.in, got, tc.want)
-		}
-	}
+// TestStreamStripsEscapesAcrossDeltas pins the transcript-boundary stripping:
+// a sequence split across deltas is dropped whole because the stripper's
+// state carries over.
+func TestStreamStripsEscapesAcrossDeltas(t *testing.T) {
 	// The equivalence guard must see the same bytes whether an escape arrives
 	// whole or split across deltas; splitting at every offset is the strong
 	// form of that check.

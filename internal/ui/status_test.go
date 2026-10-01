@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/hizkifw/kon/internal/tui"
 )
 
 // done delivers the end of the notice with the given epoch.
@@ -139,7 +140,7 @@ func TestToneColorsOnlyTheMessage(t *testing.T) {
 	if !strings.Contains(ansi.Strip(row), "…") {
 		t.Fatalf("status row was not cut short: %q", ansi.Strip(row))
 	}
-	fitted := fitLine("~/w · ctx ? · interrupted · press Esc", 20)
+	fitted := tui.Fit("~/w · ctx ? · interrupted · press Esc", 20)
 	at := len("~/w · ctx ? · ")
 	if got := toneLine(fitted, at, toneDanger); ansi.Strip(got) != fitted || got == fitted {
 		t.Fatalf("toned line %q", got)

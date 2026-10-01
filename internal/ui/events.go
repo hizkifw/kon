@@ -8,6 +8,7 @@ import (
 	"github.com/hizkifw/kon/core/tokens"
 	"github.com/hizkifw/kon/core/typedid"
 	"github.com/hizkifw/kon/internal/codetools"
+	"github.com/hizkifw/kon/internal/tui"
 )
 
 // maxResultChars bounds tool result text kept in the transcript. Display
@@ -20,16 +21,16 @@ func (m *Model) applyAgentEvent(event agent.Event) bool {
 	switch event.Kind {
 	case agent.EventText:
 		m.streamed, m.streamedContext = m.streamed+1, m.streamedContext+1
-		m.transcript.appendStream(sanitize(event.Text))
+		m.transcript.appendStream(tui.Sanitize(event.Text))
 		return true
 	case agent.EventThinking:
 		m.streamed, m.streamedContext = m.streamed+1, m.streamedContext+1
-		m.transcript.appendThinking(sanitize(event.Text))
+		m.transcript.appendThinking(tui.Sanitize(event.Text))
 		return true
 	case agent.EventAssistantDone:
 		m.transcript.finishStream()
 	case agent.EventToolStart:
-		m.transcript.add(m.toolBlock(event.Tool, sanitize(event.Arguments)))
+		m.transcript.add(m.toolBlock(event.Tool, tui.Sanitize(event.Arguments)))
 	case agent.EventToolOutput:
 		// The running tool's own display snapshot. Events arrive one at a time
 		// from the run channel, so the snapshot simply replaces the previous
@@ -47,10 +48,10 @@ func (m *Model) applyAgentEvent(event agent.Event) bool {
 		m.setTurnVerb("Compacting")
 	case agent.EventCompactionText:
 		m.streamed++
-		m.transcript.appendCompaction(sanitize(event.Text))
+		m.transcript.appendCompaction(tui.Sanitize(event.Text))
 		return true
 	case agent.EventCompacted:
-		m.transcript.finishCompaction(sanitize(event.Text), compactedLabel(event.Tokens, event.Estimated))
+		m.transcript.finishCompaction(tui.Sanitize(event.Text), compactedLabel(event.Tokens, event.Estimated))
 		if m.turn != nil && !m.turn.compaction {
 			m.setTurnVerb("Working")
 		}
@@ -60,7 +61,7 @@ func (m *Model) applyAgentEvent(event agent.Event) bool {
 		m.spent += event.Cost
 		m.streamed, m.streamedContext = 0, 0
 	case agent.EventSteered:
-		m.transcript.add(block{kind: blockUser, text: sanitize(event.Text)})
+		m.transcript.add(block{kind: blockUser, text: tui.Sanitize(event.Text)})
 		m.syncSteering()
 	}
 	return false
@@ -87,8 +88,8 @@ func (m *Model) toolBlock(name string, args string) block {
 // UI from pathological results; the model and the session history keep the
 // full text.
 func (m *Model) toolResultBlock(event agent.Event) block {
-	text := sanitize(event.Text)
-	display := codetools.Describe(event.Tool, []byte(sanitize(event.Arguments)), text, event.IsError, event.Details, m.cwd)
+	text := tui.Sanitize(event.Text)
+	display := codetools.Describe(event.Tool, []byte(tui.Sanitize(event.Arguments)), text, event.IsError, event.Details, m.cwd)
 	if len(text) > maxResultChars {
 		for i, line := range display.Lines {
 			if len(line) > maxResultChars {
@@ -100,7 +101,7 @@ func (m *Model) toolResultBlock(event agent.Event) block {
 	return block{
 		kind:    blockResult,
 		name:    event.Tool,
-		args:    sanitize(event.Arguments),
+		args:    tui.Sanitize(event.Arguments),
 		display: display,
 	}
 }
@@ -188,7 +189,7 @@ func (m *Model) replay(t *transcript, r *replayState, entries []session.Entry) {
 			// A compaction entry has no message; it is shown as the same
 			// block the live run left, summary and all, so a resumed
 			// transcript shows where the context was folded and into what.
-			t.add(block{kind: blockCompaction, text: sanitize(entry.Summary), marker: compactedLabel(entry.TokensBefore, entry.TokensBeforeEstimated)})
+			t.add(block{kind: blockCompaction, text: tui.Sanitize(entry.Summary), marker: compactedLabel(entry.TokensBefore, entry.TokensBeforeEstimated)})
 			continue
 		}
 		if entry.Message == nil {
@@ -196,21 +197,21 @@ func (m *Model) replay(t *transcript, r *replayState, entries []session.Entry) {
 		}
 		switch entry.Message.Role {
 		case session.RoleUser:
-			t.add(block{kind: blockUser, text: sanitize(entry.Message.Text())})
+			t.add(block{kind: blockUser, text: tui.Sanitize(entry.Message.Text())})
 		case session.RoleAssistant:
 			for _, part := range entry.Message.Parts {
 				switch part.Type {
 				case session.PartReasoning:
 					if part.Text != "" {
-						t.add(block{kind: blockThinking, text: sanitize(part.Text)})
+						t.add(block{kind: blockThinking, text: tui.Sanitize(part.Text)})
 					}
 				case session.PartText:
 					if part.Text != "" {
-						t.add(block{kind: blockAssistant, text: sanitize(part.Text)})
+						t.add(block{kind: blockAssistant, text: tui.Sanitize(part.Text)})
 					}
 				case session.PartToolCall:
 					r.callArgs[part.ToolCallID] = part.ToolInput
-					t.add(m.toolBlock(part.ToolName, sanitize(string(part.ToolInput))))
+					t.add(m.toolBlock(part.ToolName, tui.Sanitize(string(part.ToolInput))))
 				}
 			}
 		case session.RoleTool:
@@ -218,7 +219,7 @@ func (m *Model) replay(t *transcript, r *replayState, entries []session.Entry) {
 			// persisted content and the call's arguments, so a resumed
 			// transcript renders exactly like the live one did.
 			id, name := entry.Message.ToolResult()
-			display := m.runtime.DescribeTool(name, r.callArgs[id], sanitize(entry.Message.Text()), entry.Message.IsError, entry.Message.Details)
+			display := m.runtime.DescribeTool(name, r.callArgs[id], tui.Sanitize(entry.Message.Text()), entry.Message.IsError, entry.Message.Details)
 			t.add(block{kind: blockResult, name: name, display: display})
 		}
 	}

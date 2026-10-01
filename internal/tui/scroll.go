@@ -1,4 +1,4 @@
-package ui
+package tui
 
 import (
 	"strings"
@@ -6,32 +6,42 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-// scrollView is a minimal vertical scroll container for the transcript. The
-// transcript renders every line pre-wrapped to the viewport width, so the
-// container needs no soft wrap and no per-line width measurement: it slices the
-// visible line range and pads to height. It replaces the bubbles viewport, whose
-// SetContentLines rescanned and measured every line with grapheme-cluster
-// segmentation on each frame, dominating the render cost.
-type scrollView struct {
+// Scroll is a minimal vertical scroll container for lines already wrapped to
+// its width, so it needs no soft wrap and no per-line width measurement: it
+// slices the visible line range and pads to height. It replaces the bubbles
+// viewport, whose SetContentLines rescanned and measured every line with
+// grapheme-cluster segmentation on each frame, dominating the render cost.
+type Scroll struct {
 	width, height int
 	lines         []string
 	yOffset       int
-	mouseDelta    int
 }
 
-func newScrollView() scrollView {
-	return scrollView{mouseDelta: 3}
-}
+// WheelStep is how many lines one mouse wheel notch scrolls.
+const WheelStep = 3
 
-func (s *scrollView) SetWidth(w int) { s.width = w }
-func (s scrollView) Width() int      { return s.width }
-func (s scrollView) Height() int     { return s.height }
-func (s scrollView) YOffset() int    { return s.yOffset }
+// NewScroll returns an empty scroll container.
+func NewScroll() Scroll { return Scroll{} }
+
+// SetWidth sets the width lines are rendered at.
+func (s *Scroll) SetWidth(w int) { s.width = w }
+
+// Width is the width lines are rendered at.
+func (s Scroll) Width() int { return s.width }
+
+// Height is how many lines the window shows.
+func (s Scroll) Height() int { return s.height }
+
+// YOffset is the index of the first line in the window.
+func (s Scroll) YOffset() int { return s.yOffset }
+
+// LineCount is how many content lines the container holds.
+func (s Scroll) LineCount() int { return len(s.lines) }
 
 // SetHeight keeps the bottom edge in place rather than the top: the lines below
 // the window stay below it. A reader at the bottom stays there when the window
 // or the prompt grows, instead of losing the last lines under the input.
-func (s *scrollView) SetHeight(h int) {
+func (s *Scroll) SetHeight(h int) {
 	below := s.LinesBelow()
 	s.height = h
 	s.SetLinesBelow(below)
@@ -39,18 +49,18 @@ func (s *scrollView) SetHeight(h int) {
 
 // LinesBelow is the number of scrollable lines past the bottom edge of the
 // window; zero means the view is at the bottom.
-func (s scrollView) LinesBelow() int {
+func (s Scroll) LinesBelow() int {
 	return max(0, s.extent()-s.yOffset-s.height)
 }
 
 // SetLinesBelow scrolls so that n scrollable lines remain past the bottom edge.
-func (s *scrollView) SetLinesBelow(n int) {
+func (s *Scroll) SetLinesBelow(n int) {
 	s.SetYOffset(s.extent() - s.height - n)
 }
 
 // SetContentLines installs the display lines. The slice aliases the caller's
-// cache and must not be mutated by the viewport; it is only read.
-func (s *scrollView) SetContentLines(lines []string) {
+// cache and is only read.
+func (s *Scroll) SetContentLines(lines []string) {
 	s.lines = lines
 	if s.yOffset > s.maxYOffset() {
 		s.yOffset = s.maxYOffset()
@@ -65,59 +75,63 @@ const bottomPad = 1
 
 // extent is the number of scrollable lines: the content plus the trailing
 // padding.
-func (s scrollView) extent() int { return len(s.lines) + bottomPad }
+func (s Scroll) extent() int { return len(s.lines) + bottomPad }
 
-func (s scrollView) maxYOffset() int {
+func (s Scroll) maxYOffset() int {
 	return max(0, s.extent()-s.height)
 }
 
 // AtBottom reports whether the view is scrolled to its bottom-most position:
 // the last content line plus the padding line below it are visible.
-func (s scrollView) AtBottom() bool { return s.yOffset >= s.maxYOffset() }
+func (s Scroll) AtBottom() bool { return s.yOffset >= s.maxYOffset() }
 
-func (s *scrollView) SetYOffset(n int) {
+// SetYOffset scrolls so line n is first in the window, within bounds.
+func (s *Scroll) SetYOffset(n int) {
 	s.yOffset = min(max(0, n), s.maxYOffset())
 }
 
-func (s *scrollView) GotoBottom() { s.yOffset = s.maxYOffset() }
+// GotoBottom scrolls to the bottom-most position.
+func (s *Scroll) GotoBottom() { s.yOffset = s.maxYOffset() }
 
-func (s *scrollView) PageUp() {
+// PageUp scrolls up one window.
+func (s *Scroll) PageUp() {
 	if s.yOffset <= 0 {
 		return
 	}
 	s.SetYOffset(s.yOffset - s.height)
 }
 
-func (s *scrollView) PageDown() {
+// PageDown scrolls down one window.
+func (s *Scroll) PageDown() {
 	if s.AtBottom() {
 		return
 	}
 	s.SetYOffset(s.yOffset + s.height)
 }
 
-// Update scrolls on mouse wheel events. Keyboard scrolling is handled by the
-// model so the prompt keeps focus on plain keys.
-func (s *scrollView) Update(msg tea.Msg) {
+// Update scrolls on mouse wheel events. Keyboard scrolling is the caller's,
+// so a prompt can keep plain keys.
+func (s *Scroll) Update(msg tea.Msg) {
 	wheel, ok := msg.(tea.MouseWheelMsg)
 	if !ok {
 		return
 	}
 	switch wheel.Button {
 	case tea.MouseWheelDown:
-		s.SetYOffset(s.yOffset + s.mouseDelta)
+		s.SetYOffset(s.yOffset + WheelStep)
 	case tea.MouseWheelUp:
-		s.SetYOffset(s.yOffset - s.mouseDelta)
+		s.SetYOffset(s.yOffset - WheelStep)
 	}
 }
 
 // View renders exactly height lines starting at the current offset. The window
 // reads past the content into the trailing padding, padded further with blank
 // lines so the surrounding frame does not reflow.
-func (s scrollView) View() string { return s.ViewWith(nil) }
+func (s Scroll) View() string { return s.ViewWith(nil) }
 
 // ViewWith renders like View, passing each content line in the window through
 // decorate, with its index in the content, when decorate is set.
-func (s scrollView) ViewWith(decorate func(i int, line string) string) string {
+func (s Scroll) ViewWith(decorate func(i int, line string) string) string {
 	if s.width <= 0 || s.height <= 0 {
 		return ""
 	}

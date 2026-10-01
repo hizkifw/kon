@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/hizkifw/kon/internal/tui"
 )
 
 // A drawer is a surface painted over the whole screen, showing a transcript
@@ -28,7 +29,7 @@ type drawer struct {
 	// armed is the key of an action pressed once that asks for a second
 	// press; any other key disarms it.
 	armed string
-	view  scrollView
+	view  tui.Scroll
 	// onClose releases what the drawer's owner holds, such as a request still
 	// streaming into it. It runs after the drawer is off the stack.
 	onClose func(m *Model)
@@ -54,19 +55,13 @@ const drawerShareNum, drawerShareDen = 9, 10
 // colorDim paints everything under the top drawer.
 var colorDim = lipgloss.Color("#4A4A4A")
 
-type rect struct{ x, y, w, h int }
-
-func (r rect) contains(x, y int) bool {
-	return x >= r.x && x < r.x+r.w && y >= r.y && y < r.y+r.h
-}
-
 // drawerRect is the screen area of the drawer at level in the stack, counted
 // from the bottom.
-func drawerRect(width, height, level int) rect {
-	r := rect{0, 0, width, height}
+func drawerRect(width, height, level int) tui.Rect {
+	r := tui.Rect{W: width, H: height}
 	for range level + 1 {
-		w := max(2, r.w*drawerShareNum/drawerShareDen)
-		r.x, r.w = r.x+r.w-w, w
+		w := max(2, r.W*drawerShareNum/drawerShareDen)
+		r.X, r.W = r.X+r.W-w, w
 	}
 	return r
 }
@@ -74,8 +69,8 @@ func drawerRect(width, height, level int) rect {
 // drawerBody is the part of a drawer's area its content scrolls in: between
 // the title row and the hint row, and right of the rule that edges the
 // drawer.
-func drawerBody(r rect) rect {
-	return rect{r.x + 1, r.y + 1, max(1, r.w-1), max(1, r.h-2)}
+func drawerBody(r tui.Rect) tui.Rect {
+	return tui.Rect{X: r.X + 1, Y: r.Y + 1, W: max(1, r.W-1), H: max(1, r.H-2)}
 }
 
 // topDrawer is the drawer that takes input, or nil when none is open.
@@ -88,7 +83,7 @@ func (m *Model) topDrawer() *drawer {
 
 // openDrawer pushes d onto the stack.
 func (m *Model) openDrawer(d *drawer) {
-	d.view = newScrollView()
+	d.view = tui.NewScroll()
 	m.drawers = append(m.drawers, d)
 	m.click = click{}
 	m.layoutDrawers()
@@ -126,9 +121,9 @@ func (m *Model) closeDrawers() {
 func (m *Model) layoutDrawers() {
 	for i, d := range m.drawers {
 		body := drawerBody(drawerRect(m.width, m.height, i))
-		d.view.SetWidth(body.w)
-		d.view.SetHeight(body.h)
-		d.view.SetContentLines(d.lines(body.w))
+		d.view.SetWidth(body.W)
+		d.view.SetHeight(body.H)
+		d.view.SetContentLines(d.lines(body.W))
 	}
 }
 
@@ -272,7 +267,7 @@ func (d *drawer) lines(width int) []string {
 // every part, so a part's colors cannot punch a hole in the highlight.
 func listRow(item menuItem, selected bool, width int) string {
 	if item.Heading {
-		return lipgloss.NewStyle().Foreground(colorFaint).Bold(true).Render(fitLine(" "+item.Label, width))
+		return lipgloss.NewStyle().Foreground(colorFaint).Bold(true).Render(tui.Fit(" "+item.Label, width))
 	}
 	base := lipgloss.NewStyle()
 	if selected {
@@ -284,7 +279,7 @@ func listRow(item menuItem, selected bool, width int) string {
 		if text == "" || used >= width {
 			return
 		}
-		text = fitLine(text, width-used)
+		text = tui.Fit(text, width-used)
 		used += ansi.StringWidth(text)
 		style := base
 		if fg != nil {
@@ -352,18 +347,18 @@ func (m Model) clickDrawer(x, y int) (tea.Model, tea.Cmd, bool) {
 	d := m.topDrawer()
 	body := drawerBody(drawerRect(m.width, m.height, len(m.drawers)-1))
 	switch {
-	case y == body.y+body.h:
+	case y == body.Y+body.H:
 		for _, h := range m.hints(d) {
-			if x >= body.x+h.x && x < body.x+h.x+h.w {
+			if x >= body.X+h.x && x < body.X+h.x+h.w {
 				updated, cmd := m.drawerKey(h.key)
 				return updated, cmd, true
 			}
 		}
 		return m, nil, true
-	case d.list != nil && body.contains(x, y):
+	case d.list != nil && body.Contains(x, y):
 		// A click highlights a row, and a click on the highlighted row
 		// opens it, as Enter would.
-		row := d.view.YOffset() + y - body.y
+		row := d.view.YOffset() + y - body.Y
 		if row >= len(d.list.items) || d.list.items[row].Heading {
 			return m, nil, true
 		}
@@ -393,7 +388,7 @@ func (m Model) paintDrawers(screen []string) []string {
 		}
 		r := drawerRect(m.width, m.height, i)
 		for row, line := range m.renderDrawer(d, r) {
-			screen[r.y+row] = spliceLine(screen[r.y+row], line, r.x, r.w, m.width)
+			screen[r.Y+row] = tui.Splice(screen[r.Y+row], line, r.X, r.W, m.width)
 		}
 	}
 	return screen
@@ -405,20 +400,20 @@ var (
 	dimStyle         = lipgloss.NewStyle().Foreground(colorDim)
 )
 
-// render draws the drawer at r as exactly r.h lines of r.w cells: a rule down
+// render draws the drawer at r as exactly r.H lines of r.W cells: a rule down
 // its left edge beside a title row, the content, and the hint row.
-func (m *Model) renderDrawer(d *drawer, r rect) []string {
+func (m *Model) renderDrawer(d *drawer, r tui.Rect) []string {
 	body := drawerBody(r)
-	lines := make([]string, 0, r.h)
-	lines = append(lines, drawerTitleStyle.Width(body.w).Render(fitLine(" "+d.title, body.w)))
+	lines := make([]string, 0, r.H)
+	lines = append(lines, drawerTitleStyle.Width(body.W).Render(tui.Fit(" "+d.title, body.W)))
 	view := d.view.View()
 	if t := d.transcript; d.list == nil && t.selection != nil {
-		view = d.view.ViewWith(func(i int, line string) string { return t.highlight(i, line, body.w) })
+		view = d.view.ViewWith(func(i int, line string) string { return t.highlight(i, line, body.W) })
 	}
 	for _, line := range strings.Split(view, "\n") {
-		lines = append(lines, padLine(line, body.w))
+		lines = append(lines, tui.Pad(line, body.W))
 	}
-	lines = append(lines, padLine(m.hintRow(d), body.w))
+	lines = append(lines, tui.Pad(m.hintRow(d), body.W))
 	rule := drawerRuleStyle.Render("│")
 	for i := range lines {
 		lines[i] = rule + lines[i]
@@ -438,22 +433,6 @@ func (m *Model) hintRow(d *drawer) string {
 		parts = append(parts, h.text)
 	}
 	return " " + style.Render(strings.Join(parts, " · "))
-}
-
-// padLine fills line out to width cells, so nothing under the drawer shows
-// through a short line.
-func padLine(line string, width int) string {
-	if gap := width - ansi.StringWidth(line); gap > 0 {
-		return line + strings.Repeat(" ", gap)
-	}
-	return ansi.Truncate(line, width, "")
-}
-
-// spliceLine replaces the w cells of line from column x with over. Resets on
-// both sides keep the under line's styles from bleeding into over or past it.
-func spliceLine(line, over string, x, w, width int) string {
-	left := padLine(ansi.Truncate(line, x, ""), x)
-	return left + "\x1b[m" + over + "\x1b[m" + ansi.Cut(line, x+w, width)
 }
 
 // dimScreen repaints every line flat in the dim color, dropping its own

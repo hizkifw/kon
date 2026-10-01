@@ -6,6 +6,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/hizkifw/kon/internal/tui"
 )
 
 // liveStream renders the not-yet-finalized portion of the transcript (an active
@@ -16,7 +17,7 @@ import (
 // every frame, which grew O(n) per frame and O(n^2) over one long stream.
 type liveStream struct {
 	painter linePainter
-	wrap    *plainWrapper
+	wrap    *tui.Wrapper
 
 	// normalizer state. It emits exactly what normalizeText would produce for
 	// the concatenation of all deltas, without reprocessing them: trailing
@@ -75,7 +76,7 @@ func newThinkingStream(width int) *liveStream {
 func newLiveStream(painter linePainter) *liveStream {
 	return &liveStream{
 		painter: painter,
-		wrap:    newPlainWrapper(max(1, painter.width-2*painter.padLeft)),
+		wrap:    tui.NewWrapper(max(1, painter.width-2*painter.padLeft)),
 	}
 }
 

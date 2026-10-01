@@ -238,11 +238,11 @@ func TestClickingARowHighlightsThenOpensIt(t *testing.T) {
 	m = updated.(Model)
 	body := drawerBody(drawerRect(m.width, m.height, 0))
 	// Rows are: running, job 2, finished, job 1. A heading takes no click.
-	m, _ = update(m, tea.MouseClickMsg{X: body.x + 2, Y: body.y + 2, Button: tea.MouseLeft})
+	m, _ = update(m, tea.MouseClickMsg{X: body.X + 2, Y: body.Y + 2, Button: tea.MouseLeft})
 	if m.jobsView.list.list.index != 1 || len(m.drawers) != 1 {
 		t.Fatalf("clicking a heading: index = %d, drawers = %d", m.jobsView.list.list.index, len(m.drawers))
 	}
-	click := tea.MouseClickMsg{X: body.x + 2, Y: body.y + 3, Button: tea.MouseLeft}
+	click := tea.MouseClickMsg{X: body.X + 2, Y: body.Y + 3, Button: tea.MouseLeft}
 	m, _ = update(m, click)
 	if m.jobsView.list.list.index != 3 || len(m.drawers) != 1 {
 		t.Fatalf("first click: index = %d, drawers = %d", m.jobsView.list.list.index, len(m.drawers))
@@ -255,7 +255,7 @@ func TestClickingARowHighlightsThenOpensIt(t *testing.T) {
 	hints := m.hints(m.topDrawer())
 	esc := hints[len(hints)-1]
 	body = drawerBody(drawerRect(m.width, m.height, 1))
-	m, _ = update(m, tea.MouseClickMsg{X: body.x + esc.x, Y: body.y + body.h, Button: tea.MouseLeft})
+	m, _ = update(m, tea.MouseClickMsg{X: body.X + esc.x, Y: body.Y + body.H, Button: tea.MouseLeft})
 	if len(m.drawers) != 1 {
 		t.Fatalf("clicking esc back left %d drawers", len(m.drawers))
 	}

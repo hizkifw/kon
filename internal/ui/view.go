@@ -10,6 +10,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/hizkifw/kon/internal/app"
+	"github.com/hizkifw/kon/internal/tui"
 )
 
 // maxInputLines caps how tall the prompt input grows, in visual rows
@@ -104,15 +105,15 @@ func (m Model) View() tea.View {
 	if text := m.statusText(); text != "" {
 		status += " · " + text
 	}
-	line := statusStyle.Render(fitLine(status, m.width))
+	line := statusStyle.Render(tui.Fit(status, m.width))
 	if t := m.messageTone(); t != toneInfo && m.search == nil {
-		line = statusStyle.Render(toneLine(fitLine(status, m.width), len(status)-len(oneLine(m.message)), t))
+		line = statusStyle.Render(toneLine(tui.Fit(status, m.width), len(status)-len(oneLine(m.message)), t))
 	}
 	transcript := m.viewport.View()
 	if t := m.mainTranscript(); t.selection != nil {
 		transcript = m.viewport.ViewWith(func(i int, line string) string { return t.highlight(i, line, m.width) })
 	}
-	sections := []string{headerStyle.Render(fitLine(header, m.width)), transcript}
+	sections := []string{headerStyle.Render(tui.Fit(header, m.width)), transcript}
 	if pending := m.pendingView(); pending != "" {
 		sections = append(sections, pending)
 	}
@@ -230,59 +231,9 @@ func toneLine(line string, at int, t tone) string {
 	return faint.Render(line[:at]) + toned.Render(line[at:])
 }
 
-func fitLine(value string, width int) string {
-	if width <= 0 || lipgloss.Width(value) <= width {
-		return value
-	}
-	if width == 1 {
-		return "…"
-	}
-	var out strings.Builder
-	used := 0
-	for _, r := range value {
-		runeWidth := lipgloss.Width(string(r))
-		if used+runeWidth > width-1 {
-			break
-		}
-		out.WriteRune(r)
-		used += runeWidth
-	}
-	out.WriteRune('…')
-	return out.String()
-}
-
 func abbreviateHome(path string) string {
 	if home, err := os.UserHomeDir(); err == nil && (path == home || strings.HasPrefix(path, home+string(os.PathSeparator))) {
 		return "~" + strings.TrimPrefix(path, home)
 	}
 	return path
-}
-
-// sanitize removes escape sequences and control characters other than newline
-// and tab from text bound for the screen. It shares ansiStripper's state
-// machine so an OSC (a window title, a hyperlink) is dropped whole rather than
-// leaving its payload behind as text once the ESC is gone.
-func sanitize(s string) string {
-	var strip ansiStripper
-	return dropC1(strings.ReplaceAll(strip.strip(s), "\r", ""))
-}
-
-// dropC1 removes C1 control characters (U+0080-U+009F), which some terminals
-// act on like the ESC sequences they abbreviate: U+009B is CSI. In UTF-8 each
-// is 0xC2 followed by 0x80-0x9F, and 0xC2 is only ever a lead byte, so a byte
-// scan cannot split another character.
-func dropC1(s string) string {
-	if strings.IndexByte(s, 0xc2) < 0 {
-		return s
-	}
-	var out strings.Builder
-	out.Grow(len(s))
-	for i := 0; i < len(s); i++ {
-		if s[i] == 0xc2 && i+1 < len(s) && s[i+1] >= 0x80 && s[i+1] <= 0x9f {
-			i++
-			continue
-		}
-		out.WriteByte(s[i])
-	}
-	return out.String()
 }

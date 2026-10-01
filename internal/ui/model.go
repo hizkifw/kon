@@ -20,6 +20,7 @@ import (
 	"github.com/hizkifw/kon/internal/config"
 	"github.com/hizkifw/kon/internal/history"
 	"github.com/hizkifw/kon/internal/sessions"
+	"github.com/hizkifw/kon/internal/tui"
 )
 
 const streamFrameInterval = 50 * time.Millisecond
@@ -91,7 +92,7 @@ type Model struct {
 	// every exit path, including a signal that bypasses Update, releases them.
 	ctx             context.Context
 	width, height   int
-	viewport        scrollView
+	viewport        tui.Scroll
 	input           textarea.Model
 	transcript      transcript
 	history         promptHistory
@@ -236,7 +237,7 @@ func New(ctx context.Context, cwd, configPath string, runtime Runtime, historySt
 	// transcript.linesFor), so the scroll view needs no soft wrap or per-line
 	// width measurement. Keyboard scrolling is handled in handleKey; the view
 	// only consumes the mouse wheel.
-	vp := newScrollView()
+	vp := tui.NewScroll()
 	state := runtime.State()
 	mark := welcomeBanner
 	if runtime.Incognito() {
@@ -813,7 +814,7 @@ func (m *Model) canSend() bool {
 // send starts a run for text, which the caller has already recorded in the
 // prompt history and taken out of the input.
 func (m Model) send(text string) (tea.Model, tea.Cmd) {
-	m.transcript.add(block{kind: blockUser, text: sanitize(text)})
+	m.transcript.add(block{kind: blockUser, text: tui.Sanitize(text)})
 	m.resize()
 	runtime, inbox := m.runtime, m.inbox
 	cmd := m.startTurn("Working", func(ctx context.Context, emit func(agent.Event)) error {

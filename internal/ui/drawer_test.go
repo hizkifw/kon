@@ -61,7 +61,7 @@ func TestDrawersStackAndCloseFromTheTop(t *testing.T) {
 	}
 	lower := drawerRect(m.width, m.height, 0)
 	upper := drawerRect(m.width, m.height, 1)
-	if upper.w >= lower.w || upper.x <= lower.x || upper.x+upper.w != lower.x+lower.w {
+	if upper.W >= lower.W || upper.X <= lower.X || upper.X+upper.W != lower.X+lower.W {
 		t.Fatalf("upper %+v does not nest inside lower %+v", upper, lower)
 	}
 	if got := plain(m.View().Content); !strings.Contains(got, "lower") || !strings.Contains(got, "upper") {
@@ -78,16 +78,16 @@ func TestClickOutsideTheDrawerClosesIt(t *testing.T) {
 	testDrawer(&m, "stats", "drawer text")
 	r := drawerRect(m.width, m.height, 0)
 	// The title row is inside the drawer and does nothing.
-	m = pressAt(m, r.x+2, r.y)
+	m = pressAt(m, r.X+2, r.Y)
 	if len(m.drawers) != 1 {
 		t.Fatal("a click on the title closed the drawer")
 	}
-	m = pressAt(m, r.x-1, 5)
+	m = pressAt(m, r.X-1, 5)
 	if len(m.drawers) != 0 {
 		t.Fatal("a click on the dimmed area left the drawer open")
 	}
 	// The click that closed the drawer does not start a selection underneath.
-	if _, cmd := release(m, r.x-1, 5); cmd != nil {
+	if _, cmd := release(m, r.X-1, 5); cmd != nil {
 		t.Fatal("the closing click copied a selection")
 	}
 }
@@ -122,8 +122,8 @@ func TestResizeRefitsTheDrawer(t *testing.T) {
 	m := sizedModel(t, 80, 24)
 	d := testDrawer(&m, "stats", "drawer text")
 	m, _ = update(m, tea.WindowSizeMsg{Width: 120, Height: 40})
-	if want := drawerBody(drawerRect(120, 40, 0)); d.view.Width() != want.w || d.view.Height() != want.h {
-		t.Fatalf("drawer view is %dx%d after resize, want %dx%d", d.view.Width(), d.view.Height(), want.w, want.h)
+	if want := drawerBody(drawerRect(120, 40, 0)); d.view.Width() != want.W || d.view.Height() != want.H {
+		t.Fatalf("drawer view is %dx%d after resize, want %dx%d", d.view.Width(), d.view.Height(), want.W, want.H)
 	}
 	if got := plain(m.View().Content); !strings.Contains(got, "drawer text") {
 		t.Fatalf("drawer lost its text on resize:\n%s", got)

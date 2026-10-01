@@ -14,6 +14,7 @@ import (
 	"github.com/hizkifw/kon/core/session"
 	"github.com/hizkifw/kon/core/typedid"
 	"github.com/hizkifw/kon/internal/codetools"
+	"github.com/hizkifw/kon/internal/tui"
 )
 
 // jobScrollback is how many lines of a command's output its drawer keeps.
@@ -364,7 +365,7 @@ func (m *Model) applyJobRead(w *jobWatch, read jobRead) {
 		w.showOutput()
 	}
 	if read.err != nil {
-		w.transcript.add(block{kind: blockError, text: sanitize(read.err.Error())})
+		w.transcript.add(block{kind: blockError, text: tui.Sanitize(read.err.Error())})
 	}
 }
 
@@ -395,7 +396,7 @@ func (w *jobWatch) appendOutput(data []byte, skipped bool) {
 func terminalLine(line []byte) string {
 	s := strings.TrimSuffix(string(line), "\r")
 	s = s[strings.LastIndexByte(s, '\r')+1:]
-	return expandTabs(sanitize(s))
+	return tui.ExpandTabs(tui.Sanitize(s))
 }
 
 // showOutput rebuilds the drawer from the command and its kept output.
