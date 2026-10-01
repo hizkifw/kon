@@ -105,6 +105,10 @@ func newModel(spec Spec, readImage func(string) ([]byte, error)) (Model, error) 
 	return newChatModel(spec, dialect, readImage)
 }
 
+// Stream generates one assistant message, emitting text and reasoning as it
+// arrives. A response the provider ended early, by cutting it off at its
+// limit, refusing, or filtering it, comes with a FinishError and whatever had
+// already been produced.
 func (c *Client) Stream(ctx context.Context, messages []session.Message, tools []session.ToolDefinition, emit func(Event)) (session.Message, error) {
 	response, err := c.model.Stream(ctx, messages, tools, emit)
 	if err == nil {

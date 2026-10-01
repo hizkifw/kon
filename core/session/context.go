@@ -13,6 +13,8 @@ import (
 // recreates it for a crash, use this exact string.
 const InterruptedToolResult = "not executed: interrupted"
 
+// ContextMessage is one message of the conversation a model is sent, with the
+// entry it came from.
 type ContextMessage struct {
 	EntryID typedid.EntryID
 	Message Message

@@ -50,12 +50,15 @@ type Response struct {
 	ProviderOptions json.RawMessage
 }
 
+// Text is the response's text, as Message.Text reads it.
 func (r Response) Text() string { return (session.Message{Parts: r.Parts}).Text() }
 
+// ToolCalls is the tool calls the response makes, in part order.
 func (r Response) ToolCalls() []session.ToolCall {
 	return (session.Message{Parts: r.Parts}).ToolCalls()
 }
 
+// Reasoning is the response's reasoning text, in part order.
 func (r Response) Reasoning() string {
 	return (session.Message{Parts: r.Parts}).Reasoning()
 }

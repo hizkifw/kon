@@ -10,8 +10,12 @@ import (
 	"github.com/hizkifw/kon/core/typedid"
 )
 
+// SchemaVersion is the only session format version this package reads and
+// writes. Files of an older version are upgraded before they are opened.
 const SchemaVersion = 4
 
+// EntryType is what an entry records. Readers keep entries of types they do
+// not know, so a newer writer can add one.
 type EntryType string
 
 const (
@@ -27,6 +31,8 @@ const (
 	EntryTypeTurnEnd   EntryType = "turn_end"
 )
 
+// Header is a session file's first line: the format version and what the
+// session is.
 type Header struct {
 	Type       string            `json:"type"`
 	Version    int               `json:"version"`
@@ -39,6 +45,10 @@ type Header struct {
 	Parent typedid.SessionID `json:"parent_session_id,omitzero"`
 }
 
+// Entry is one record after the header. Each type fills only its own fields:
+// a message entry its Message, a compaction its summary fields, a model change
+// its Model, and a turn end its duration. ParentID links it to the entry it
+// follows; Raw is the line it was read from.
 type Entry struct {
 	Type                  EntryType        `json:"type"`
 	ID                    typedid.EntryID  `json:"id"`
@@ -55,6 +65,8 @@ type Entry struct {
 	Raw                   json.RawMessage  `json:"-"`
 }
 
+// ModelSelection is the model a conversation continues with: its configured
+// name, wire format, connection, and the provider's ID for it.
 type ModelSelection struct {
 	Name         string          `json:"name"`
 	WireFormat   string          `json:"wire_format"`

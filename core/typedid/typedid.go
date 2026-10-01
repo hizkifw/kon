@@ -20,11 +20,13 @@ const (
 // SessionID has the serialized form ses_<20 base62 characters>.
 type SessionID struct{ value string }
 
+// NewSessionID makes a random session ID.
 func NewSessionID() (SessionID, error) {
 	value, err := generate("ses")
 	return SessionID{value: value}, err
 }
 
+// ParseSessionID reads a session ID, rejecting any other shape.
 func ParseSessionID(value string) (SessionID, error) {
 	if err := validate(value, "ses"); err != nil {
 		return SessionID{}, fmt.Errorf("invalid session ID: %w", err)
@@ -58,11 +60,13 @@ func (id *SessionID) UnmarshalJSON(data []byte) error {
 // EntryID has the serialized form ent_<20 base62 characters>.
 type EntryID struct{ value string }
 
+// NewEntryID makes a random entry ID.
 func NewEntryID() (EntryID, error) {
 	value, err := generate("ent")
 	return EntryID{value: value}, err
 }
 
+// ParseEntryID reads an entry ID, rejecting any other shape.
 func ParseEntryID(value string) (EntryID, error) {
 	if err := validate(value, "ent"); err != nil {
 		return EntryID{}, fmt.Errorf("invalid entry ID: %w", err)
@@ -97,12 +101,14 @@ func (id *EntryID) UnmarshalJSON(data []byte) error {
 // constraints are applied; the type exists to prevent mixing it with kon IDs.
 type ToolCallID string
 
+// ExternalToolCallID wraps a provider's tool call ID without checking it.
 func ExternalToolCallID(value string) ToolCallID { return ToolCallID(value) }
 func (id ToolCallID) String() string             { return string(id) }
 
 // ModelID is controlled by the configured provider and is intentionally opaque.
 type ModelID string
 
+// ExternalModelID wraps a provider's model ID without checking it.
 func ExternalModelID(value string) ModelID { return ModelID(value) }
 func (id ModelID) String() string          { return string(id) }
 

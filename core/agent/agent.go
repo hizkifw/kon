@@ -39,8 +39,13 @@ type Store interface {
 	SaveImage(data []byte, mime string) (session.Part, error)
 }
 
+// Provider is the model a runner talks to. *provider.Client is one.
 type Provider interface {
+	// Stream generates one assistant message, emitting text and reasoning as
+	// it arrives.
 	Stream(context.Context, []session.Message, []session.ToolDefinition, func(provider.Event)) (session.Message, error)
+	// Complete generates one message of at most the given tokens that is only
+	// useful whole, such as a compaction summary.
 	Complete(context.Context, []session.Message, []session.ToolDefinition, tokens.Count, func(provider.Event)) (session.Message, error)
 }
 
@@ -49,6 +54,7 @@ type Provider interface {
 // make progress. It is not an operational failure.
 var ErrNothingToCompact = errors.New("nothing to compact")
 
+// EventKind is what an Event reports.
 type EventKind int
 
 const (
@@ -77,6 +83,8 @@ const (
 	EventRetrying
 )
 
+// Event is one thing that happened during a run, emitted as it happens. Kind
+// decides which fields are set.
 type Event struct {
 	Kind EventKind
 	Text string
@@ -117,6 +125,9 @@ type Config struct {
 	CompactionPrompt string
 }
 
+// Runner drives a conversation: it sends the store's context to the provider,
+// runs the tool calls that come back, and compacts the context when it nears
+// the window. One run happens at a time.
 type Runner struct {
 	limits           Limits
 	provider         Provider
@@ -131,6 +142,8 @@ type Runner struct {
 	measuredAt typedid.EntryID
 }
 
+// New builds a runner from config, recovering the context usage the store's
+// last run reported.
 func New(config Config) *Runner {
 	r := &Runner{
 		limits:           config.Limits,

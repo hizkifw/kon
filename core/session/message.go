@@ -10,6 +10,7 @@ import (
 	"github.com/hizkifw/kon/core/typedid"
 )
 
+// Usage is what one provider response consumed, as the provider reported it.
 type Usage struct {
 	PromptTokens     tokens.Count `json:"prompt_tokens"`
 	CompletionTokens tokens.Count `json:"completion_tokens"`
@@ -52,6 +53,7 @@ func (u *Usage) Add(other Usage) {
 	u.Cost += other.Cost
 }
 
+// Role is who a message is from.
 type Role string
 
 const (
@@ -61,6 +63,7 @@ const (
 	RoleTool      Role = "tool"
 )
 
+// FinishReason is why a provider ended a response.
 type FinishReason string
 
 // Finish reasons kon acts on. Backends map their own spellings onto these;
@@ -75,11 +78,15 @@ const (
 	FinishContentFilter FinishReason = "content_filter"
 )
 
+// ToolFunction names the tool a call runs and carries the arguments the
+// model wrote, exactly as it wrote them.
 type ToolFunction struct {
 	Name      string          `json:"name"`
 	Arguments json.RawMessage `json:"arguments"`
 }
 
+// ToolCall is one tool call an assistant message makes, a view over its
+// tool-call part. Metadata is the backend's opaque data for the call.
 type ToolCall struct {
 	ID       typedid.ToolCallID `json:"id"`
 	Type     string             `json:"type"`
@@ -137,10 +144,13 @@ type Message struct {
 	Interrupted bool `json:"interrupted,omitempty"`
 }
 
+// TextMessage is a message holding only text.
 func TextMessage(role Role, text string) Message {
 	return Message{Role: role, Parts: []Part{{Type: PartText, Text: text}}}
 }
 
+// ToolResultMessage answers the tool call id, made to the tool name, with
+// output.
 func ToolResultMessage(id typedid.ToolCallID, name, output string) Message {
 	return Message{Role: RoleTool, Parts: []Part{{Type: PartToolResult, ToolCallID: id, ToolName: name, ToolOutput: output}}}
 }
@@ -169,6 +179,7 @@ func (m Message) Reasoning() string {
 	return out.String()
 }
 
+// ToolCalls is the tool calls the message makes, in part order.
 func (m Message) ToolCalls() []ToolCall {
 	var calls []ToolCall
 	for _, part := range m.Parts {
@@ -179,6 +190,8 @@ func (m Message) ToolCalls() []ToolCall {
 	return calls
 }
 
+// ToolResult is the call ID and tool name a tool message answers, or zero
+// values for any other message.
 func (m Message) ToolResult() (typedid.ToolCallID, string) {
 	for _, part := range m.Parts {
 		if part.Type == PartToolResult {
@@ -188,6 +201,8 @@ func (m Message) ToolResult() (typedid.ToolCallID, string) {
 	return "", ""
 }
 
+// Validate reports whether the message can be stored: content its role
+// requires, unique tool call IDs, and well-formed image parts.
 func (m Message) Validate() error {
 	switch m.Role {
 	case RoleSystem, RoleUser:

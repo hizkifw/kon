@@ -30,7 +30,10 @@ func OpenView(path string) (*View, error) {
 	return &View{path: path, header: parsed.header, entries: parsed.entries, byID: parsed.byID, offset: parsed.size}, nil
 }
 
-func (v *View) Path() string          { return v.path }
+// Path is the followed session's file.
+func (v *View) Path() string { return v.path }
+
+// ID is the followed session's identifier.
 func (v *View) ID() typedid.SessionID { return v.header.ID }
 
 // ActivePath returns the conversation read so far. The writer only ever
