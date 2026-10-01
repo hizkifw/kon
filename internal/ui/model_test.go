@@ -928,7 +928,7 @@ func TestEscWarnsThenInterruptsThenKills(t *testing.T) {
 		t.Fatalf("first esc: cancels=%d status %q tone %d", cancels, model.message, model.messageTone())
 	}
 	model = pressEsc(t, model, 1)
-	if cancels != 1 || model.interruptPresses != 1 || model.messageTone() != toneDanger || !strings.HasPrefix(model.message, "interrupted") {
+	if cancels != 1 || model.interrupt.presses != 1 || model.messageTone() != toneDanger || !strings.HasPrefix(model.message, "interrupted") {
 		t.Fatalf("second esc did not interrupt: cancels=%d status %q tone %d", cancels, model.message, model.messageTone())
 	}
 	model = pressEsc(t, model, 1)
@@ -943,7 +943,7 @@ func TestInterruptWarningExpires(t *testing.T) {
 	cancels := 0
 	model.turn.cancel = func() { cancels++ }
 	model = pressEsc(t, model, 1)
-	model = done(model, model.flashEpoch)
+	model = done(model, model.flashed.epoch)
 	if model.message != "" {
 		t.Fatalf("warning outlived its time: %q", model.message)
 	}
@@ -1134,8 +1134,8 @@ func TestCtrlUKillsToLineStartAndCtrlYYanks(t *testing.T) {
 	if got := model.input.Value(); got != " tail" {
 		t.Fatalf("ctrl+u did not discard to line start: %q", got)
 	}
-	if model.killRing != "keep this" {
-		t.Fatalf("ctrl+u kill ring = %q, want %q", model.killRing, "keep this")
+	if model.kill.text != "keep this" {
+		t.Fatalf("ctrl+u kill ring = %q, want %q", model.kill.text, "keep this")
 	}
 
 	updated, _ = model.Update(tea.KeyPressMsg{Code: 'y', Mod: tea.ModCtrl})
@@ -1162,13 +1162,13 @@ func TestCtrlUOnEmptyPrefixKeepsKillRing(t *testing.T) {
 	// not wipe the ring.
 	updated, _ := model.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
 	model = updated.(Model)
-	if model.killRing != "alpha" {
-		t.Fatalf("kill ring = %q, want %q", model.killRing, "alpha")
+	if model.kill.text != "alpha" {
+		t.Fatalf("kill ring = %q, want %q", model.kill.text, "alpha")
 	}
 	updated, _ = model.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
 	model = updated.(Model)
-	if model.killRing != "alpha" {
-		t.Fatalf("empty kill clobbered the ring: %q", model.killRing)
+	if model.kill.text != "alpha" {
+		t.Fatalf("empty kill clobbered the ring: %q", model.kill.text)
 	}
 }
 
@@ -1182,8 +1182,8 @@ func TestCtrlUKillsOnlyCurrentLine(t *testing.T) {
 	if got := model.input.Value(); got != "first line\n" {
 		t.Fatalf("ctrl+u crossed a line boundary: %q", got)
 	}
-	if model.killRing != "second line" {
-		t.Fatalf("kill ring = %q, want %q", model.killRing, "second line")
+	if model.kill.text != "second line" {
+		t.Fatalf("kill ring = %q, want %q", model.kill.text, "second line")
 	}
 }
 
@@ -1200,8 +1200,8 @@ func TestCtrlKKillsToLineEndAndCtrlYYanks(t *testing.T) {
 	if got := model.input.Value(); got != "keep this" {
 		t.Fatalf("ctrl+k did not kill to line end: %q", got)
 	}
-	if model.killRing != " tail" {
-		t.Fatalf("ctrl+k kill ring = %q, want %q", model.killRing, " tail")
+	if model.kill.text != " tail" {
+		t.Fatalf("ctrl+k kill ring = %q, want %q", model.kill.text, " tail")
 	}
 	updated, _ = model.Update(tea.KeyPressMsg{Code: 'y', Mod: tea.ModCtrl})
 	model = updated.(Model)
@@ -1215,8 +1215,8 @@ func TestCtrlWKillsWordAndCtrlYYanks(t *testing.T) {
 	model.input.SetValue("alpha beta")
 	updated, _ := model.Update(tea.KeyPressMsg{Code: 'w', Mod: tea.ModCtrl})
 	model = updated.(Model)
-	if model.killRing != "beta" {
-		t.Fatalf("ctrl+w kill ring = %q, want %q", model.killRing, "beta")
+	if model.kill.text != "beta" {
+		t.Fatalf("ctrl+w kill ring = %q, want %q", model.kill.text, "beta")
 	}
 	updated, _ = model.Update(tea.KeyPressMsg{Code: 'y', Mod: tea.ModCtrl})
 	model = updated.(Model)
@@ -1259,8 +1259,8 @@ func TestCtrlUKillsRepeatedTextAndCtrlYRestoresIt(t *testing.T) {
 		model = updated.(Model)
 		updated, _ = model.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
 		model = updated.(Model)
-		if model.killRing != tc.killed {
-			t.Fatalf("%q: kill ring = %q, want %q", tc.value, model.killRing, tc.killed)
+		if model.kill.text != tc.killed {
+			t.Fatalf("%q: kill ring = %q, want %q", tc.value, model.kill.text, tc.killed)
 		}
 		updated, _ = model.Update(tea.KeyPressMsg{Code: 'y', Mod: tea.ModCtrl})
 		model = updated.(Model)
@@ -1277,8 +1277,8 @@ func TestCtrlUOnLaterLineUsesThatLinesCursor(t *testing.T) {
 	model = updated.(Model)
 	updated, _ = model.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
 	model = updated.(Model)
-	if model.killRing != "xx" {
-		t.Fatalf("kill ring = %q, want %q", model.killRing, "xx")
+	if model.kill.text != "xx" {
+		t.Fatalf("kill ring = %q, want %q", model.kill.text, "xx")
 	}
 	if got := model.input.Value(); got != "xx\ny" {
 		t.Fatalf("ctrl+u left %q", got)

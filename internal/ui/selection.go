@@ -149,7 +149,7 @@ func (m Model) pressMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	}
 	m.activeTranscript().selection = nil
 	view, area := m.surface()
-	if msg.Button != tea.MouseLeft || m.drawers.Len() == 0 && m.preview != nil || !area.Contains(msg.X, msg.Y) || view.LineCount() == 0 {
+	if msg.Button != tea.MouseLeft || m.drawers.Len() == 0 && m.preview.transcript != nil || !area.Contains(msg.X, msg.Y) || view.LineCount() == 0 {
 		m.click = click{}
 		return m, nil
 	}

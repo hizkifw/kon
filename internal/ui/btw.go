@@ -60,7 +60,7 @@ func (m Model) applySideEvent(event agent.Event) (tea.Model, tea.Cmd) {
 	case agent.EventThinking:
 		m.side.run.setVerb(t, "Thinking")
 	case agent.EventUsage:
-		m.sideSpent += event.Cost
+		m.spend.side += event.Cost
 	}
 	return m, tea.Batch(m.side.run.wait(), m.scheduleFlush())
 }

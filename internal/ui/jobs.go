@@ -17,6 +17,17 @@ import (
 	"github.com/hizkifw/kon/internal/tui"
 )
 
+// jobsState is the session's background jobs as the UI knows them.
+type jobsState struct {
+	// running is how many are running, as of the last event that could have
+	// changed it.
+	running int
+	// view is the /jobs drawers while they are open, and epoch counts their
+	// reads' chains, so one from drawers since closed stops.
+	view  *jobsView
+	epoch int
+}
+
 // jobScrollback is how many lines of a command's output its drawer keeps.
 // Every change rewraps them all, so the cap bounds that work; the output
 // file keeps the rest.
@@ -157,11 +168,11 @@ func (m Model) openJobs() (tea.Model, tea.Cmd) {
 		m.message = "no background jobs"
 		return m, nil
 	}
-	m.jobsEpoch++
-	v := &jobsView{epoch: m.jobsEpoch, jobs: jobs}
-	v.list = &drawer{Title: "jobs", List: &tui.List{}, Actions: v.listActions, OnClose: func(m *Model) { m.jobsView = nil }}
+	m.jobs.epoch++
+	v := &jobsView{epoch: m.jobs.epoch, jobs: jobs}
+	v.list = &drawer{Title: "jobs", List: &tui.List{}, Actions: v.listActions, OnClose: func(m *Model) { m.jobs.view = nil }}
 	v.fillList()
-	m.jobsView = v
+	m.jobs.view = v
 	m.openDrawer(v.list)
 	return m, jobsTick(v.epoch)
 }
@@ -248,11 +259,11 @@ func killAction(job codetools.Job) []drawerAction {
 // which starts now unless one is already in flight: that one's answer then
 // reads the job at once.
 func (m *Model) openJob(job codetools.Job) tea.Cmd {
-	v := m.jobsView
+	v := m.jobs.view
 	w := &jobWatch{job: job, transcript: transcript{cwd: m.cwd}}
 	w.drawer = &drawer{Title: jobTitle(job), Content: &w.transcript, OnClose: func(m *Model) {
-		if m.jobsView != nil {
-			m.jobsView.watch = nil
+		if m.jobs.view != nil {
+			m.jobs.view.watch = nil
 		}
 	}}
 	w.drawer.Actions = func(*Model) []drawerAction { return killAction(w.job) }
@@ -263,14 +274,14 @@ func (m *Model) openJob(job codetools.Job) tea.Cmd {
 		return nil
 	}
 	// The tick already scheduled carries the old epoch and is dropped.
-	m.jobsEpoch++
-	v.epoch = m.jobsEpoch
+	m.jobs.epoch++
+	v.epoch = m.jobs.epoch
 	return m.pollJobs()
 }
 
 // pollJobs reads the job files off the update loop.
 func (m *Model) pollJobs() tea.Cmd {
-	v := m.jobsView
+	v := m.jobs.view
 	v.polling = true
 	runtime, epoch, w := m.runtime, v.epoch, v.watch
 	var reader jobReader
@@ -316,7 +327,7 @@ func readJob(runtime Runtime, job codetools.Job, r jobReader) jobRead {
 
 // tickJobs starts the next read, unless the drawers have closed since.
 func (m Model) tickJobs(msg jobsTickMsg) (tea.Model, tea.Cmd) {
-	if m.jobsView == nil || msg.epoch != m.jobsView.epoch {
+	if m.jobs.view == nil || msg.epoch != m.jobs.view.epoch {
 		return m, nil
 	}
 	return m, m.pollJobs()
@@ -324,7 +335,7 @@ func (m Model) tickJobs(msg jobsTickMsg) (tea.Model, tea.Cmd) {
 
 // applyJobsPolled shows what a read found and schedules the next one.
 func (m Model) applyJobsPolled(msg jobsPolledMsg) (tea.Model, tea.Cmd) {
-	v := m.jobsView
+	v := m.jobs.view
 	if v == nil || msg.epoch != v.epoch {
 		return m, nil
 	}

@@ -6,7 +6,36 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/hizkifw/kon/core/tokens"
 )
+
+// interrupts tracks Esc presses against the run in flight, so the harness can
+// escalate: the first cancels the run (interrupting a running command), the
+// second kills it.
+type interrupts struct {
+	presses int
+	// epoch is the notice epoch of the warning a first Esc showed before
+	// interrupting (see interruptArmed); 0 when none was shown.
+	epoch int
+}
+
+// flashState is the last passing notice shown as the message. epoch counts
+// notices, so each clears only itself.
+type flashState struct {
+	text  string
+	epoch int
+}
+
+// streamCount counts the stream chunks received since the last usage report,
+// each taken as one token, so the status bar moves while a response streams.
+// A chunk usually holds more than one token, so the estimate undercounts
+// until the report replaces it.
+type streamCount struct {
+	all tokens.Count
+	// context counts only the chunks that extend the context: a compaction
+	// summary replaces the context rather than adding to it.
+	context tokens.Count
+}
 
 // The status line tells two things apart: the mode kon is in, which it shows
 // for as long as the mode lasts, and the last thing that happened, the
@@ -21,8 +50,8 @@ func (m Model) mode() string {
 	switch {
 	case m.login != nil:
 		return m.login.question()
-	case m.follow != nil:
-		return m.followMode
+	case m.follow.replay != nil:
+		return m.follow.mode
 	case !m.configured:
 		return "needs configuration"
 	}
@@ -96,16 +125,16 @@ type flashDoneMsg struct{ epoch int }
 // flashTimeout.
 func (m *Model) flash(t tone, text string) tea.Cmd {
 	m.say(t, text)
-	m.flashed = text
-	m.flashEpoch++
-	epoch := m.flashEpoch
+	m.flashed.text = text
+	m.flashed.epoch++
+	epoch := m.flashed.epoch
 	return tea.Tick(flashTimeout, func(time.Time) tea.Msg { return flashDoneMsg{epoch} })
 }
 
 // flashDone takes a notice down when its time is up. A later notice has its
 // own time, and a message set since then is left alone.
 func (m Model) flashDone(msg flashDoneMsg) (tea.Model, tea.Cmd) {
-	if msg.epoch == m.flashEpoch && m.message == m.flashed {
+	if msg.epoch == m.flashed.epoch && m.message == m.flashed.text {
 		m.message = ""
 	}
 	return m, nil
@@ -115,5 +144,5 @@ func (m Model) flashDone(msg flashDoneMsg) (tea.Model, tea.Cmd) {
 // line, so the next Esc interrupts. Once the warning is gone, by its time
 // running out or by another message replacing it, Esc warns again.
 func (m Model) interruptArmed() bool {
-	return m.interruptEpoch != 0 && m.interruptEpoch == m.flashEpoch && m.message == m.flashed
+	return m.interrupt.epoch != 0 && m.interrupt.epoch == m.flashed.epoch && m.message == m.flashed.text
 }

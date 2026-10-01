@@ -98,8 +98,8 @@ finished:
 		!strings.Contains(got, "Answered in") {
 		t.Fatalf("side view = %s", got)
 	}
-	if m.contextTokens != 42 || m.sideSpent != 0.01 || m.spent != 0 {
-		t.Fatalf("usage leaked: context=%v, side=%v, main=%v", m.contextTokens, m.sideSpent, m.spent)
+	if m.contextTokens != 42 || m.spend.side != 0.01 || m.spend.own != 0 {
+		t.Fatalf("usage leaked: context=%v, side=%v, main=%v", m.contextTokens, m.spend.side, m.spend.own)
 	}
 	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	m = updated.(Model)
@@ -235,8 +235,8 @@ func TestBTWTakesOverAFreeSession(t *testing.T) {
 	}}
 	updated, _ := m.startSideChat("question")
 	m = updated.(Model)
-	if m.follow != nil || m.side == nil || m.message != "" {
-		t.Fatalf("following = %v, side = %v, status = %q", m.follow != nil, m.side != nil, m.message)
+	if m.follow.replay != nil || m.side == nil || m.message != "" {
+		t.Fatalf("following = %v, side = %v, status = %q", m.follow.replay != nil, m.side != nil, m.message)
 	}
 	t.Cleanup(m.side.run.cancel)
 	select {
@@ -251,8 +251,8 @@ func TestBTWWhileHeldStaysReadOnly(t *testing.T) {
 	runtime.takeOverErr = session.ErrInUse
 	updated, _ := m.startSideChat("question")
 	m = updated.(Model)
-	if m.message != "read-only: still open in another session" || m.follow == nil || m.side != nil {
-		t.Fatalf("status = %q, following = %v, side = %v", m.message, m.follow != nil, m.side != nil)
+	if m.message != "read-only: still open in another session" || m.follow.replay == nil || m.side != nil {
+		t.Fatalf("status = %q, following = %v, side = %v", m.message, m.follow.replay != nil, m.side != nil)
 	}
 }
 

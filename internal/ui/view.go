@@ -64,8 +64,8 @@ func (m *Model) activeTranscript() *transcript {
 // mainTranscript is the transcript the main viewport shows: a highlighted
 // popup row's preview when one is active, otherwise the live conversation.
 func (m *Model) mainTranscript() *transcript {
-	if m.preview != nil {
-		return m.preview
+	if m.preview.transcript != nil {
+		return m.preview.transcript
 	}
 	return &m.transcript
 }
@@ -84,20 +84,20 @@ func (m Model) View() tea.View {
 	ctx := "ctx ?"
 	if m.contextTokens >= 0 {
 		prefix := ""
-		if m.contextApprox || m.streamedContext > 0 {
+		if m.contextApprox || m.streamed.context > 0 {
 			prefix = "~"
 		}
-		ctx = "ctx " + prefix + (m.contextTokens + m.streamedContext).String()
+		ctx = "ctx " + prefix + (m.contextTokens + m.streamed.context).String()
 	}
 	if m.active.ContextWindow > 0 {
 		ctx += "/" + m.active.ContextWindow.String()
 	}
 	status := " " + abbreviateHome(m.cwd) + " · " + ctx
-	if m.jobs > 0 {
-		status += fmt.Sprintf(" · ⚙ %d", m.jobs)
+	if m.jobs.running > 0 {
+		status += fmt.Sprintf(" · ⚙ %d", m.jobs.running)
 	}
-	streaming := float64(m.streamed) * m.active.OutputPrice / 1e6
-	if spent := m.spent + m.subagentSpent + m.sideSpent + streaming; spent > 0 {
+	streaming := float64(m.streamed.all) * m.active.OutputPrice / 1e6
+	if spent := m.spend.own + m.spend.subagents + m.spend.side + streaming; spent > 0 {
 		status += " · " + formatCost(spent)
 	}
 	// The transcript shows what a turn is doing, so the status line carries

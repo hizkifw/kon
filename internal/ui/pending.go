@@ -115,7 +115,7 @@ func waitNotice(notices <-chan string) tea.Cmd {
 // is in flight, or by starting a run when idle, so a job finishing after the
 // agent's turn ended still gets its attention.
 func (m Model) deliverNotice(text string) (tea.Model, tea.Cmd) {
-	m.jobs = m.runtime.RunningJobs()
+	m.jobs.running = m.runtime.RunningJobs()
 	// A subagent writes its last response before its job exits.
 	read := m.loadSpend()
 	if m.busy() || !m.canSend() {

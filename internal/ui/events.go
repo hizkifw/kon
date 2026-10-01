@@ -20,11 +20,11 @@ const maxResultChars = 4000
 func (m *Model) applyAgentEvent(event agent.Event) bool {
 	switch event.Kind {
 	case agent.EventText:
-		m.streamed, m.streamedContext = m.streamed+1, m.streamedContext+1
+		m.streamed.all, m.streamed.context = m.streamed.all+1, m.streamed.context+1
 		m.transcript.appendStream(tui.Sanitize(event.Text))
 		return true
 	case agent.EventThinking:
-		m.streamed, m.streamedContext = m.streamed+1, m.streamedContext+1
+		m.streamed.all, m.streamed.context = m.streamed.all+1, m.streamed.context+1
 		m.transcript.appendThinking(tui.Sanitize(event.Text))
 		return true
 	case agent.EventAssistantDone:
@@ -41,13 +41,13 @@ func (m *Model) applyAgentEvent(event agent.Event) bool {
 			m.transcript.updateToolLive(display)
 		}
 	case agent.EventToolDone:
-		m.jobs = m.runtime.RunningJobs()
+		m.jobs.running = m.runtime.RunningJobs()
 		m.transcript.add(m.toolResultBlock(event))
 	case agent.EventCompacting:
 		m.transcript.beginCompaction()
 		m.setTurnVerb("Compacting")
 	case agent.EventCompactionText:
-		m.streamed++
+		m.streamed.all++
 		m.transcript.appendCompaction(tui.Sanitize(event.Text))
 		return true
 	case agent.EventCompacted:
@@ -58,8 +58,8 @@ func (m *Model) applyAgentEvent(event agent.Event) bool {
 	case agent.EventUsage:
 		m.contextTokens = event.Tokens
 		m.contextApprox = event.Estimated
-		m.spent += event.Cost
-		m.streamed, m.streamedContext = 0, 0
+		m.spend.own += event.Cost
+		m.streamed.all, m.streamed.context = 0, 0
 	case agent.EventSteered:
 		m.transcript.add(block{kind: blockUser, text: tui.Sanitize(event.Text)})
 		m.syncSteering()

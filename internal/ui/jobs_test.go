@@ -157,11 +157,11 @@ func TestJobDrawerFollowsOutputLikeATerminal(t *testing.T) {
 		t.Fatalf("finished job still shows as running:\n%s", got)
 	}
 	m = sendKey(t, m, "esc")
-	if m.drawers.Len() != 1 || m.jobsView == nil || m.jobsView.watch != nil {
+	if m.drawers.Len() != 1 || m.jobs.view == nil || m.jobs.view.watch != nil {
 		t.Fatal("esc did not go back to the list")
 	}
 	m = sendKey(t, m, "esc")
-	if m.drawers.Len() != 0 || m.jobsView != nil {
+	if m.drawers.Len() != 0 || m.jobs.view != nil {
 		t.Fatal("esc did not close the list")
 	}
 }
@@ -178,7 +178,7 @@ func TestJobDrawerKeepsTheLastLinesOfLongOutput(t *testing.T) {
 	m = sendKey(t, m, "j")
 	m = sendKey(t, m, "enter")
 	m = pollNow(t, m)
-	w := m.jobsView.watch
+	w := m.jobs.view.watch
 	if len(w.lines) != jobScrollback || w.lines[0] != "line 10" {
 		t.Fatalf("kept %d lines from %q", len(w.lines), w.lines[0])
 	}
@@ -224,7 +224,7 @@ func TestJobsDropAReadForClosedDrawers(t *testing.T) {
 	msg := m.pollJobs()()
 	m = sendKey(t, m, "esc")
 	updated, cmd := m.Update(msg)
-	if cmd != nil || updated.(Model).jobsView != nil {
+	if cmd != nil || updated.(Model).jobs.view != nil {
 		t.Fatal("a read for closed drawers kept polling")
 	}
 	if _, cmd := m.Update(jobsTickMsg{epoch: msg.(jobsPolledMsg).epoch}); cmd != nil {
@@ -239,16 +239,16 @@ func TestClickingARowHighlightsThenOpensIt(t *testing.T) {
 	body := m.drawers.Body(0)
 	// Rows are: running, job 2, finished, job 1. A heading takes no click.
 	m, _ = update(m, tea.MouseClickMsg{X: body.X + 2, Y: body.Y + 2, Button: tea.MouseLeft})
-	if m.jobsView.list.List.Index != 1 || m.drawers.Len() != 1 {
-		t.Fatalf("clicking a heading: index = %d, drawers = %d", m.jobsView.list.List.Index, m.drawers.Len())
+	if m.jobs.view.list.List.Index != 1 || m.drawers.Len() != 1 {
+		t.Fatalf("clicking a heading: index = %d, drawers = %d", m.jobs.view.list.List.Index, m.drawers.Len())
 	}
 	click := tea.MouseClickMsg{X: body.X + 2, Y: body.Y + 3, Button: tea.MouseLeft}
 	m, _ = update(m, click)
-	if m.jobsView.list.List.Index != 3 || m.drawers.Len() != 1 {
-		t.Fatalf("first click: index = %d, drawers = %d", m.jobsView.list.List.Index, m.drawers.Len())
+	if m.jobs.view.list.List.Index != 3 || m.drawers.Len() != 1 {
+		t.Fatalf("first click: index = %d, drawers = %d", m.jobs.view.list.List.Index, m.drawers.Len())
 	}
 	m, _ = update(m, click)
-	if m.drawers.Len() != 2 || m.jobsView.watch == nil || m.jobsView.watch.job.ID != 1 {
+	if m.drawers.Len() != 2 || m.jobs.view.watch == nil || m.jobs.view.watch.job.ID != 1 {
 		t.Fatal("a click on the highlighted row did not open it")
 	}
 	// Esc in the hint row is a button too.

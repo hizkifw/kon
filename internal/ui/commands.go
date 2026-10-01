@@ -374,9 +374,9 @@ func (m Model) newSession() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.transcript.reset()
-	m.contextTokens, m.spent = -1, 0
-	m.follow = nil
-	m.followEpoch++
+	m.contextTokens, m.spend.own = -1, 0
+	m.follow.replay = nil
+	m.follow.epoch++
 	m.input.Reset()
 	m.history.resetPosition()
 	m.syncRuntimeState()
