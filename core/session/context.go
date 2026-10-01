@@ -23,14 +23,7 @@ type ContextMessage struct {
 	Summary bool
 }
 
-// Context walks parent links and applies the newest compaction on that path.
-//
-// The newest compaction summary is projected as a user message immediately
-// after the untouched system message, followed by the retained tail and any
-// messages appended after the compaction. Keeping the system prompt verbatim
-// across compactions is deliberate: provider prompt caches key on a stable
-// leading prefix, and folding the summary into the system message would force a
-// full cache miss on every compaction.
+// Context projects the store's active path for a model request; see Project.
 func (s *Store) Context() ([]ContextMessage, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -38,6 +31,20 @@ func (s *Store) Context() ([]ContextMessage, error) {
 	if err != nil {
 		return nil, err
 	}
+	return Project(path)
+}
+
+// Project turns the entries on an active path, root first, into the
+// conversation a model is sent. It applies the newest compaction and leaves out
+// entries that are not messages.
+//
+// The newest compaction summary is projected as a user message immediately
+// after the untouched system message, followed by the retained tail and any
+// messages appended after the compaction. Keeping the system prompt verbatim
+// across compactions is deliberate: provider prompt caches key on a stable
+// leading prefix, and folding the summary into the system message would force a
+// full cache miss on every compaction.
+func Project(path []Entry) ([]ContextMessage, error) {
 	if len(path) == 0 {
 		return nil, nil
 	}
