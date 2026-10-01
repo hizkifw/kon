@@ -533,7 +533,10 @@ never reprices past work.
   `KON_INCOGNITO` beneath an incognito session. Its `PATH` starts with a
   directory under the data directory holding only a `kon` link to the running
   executable (`tools.KonDir`), so the prompt can say plain `kon` and it runs
-  this kon, whatever else `PATH` holds. `kon run` records
+  this kon, whatever else `PATH` holds. A kon started through that link
+  reuses its directory, since a hard link reports its own path as the
+  executable; `kon upgrade` prunes the directories whose executable is gone
+  and the links moved aside because a kon still ran from them. `kon run` records
   `KON_SESSION` as its session's parent, writes its session ID into `KON_JOB`,
   keeps its session in memory with `--incognito` or under `KON_INCOGNITO`, and
   refuses to start past a fixed depth. What subagents spend is read from their
