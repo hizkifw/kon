@@ -339,11 +339,6 @@ func (r *Runtime) konDir() string {
 	if err != nil {
 		return ""
 	}
-	// On some systems a kon started through the link reports the link, which
-	// would get a directory of its own pointing at the first.
-	if resolved, err := filepath.EvalSymlinks(executable); err == nil {
-		executable = resolved
-	}
 	if r.paths.DataDir != "" {
 		if dir, err := codetools.KonDir(r.paths.DataDir, executable); err == nil {
 			return dir
