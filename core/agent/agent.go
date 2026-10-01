@@ -19,6 +19,26 @@ import (
 	"github.com/hizkifw/kon/core/typedid"
 )
 
+// Store is the conversation a runner extends. *session.Store is one; a program
+// keeping conversations elsewhere implements it over its own storage, and can
+// build Context with session.Project.
+type Store interface {
+	// Context is the conversation as the model is sent it.
+	Context() ([]session.ContextMessage, error)
+	// ActivePath is every entry from the root to the newest, which the runner
+	// reads once to recover the usage a previous run reported.
+	ActivePath() []session.Entry
+	AppendMessage(session.Message) (typedid.EntryID, error)
+	AppendCompaction(summary string, firstKeptID typedid.EntryID, tokensBefore tokens.Count, estimated bool, usage *session.Usage) (typedid.EntryID, error)
+	// AppendTurnStart and AppendTurnEnd bracket each Run, so a replay can show
+	// how long a turn took.
+	AppendTurnStart() (typedid.EntryID, error)
+	AppendTurnEnd(time.Duration) (typedid.EntryID, error)
+	// SaveImage keeps a tool result's image and returns the part that refers
+	// to it.
+	SaveImage(data []byte, mime string) (session.Part, error)
+}
+
 type Provider interface {
 	Stream(context.Context, []session.Message, []session.ToolDefinition, func(provider.Event)) (session.Message, error)
 	Complete(context.Context, []session.Message, []session.ToolDefinition, tokens.Count, func(provider.Event)) (session.Message, error)
@@ -90,7 +110,7 @@ func RetryEvent(retry *provider.Retry) Event {
 type Config struct {
 	Limits   Limits
 	Provider Provider
-	Store    *session.Store
+	Store    Store
 	Tools    *tool.Executor
 	// CompactionPrompt is the instruction a compaction summary is written to,
 	// or "" for DefaultCompactionPrompt.
@@ -100,7 +120,7 @@ type Config struct {
 type Runner struct {
 	limits           Limits
 	provider         Provider
-	session          *session.Store
+	session          Store
 	tools            *tool.Executor
 	compactionPrompt string
 	// measured is the provider-reported size of the context through the

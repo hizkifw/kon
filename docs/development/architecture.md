@@ -25,7 +25,10 @@ The CLI supplies those: `internal/prompt` builds the system prompt,
 puts them together in an `agent.Config`. A tool's live progress reaches the
 event stream as an opaque snapshot; kon's tools report a `codetools.Display`,
 which the UI paints. Another program, such as a chat bot, builds its own
-registry and prompt the same way; `core/agent/example_test.go` shows one.
+registry and prompt the same way; `core/agent/example_test.go` shows one. The
+runner extends any `agent.Store`: kon's is a `session.Store`, while a program
+keeping conversations in its own database implements the interface and builds
+the model's context with `session.Project`.
 
 ## Runtime flow
 

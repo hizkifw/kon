@@ -24,7 +24,7 @@ const checkpointPreamble = "This is an automatically generated checkpoint conden
 
 // Context projects a session's active path for a model request, with each
 // compaction summary wrapped in its checkpoint markers.
-func Context(store *session.Store) ([]session.ContextMessage, error) {
+func Context(store Store) ([]session.ContextMessage, error) {
 	items, err := store.Context()
 	if err != nil {
 		return nil, err
