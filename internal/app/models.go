@@ -124,6 +124,29 @@ func (r *Runtime) resolveActive() error {
 // the cycle returns to the provider default, reported as "". It adds nothing to
 // the durable session, so the cached prompt prefix is untouched.
 func (r *Runtime) CycleEffort() (string, error) {
+	return r.changeEffort(func(efforts []string, current string) (string, error) {
+		if i := slices.Index(efforts, current); i+1 < len(efforts) {
+			return efforts[i+1], nil
+		}
+		return "", nil
+	})
+}
+
+// SetEffort selects one of the active model's reasoning efforts, or the
+// provider default for "", and saves it as CycleEffort does.
+func (r *Runtime) SetEffort(effort string) error {
+	_, err := r.changeEffort(func(efforts []string, _ string) (string, error) {
+		if effort != "" && !slices.Contains(efforts, effort) {
+			return "", fmt.Errorf("model has no reasoning effort %q (levels: %s)", effort, strings.Join(efforts, ", "))
+		}
+		return effort, nil
+	})
+	return err
+}
+
+// changeEffort rebuilds the runner at the effort pick chooses from the active
+// model's levels and its current one, and saves it to the config.
+func (r *Runtime) changeEffort(pick func(efforts []string, current string) (string, error)) (string, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if err := r.mutable(); err != nil {
@@ -143,11 +166,12 @@ func (r *Runtime) CycleEffort() (string, error) {
 	if len(efforts) == 0 {
 		return "", ErrNoEffort
 	}
-	profile := r.active
-	profile.effort = ""
-	if i := slices.Index(efforts, r.active.effort); i+1 < len(efforts) {
-		profile.effort = efforts[i+1]
+	effort, err := pick(efforts, r.active.effort)
+	if err != nil {
+		return "", err
 	}
+	profile := r.active
+	profile.effort = effort
 	runner, err := r.buildRunner(profile, r.store)
 	if err != nil {
 		return "", err

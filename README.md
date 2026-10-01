@@ -59,11 +59,18 @@ git diff | kon run --stdin review this
 
 Add `--format json` for one event per line. See [scripting](docs/product/scripting.md).
 
+## Editors
+
+`kon acp` speaks the [Agent Client Protocol](https://agentclientprotocol.com)
+on stdin and stdout, so editors such as Zed can run kon as their agent. See
+[editor integration](docs/product/acp.md).
+
 ## Documentation
 
 - [User guide](docs/product/index.md): install and first session
 - [Working with kon](docs/product/usage.md): prompting, sessions, jobs, and subagents
 - [Scripting](docs/product/scripting.md): `kon run` and `kon md`
+- [Editor integration](docs/product/acp.md): `kon acp` for ACP editors
 - [Configuration](docs/product/configuration.md): providers, models, and project instructions
 - [Reference](docs/product/reference.md): every command, key, tool, and setting
 - [Development](docs/development/index.md): building and contributing

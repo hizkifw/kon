@@ -97,9 +97,9 @@ loop, and the text goes to the clipboard the way `/copy` sends it.
 ## CLI surface
 
 `cmd/kon` owns startup wiring and CLI metadata. Each subcommand lives in its own
-file (`run.go`, `docs.go`, `models.go`, `upgrade.go`, `tool.go`) as a thin
+file (`run.go`, `acp.go`, `docs.go`, `models.go`, `upgrade.go`, `tool.go`) as a thin
 adapter: it parses its flags, resolves paths, and delegates the work to an
-`internal/` package that owns the logic (`internal/headless`, `docs/product`,
+`internal/` package that owns the logic (`internal/headless`, `internal/acp`, `docs/product`,
 `internal/catalog`, `internal/selfupdate`, `internal/web`). Subcommands register in one table in
 `cli.go`; the root `--help` index is rendered from that table, so a new command
 cannot be accepted without also being documented in help.
@@ -139,6 +139,21 @@ or the JSON events documented in `docs/product/scripting.md`, and that schema, n
 `agent.Event`, is the stable contract. A leading flag always selects it, so `kon --resume docs` resumes
 a session rather than invoking the `docs` command. Every subcommand supports
 `kon <command> --help`.
+
+`internal/acp` is the third frontend: `kon acp` serves the Agent Client
+Protocol, specified with kon's extensions in `docs/product/acp.md`. Each ACP
+session is its own `app.Runtime`, since a client opens sessions in any
+directory and a runtime is bound to one, and an `agent.Inbox` its turns share.
+A session runs one turn at a time from a FIFO queue, so a prompt sent
+mid-turn waits rather than failing with `ErrBusy`, and `session/cancel` ends
+the running turn and every queued one. The queue is what lets kon start a
+turn of its own: a job's exit notice for an idle session, or steering left
+over after a turn, runs as a turn bracketed by extension notifications, but
+only for a client that opted in; otherwise it waits in the inbox for the next
+prompt. Requests are answered on their own goroutines, except that a prompt
+joins its queue before its goroutine starts, so prompts run in the order they
+arrived. kon never sends requests to the client: its tools run without
+confirmation and use the file system directly.
 
 ## Storage upgrades
 

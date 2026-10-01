@@ -76,6 +76,17 @@ func Describe(name string, args json.RawMessage, result string, failed bool, det
 	return Display{State: StateDone, Summary: summary, Lines: lines, More: more}
 }
 
+// Summarize renders a call's one-line request summary, as the transcript shows
+// it while the call runs.
+func Summarize(name string, args json.RawMessage, cwd string) string {
+	if tool, ok := defaultDisplays.Lookup(name); ok {
+		if d, ok := tool.(Displayer); ok {
+			return d.Summarize(args, cwd)
+		}
+	}
+	return FallbackSummary(args)
+}
+
 // FallbackSummary renders arguments the generic way: compact JSON when
 // possible, the raw string otherwise. It is also the summary of last resort
 // inside tools whose arguments do not parse.

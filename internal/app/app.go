@@ -531,6 +531,13 @@ func (r *Runtime) Run(ctx context.Context, prompt string, inbox *agent.Inbox, em
 	})
 }
 
+// RunPrompt is Run for a prompt with attachments.
+func (r *Runtime) RunPrompt(ctx context.Context, prompt agent.Prompt, inbox *agent.Inbox, emit func(agent.Event)) error {
+	return r.operate(ctx, func(ctx context.Context, runner *agent.Runner) error {
+		return runner.RunPrompt(ctx, prompt, inbox, emit)
+	})
+}
+
 // Compact forces a manual compaction of the live session. Like Run it occupies
 // the busy phase so it cannot race an active request, and it can be cancelled
 // with Esc through the same context.
@@ -665,6 +672,21 @@ func (r *Runtime) SessionID() typedid.SessionID {
 		return r.view.ID()
 	}
 	if r.store == nil || r.store.Empty() || r.incognito {
+		return typedid.SessionID{}
+	}
+	return r.store.ID()
+}
+
+// LiveID is the live session's identifier even while it is empty, for a
+// frontend that must name a session before its first message. An empty
+// session is still discarded on close, so the ID may never be resumable.
+func (r *Runtime) LiveID() typedid.SessionID {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.view != nil {
+		return r.view.ID()
+	}
+	if r.store == nil {
 		return typedid.SessionID{}
 	}
 	return r.store.ID()

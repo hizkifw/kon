@@ -321,6 +321,52 @@ func TestCycleEffortSavesAndSwitchResetsIt(t *testing.T) {
 	}
 }
 
+func TestSetEffortSavesALevelAndRefusesOthers(t *testing.T) {
+	root := t.TempDir()
+	paths := config.Paths{ConfigFile: filepath.Join(root, "config.json"), Sessions: filepath.Join(root, "sessions")}
+	cfg := configured("gpt")
+	cfg.Models[0].ReasoningEfforts = []string{"low", "high"}
+	if err := cfg.Save(paths.ConfigFile); err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := New(cfg, paths, t.TempDir(), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+	if err := runtime.SetEffort("high"); err != nil {
+		t.Fatal(err)
+	}
+	if got := runtime.State().Active.ReasoningEffort; got != "high" {
+		t.Fatalf("effort = %q", got)
+	}
+	if saved, err := config.Load(paths.ConfigFile); err != nil || saved.ReasoningEffort != "high" {
+		t.Fatalf("saved effort = %q, %v", saved.ReasoningEffort, err)
+	}
+	if err := runtime.SetEffort("max"); err == nil || runtime.State().Active.ReasoningEffort != "high" {
+		t.Fatalf("unlisted effort: err = %v, effort = %q", err, runtime.State().Active.ReasoningEffort)
+	}
+	if err := runtime.SetEffort(""); err != nil || runtime.State().Active.ReasoningEffort != "" {
+		t.Fatalf("default effort: err = %v, effort = %q", err, runtime.State().Active.ReasoningEffort)
+	}
+}
+
+func TestLiveIDNamesAnEmptySession(t *testing.T) {
+	root := t.TempDir()
+	paths := config.Paths{ConfigFile: filepath.Join(root, "config.json"), Sessions: filepath.Join(root, "sessions")}
+	runtime, err := New(configured("gpt"), paths, t.TempDir(), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+	if !runtime.SessionID().IsZero() {
+		t.Fatal("an empty session has a resumable ID")
+	}
+	if runtime.LiveID().IsZero() {
+		t.Fatal("an empty session has no live ID")
+	}
+}
+
 func TestUnlistedSavedEffortFallsBackToDefault(t *testing.T) {
 	root := t.TempDir()
 	paths := config.Paths{ConfigFile: filepath.Join(root, "config.json"), Sessions: filepath.Join(root, "sessions")}

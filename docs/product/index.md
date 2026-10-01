@@ -56,6 +56,7 @@ work in version control.
 | --- | --- |
 | [Working with kon](usage.md) | Prompting, steering, sessions, background jobs, subagents, and copying |
 | [Scripting](scripting.md) | `kon run` in pipelines, JSON events, and `kon md` |
+| [Editor integration](acp.md) | `kon acp` for editors that speak the Agent Client Protocol |
 | [Configuration](configuration.md) | Providers, models, context limits, reasoning, cost, and project instructions |
 | [Reference](reference.md) | Every command, flag, key, tool, environment variable, and config field |
 

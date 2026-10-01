@@ -163,3 +163,28 @@ func TestRunPersistsImagePartsFromTool(t *testing.T) {
 		t.Fatalf("tool content should describe, not inline, the image: %q", text)
 	}
 }
+
+func TestRunPromptAttachesMediaAfterText(t *testing.T) {
+	store, err := newSession(t.TempDir(), t.TempDir(), "test", "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	runner := newRunner(testLimits, &fakeProvider{}, store)
+	prompt := Prompt{Text: "what is this?", Media: []tool.Media{{Data: pngHeader, MIME: "image/png"}}}
+	if err := runner.RunPrompt(context.Background(), prompt, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	items, err := store.Context()
+	if err != nil {
+		t.Fatal(err)
+	}
+	user := items[1].Message
+	if user.Role != session.RoleUser || len(user.Parts) != 2 || user.Parts[0].Text != "what is this?" || user.Parts[1].Type != session.PartMedia || user.Parts[1].MediaMIME != "image/png" {
+		t.Fatalf("user message = %#v", user)
+	}
+	data, err := store.ReadMedia(user.Parts[1].MediaHash)
+	if err != nil || string(data) != string(pngHeader) {
+		t.Fatalf("stored image = %x, %v", data, err)
+	}
+}

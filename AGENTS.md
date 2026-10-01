@@ -51,6 +51,7 @@ them with its own prompt and tools. Everything kon-specific lives in `internal/`
 | `internal/tui` | kon-agnostic terminal widgets: scroll container, word wrap, line fitting, and the drawer stack with its lists | anything kon-specific: colors, transcripts, sessions, or actions |
 | `internal/markdown` | Markdown to styled, wrapped lines, streaming, and selections cut back out as Markdown | colors, terminal output, or transcript state |
 | `internal/headless` | `kon run` output: streamed text or JSON events, one run per process | terminal state or session policy |
+| `internal/acp` | `kon acp`: the Agent Client Protocol over stdio, its turn queue per session, and kon's extensions | terminal state or session storage |
 | `internal/app` | live runner/store lifecycle and model switching | terminal presentation |
 | `core/agent` | the model/tool loop, retry events, and compaction policy | prompts, concrete tools, or terminal rendering |
 | `core/tool` | the tool contract: `Tool`, `Registry`, and `Executor` | concrete tools or their presentation |

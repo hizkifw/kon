@@ -247,7 +247,21 @@ func (r *Runner) Interrupt(attempt int) bool {
 // its duration; the end is written however the turn returns, including on
 // cancellation, so only a process that dies mid-turn leaves a start unmatched.
 // emit may be nil when only the stored conversation matters.
-func (r *Runner) Run(ctx context.Context, prompt string, inbox *Inbox, emit func(Event)) (err error) {
+func (r *Runner) Run(ctx context.Context, prompt string, inbox *Inbox, emit func(Event)) error {
+	return r.RunPrompt(ctx, Prompt{Text: prompt}, inbox, emit)
+}
+
+// Prompt is a user message with attachments, for a program whose user can
+// attach files to what they send.
+type Prompt struct {
+	Text string
+	// Media is attached after the text, as a tool's result attaches it. A
+	// model that does not accept its kind is sent a placeholder instead.
+	Media []tool.Media
+}
+
+// RunPrompt is Run for a prompt with attachments.
+func (r *Runner) RunPrompt(ctx context.Context, prompt Prompt, inbox *Inbox, emit func(Event)) (err error) {
 	emit = orDiscard(emit)
 	start := time.Now()
 	if _, err := r.session.AppendTurnStart(); err != nil {
@@ -261,8 +275,19 @@ func (r *Runner) Run(ctx context.Context, prompt string, inbox *Inbox, emit func
 	return r.run(ctx, prompt, inbox, emit)
 }
 
-func (r *Runner) run(ctx context.Context, prompt string, inbox *Inbox, emit func(Event)) error {
-	if _, err := r.session.AppendMessage(session.TextMessage(session.RoleUser, prompt)); err != nil {
+func (r *Runner) run(ctx context.Context, prompt Prompt, inbox *Inbox, emit func(Event)) error {
+	message := session.TextMessage(session.RoleUser, prompt.Text)
+	if prompt.Text == "" {
+		message.Parts = nil
+	}
+	for _, media := range prompt.Media {
+		part, err := r.session.SaveMedia(media.Data, media.MIME)
+		if err != nil {
+			return err
+		}
+		message.Parts = append(message.Parts, part)
+	}
+	if _, err := r.session.AppendMessage(message); err != nil {
 		return err
 	}
 

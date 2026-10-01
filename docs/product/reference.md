@@ -14,6 +14,7 @@ Every command, key, tool, and setting in one place. For how to use them, see
 | `kon --incognito` | Start a session that is never saved. It cannot be combined with `--resume`. |
 | `kon --version` | Print the version. |
 | `kon run [flags] <message>` | Send one prompt without the full-screen UI; see [Scripting](scripting.md#flags). |
+| `kon acp` | Serve the Agent Client Protocol on stdin and stdout for an editor; see [Editor integration](acp.md). |
 | `kon md [--width <n>] [file]` | Render Markdown for the terminal; see [Render Markdown](scripting.md#render-markdown). |
 | `kon models [--refresh]` | List the catalog's model IDs; `--refresh` downloads the latest catalog first. |
 | `kon upgrade [--check]` | Install the latest release; `--check` only reports whether there is one. |
