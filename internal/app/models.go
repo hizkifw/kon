@@ -10,11 +10,11 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/hizkifw/kon/core/session"
+	"github.com/hizkifw/kon/core/tokens"
 	"github.com/hizkifw/kon/internal/catalog"
 	"github.com/hizkifw/kon/internal/config"
 	"github.com/hizkifw/kon/internal/login"
-	"github.com/hizkifw/kon/internal/session"
-	"github.com/hizkifw/kon/internal/tokens"
 )
 
 // Models combines explicit profiles with discovered and catalog entries.

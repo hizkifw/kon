@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hizkifw/kon/internal/tools"
+	"github.com/hizkifw/kon/internal/codetools"
 )
 
 // benchTranscript builds a transcript of n representative blocks, ending with a
@@ -19,8 +19,8 @@ func benchTranscript(n int) *transcript {
 		case 1:
 			tr.add(block{kind: blockAssistant, text: strings.Repeat("assistant reply text here ", 20)})
 		case 2:
-			tr.add(block{kind: blockTool, name: "read", args: `{"path":"/tmp/a.go"}`, display: tools.Display{State: tools.StateRunning, Summary: "a.go"}})
-			tr.add(block{kind: blockResult, name: "read", display: tools.Display{State: tools.StateDone, Summary: "a.go", Note: "12 lines"}})
+			tr.add(block{kind: blockTool, name: "read", args: `{"path":"/tmp/a.go"}`, display: codetools.Display{State: codetools.StateRunning, Summary: "a.go"}})
+			tr.add(block{kind: blockResult, name: "read", display: codetools.Display{State: codetools.StateDone, Summary: "a.go", Note: "12 lines"}})
 		}
 	}
 	return tr

@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
-	"github.com/hizkifw/kon/internal/agent"
-	"github.com/hizkifw/kon/internal/session"
+	"github.com/hizkifw/kon/core/agent"
+	"github.com/hizkifw/kon/core/session"
 )
 
 // TestTimerEndToEndAcrossTwoTurns replays the requested behaviour: a first turn

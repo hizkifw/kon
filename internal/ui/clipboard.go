@@ -9,7 +9,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/hizkifw/kon/internal/tools"
+	"github.com/hizkifw/kon/internal/codetools"
 )
 
 // copyUsage is /copy's usage line, shown when its argument is not one it
@@ -111,7 +111,7 @@ func quoted(text string) string {
 // toolLine renders a finished call as one plain line.
 func toolLine(b block) string {
 	line := "✓ " + b.name
-	if b.display.State == tools.StateFailed {
+	if b.display.State == codetools.StateFailed {
 		line = "✗ " + b.name
 	}
 	if b.display.Summary != "" {

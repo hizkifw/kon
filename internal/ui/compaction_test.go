@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hizkifw/kon/internal/agent"
+	"github.com/hizkifw/kon/core/agent"
 )
 
 // summaryText is long enough to wrap and has the headings a real summary has.

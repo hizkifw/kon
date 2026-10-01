@@ -12,10 +12,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hizkifw/kon/internal/agent"
+	"github.com/hizkifw/kon/core/agent"
+	"github.com/hizkifw/kon/core/typedid"
 	"github.com/hizkifw/kon/internal/app"
-	"github.com/hizkifw/kon/internal/tools"
-	"github.com/hizkifw/kon/internal/typedid"
+	"github.com/hizkifw/kon/internal/codetools"
 )
 
 // Runtime is the part of app.Runtime a headless run drives.
@@ -158,7 +158,7 @@ func (w *textWriter) event(e agent.Event) {
 	case agent.EventAssistantDone:
 		w.endMessage()
 	case agent.EventToolDone:
-		d := tools.Describe(e.Tool, json.RawMessage(e.Arguments), e.Text, e.IsError, e.Details, w.out.CWD)
+		d := codetools.Describe(e.Tool, json.RawMessage(e.Arguments), e.Text, e.IsError, e.Details, w.out.CWD)
 		mark := "✓"
 		if e.IsError {
 			mark = "✗"

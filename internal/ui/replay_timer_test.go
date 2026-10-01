@@ -5,8 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hizkifw/kon/internal/agent"
-	"github.com/hizkifw/kon/internal/session"
+	"github.com/hizkifw/kon/core/agent"
+	"github.com/hizkifw/kon/core/session"
+	"github.com/hizkifw/kon/core/typedid"
+	"github.com/hizkifw/kon/internal/sessions"
 )
 
 // TestReplayMatchesLiveAfterManualCompact round-trips a real session store
@@ -14,7 +16,7 @@ import (
 // after a finished turn must not stretch that turn's total, and the total must
 // sit above the compaction marker exactly as it did live.
 func TestReplayMatchesLiveAfterManualCompact(t *testing.T) {
-	store, err := session.New(t.TempDir(), "/tmp", "test", "system")
+	store, err := sessions.New(t.TempDir(), "/tmp", "test", "system", typedid.SessionID{})
 	if err != nil {
 		t.Fatal(err)
 	}

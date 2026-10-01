@@ -13,13 +13,15 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/hizkifw/kon/internal/agent"
+	"github.com/hizkifw/kon/core/agent"
+	"github.com/hizkifw/kon/core/provider"
+	"github.com/hizkifw/kon/core/session"
+	"github.com/hizkifw/kon/core/tokens"
+	"github.com/hizkifw/kon/core/tool"
+	"github.com/hizkifw/kon/core/typedid"
+	"github.com/hizkifw/kon/internal/codetools"
 	"github.com/hizkifw/kon/internal/config"
-	"github.com/hizkifw/kon/internal/provider"
-	"github.com/hizkifw/kon/internal/session"
-	"github.com/hizkifw/kon/internal/tokens"
-	"github.com/hizkifw/kon/internal/tools"
-	"github.com/hizkifw/kon/internal/typedid"
+	"github.com/hizkifw/kon/internal/sessions"
 )
 
 type blockingProvider struct{ started chan struct{} }
@@ -397,7 +399,7 @@ func TestSubagentUsageReadsChildSessions(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		child, err := session.NewChild(paths.Sessions, cwd, "test", "system", runtime.store.ID())
+		child, err := sessions.New(paths.Sessions, cwd, "test", "system", runtime.store.ID())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -658,7 +660,7 @@ func TestCloseCancelsAndWaitsForActiveRun(t *testing.T) {
 	provider := &blockingProvider{started: make(chan struct{})}
 	runtime := &Runtime{
 		active: profile, store: store, phase: PhaseReady,
-		runner: agent.New(profile.limits(config.Default().Compaction), provider, store, tools.New(t.TempDir(), false, nil)),
+		runner: agent.New(agent.Config{Limits: profile.limits(config.Default().Compaction), Provider: provider, Store: store, Tools: tool.NewExecutor(codetools.Registry(nil), t.TempDir(), false)}),
 	}
 	runDone := make(chan error, 1)
 	go func() { runDone <- runtime.Run(context.Background(), "work", nil, func(agent.Event) {}) }()
@@ -680,7 +682,7 @@ func TestCloseRefusesOperationsWhileTheRunWindsDown(t *testing.T) {
 	provider := &windingProvider{started: make(chan struct{}), cancelled: make(chan struct{}), release: make(chan struct{})}
 	runtime := &Runtime{
 		active: profile, store: store, phase: PhaseReady,
-		runner: agent.New(profile.limits(config.Default().Compaction), provider, store, tools.New(t.TempDir(), false, nil)),
+		runner: agent.New(agent.Config{Limits: profile.limits(config.Default().Compaction), Provider: provider, Store: store, Tools: tool.NewExecutor(codetools.Registry(nil), t.TempDir(), false)}),
 	}
 	runDone := make(chan error, 1)
 	go func() { runDone <- runtime.Run(context.Background(), "work", nil, func(agent.Event) {}) }()
@@ -753,7 +755,7 @@ func TestResumeSwitchesToPersistedSession(t *testing.T) {
 		t.Fatal("session with content has no session ID")
 	}
 
-	other, err := session.New(paths.Sessions, cwd, "test", "system")
+	other, err := sessions.New(paths.Sessions, cwd, "test", "system", typedid.SessionID{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -786,7 +788,7 @@ func TestResumeReportsPersistedContextUsage(t *testing.T) {
 	}
 	defer runtime.Close()
 
-	other, err := session.New(paths.Sessions, cwd, "test", "system")
+	other, err := sessions.New(paths.Sessions, cwd, "test", "system", typedid.SessionID{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -843,7 +845,7 @@ func TestNewResumedIDOpensSpecificSession(t *testing.T) {
 	dir := t.TempDir()
 	paths := config.Paths{Sessions: filepath.Join(dir, "sessions"), ConfigFile: filepath.Join(dir, "config.json")}
 	cwd := t.TempDir()
-	store, err := session.New(paths.Sessions, cwd, "test", "system")
+	store, err := sessions.New(paths.Sessions, cwd, "test", "system", typedid.SessionID{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -898,7 +900,7 @@ func TestCompactRefusesWhileRunning(t *testing.T) {
 
 func testStore(t *testing.T) *session.Store {
 	t.Helper()
-	store, err := session.New(t.TempDir(), t.TempDir(), "test", "system")
+	store, err := sessions.New(t.TempDir(), t.TempDir(), "test", "system", typedid.SessionID{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -910,7 +912,7 @@ func TestIncognitoSavesNothingAndResumesNothing(t *testing.T) {
 	dir := t.TempDir()
 	paths := config.Paths{Sessions: filepath.Join(dir, "sessions"), ConfigFile: filepath.Join(dir, "config.json")}
 	cwd := t.TempDir()
-	saved, err := session.New(paths.Sessions, cwd, "test", "system")
+	saved, err := sessions.New(paths.Sessions, cwd, "test", "system", typedid.SessionID{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -939,6 +941,7 @@ func TestIncognitoSavesNothingAndResumesNothing(t *testing.T) {
 	if env := runtime.jobs[runtime.store].Env(); !slices.Contains(env, "KON_INCOGNITO=1") {
 		t.Fatalf("shell env = %v, want subagents kept incognito", env)
 	}
+	jobsDir := runtime.jobs[runtime.store].Dir()
 	if _, err := runtime.Sessions(); !errors.Is(err, ErrIncognito) {
 		t.Fatalf("Sessions: err = %v, want ErrIncognito", err)
 	}
@@ -954,9 +957,12 @@ func TestIncognitoSavesNothingAndResumesNothing(t *testing.T) {
 	if err := runtime.Close(); err != nil {
 		t.Fatal(err)
 	}
-	summaries, err := session.Discover(paths.Sessions, cwd)
+	summaries, err := sessions.Discover(paths.Sessions, cwd)
 	if err != nil || len(summaries) != 1 || summaries[0].ID != saved.ID() {
 		t.Fatalf("Discover = (%#v, %v), want only the saved session", summaries, err)
+	}
+	if _, err := os.Stat(jobsDir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("incognito jobs directory %q survived close: %v", jobsDir, err)
 	}
 }
 
@@ -970,8 +976,12 @@ func TestShellCommandsRunThisKon(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer runtime.Close()
+	jobs, err := runtime.jobsFor(runtime.store)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var path string
-	for _, variable := range runtime.jobsFor(runtime.store).Env() {
+	for _, variable := range jobs.Env() {
 		if value, ok := strings.CutPrefix(variable, "PATH="); ok {
 			path = value
 		}

@@ -11,14 +11,15 @@ import (
 
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
-	"github.com/hizkifw/kon/internal/agent"
+	"github.com/hizkifw/kon/core/agent"
+	"github.com/hizkifw/kon/core/session"
+	"github.com/hizkifw/kon/core/tokens"
+	"github.com/hizkifw/kon/core/typedid"
 	"github.com/hizkifw/kon/internal/app"
+	"github.com/hizkifw/kon/internal/codetools"
 	"github.com/hizkifw/kon/internal/config"
 	"github.com/hizkifw/kon/internal/history"
-	"github.com/hizkifw/kon/internal/session"
-	"github.com/hizkifw/kon/internal/tokens"
-	"github.com/hizkifw/kon/internal/tools"
-	"github.com/hizkifw/kon/internal/typedid"
+	"github.com/hizkifw/kon/internal/sessions"
 )
 
 const streamFrameInterval = 50 * time.Millisecond
@@ -47,7 +48,7 @@ type Runtime interface {
 	LoadCatalog()
 	NewSession() error
 	Resume(typedid.SessionID) error
-	Sessions() ([]session.Summary, error)
+	Sessions() ([]sessions.Summary, error)
 	SessionID() typedid.SessionID
 	SessionHistory() []session.Entry
 	// Incognito reports that sessions are kept in memory only, which the
@@ -62,14 +63,14 @@ type Runtime interface {
 	SessionPreview(path string, maxTurns int) ([]session.Entry, error)
 	// DescribeTool resolves a persisted tool call's transcript display through
 	// the tool that owns it, so replay matches live rendering.
-	DescribeTool(name string, args json.RawMessage, result string, failed bool, details json.RawMessage) tools.Display
+	DescribeTool(name string, args json.RawMessage, result string, failed bool, details json.RawMessage) codetools.Display
 	// Notices delivers kon's notices for the agent, such as a background job
 	// exiting; RunningJobs counts the live session's running jobs.
 	Notices() <-chan string
 	RunningJobs() int
 	// Jobs lists the session's background jobs, KillJob stops one, and
 	// OpenSubagent opens a subagent job's own session to follow it.
-	Jobs() []tools.Job
+	Jobs() []codetools.Job
 	KillJob(id int) error
 	OpenSubagent(id typedid.SessionID) (*session.View, error)
 	// ContextUsage reports the last provider-reported context size and whether it

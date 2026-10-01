@@ -12,8 +12,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/hizkifw/kon/internal/provider/wire"
-	"github.com/hizkifw/kon/internal/tokens"
+	"github.com/hizkifw/kon/core/provider/wire"
+	"github.com/hizkifw/kon/core/tokens"
 )
 
 const filename = "config.json"

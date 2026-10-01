@@ -3,7 +3,7 @@ package ui
 import (
 	"testing"
 
-	"github.com/hizkifw/kon/internal/tools"
+	"github.com/hizkifw/kon/internal/codetools"
 )
 
 // The returned commands are never run here: running one would write to the
@@ -15,7 +15,7 @@ func TestCopyTakesTheLatestReplySource(t *testing.T) {
 	m.transcript.add(block{kind: blockAssistant, text: "old reply"})
 	m.transcript.add(block{kind: blockUser, text: "second"})
 	m.transcript.add(block{kind: blockAssistant, text: "Looking."})
-	m.transcript.add(block{kind: blockResult, name: "read", display: tools.Display{State: tools.StateDone}})
+	m.transcript.add(block{kind: blockResult, name: "read", display: codetools.Display{State: codetools.StateDone}})
 	m.transcript.add(block{kind: blockAssistant, text: "Use `x`:\n\n```go\nx := 1\n```"})
 	m.transcript.add(block{kind: blockElapsed, text: "Worked for 2s"})
 
@@ -48,9 +48,9 @@ func TestConversationKeepsTheExchangeOnly(t *testing.T) {
 	tr.add(block{kind: blockUser, text: "fix it\n\nplease"})
 	tr.add(block{kind: blockThinking, text: "hmm"})
 	tr.add(block{kind: blockTool, name: "read"})
-	tr.add(block{kind: blockResult, name: "read", display: tools.Display{State: tools.StateDone, Summary: "a.go", Note: "3 lines"}})
+	tr.add(block{kind: blockResult, name: "read", display: codetools.Display{State: codetools.StateDone, Summary: "a.go", Note: "3 lines"}})
 	tr.add(block{kind: blockTool, name: "shell"})
-	tr.add(block{kind: blockResult, name: "shell", display: tools.Display{State: tools.StateFailed, Summary: "make"}})
+	tr.add(block{kind: blockResult, name: "shell", display: codetools.Display{State: codetools.StateFailed, Summary: "make"}})
 	tr.add(block{kind: blockAssistant, text: "Done."})
 	tr.add(block{kind: blockElapsed, text: "Worked for 2s"})
 	tr.add(block{kind: blockContext, text: "compacted 1k tokens"})

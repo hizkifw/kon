@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hizkifw/kon/internal/agent"
+	"github.com/hizkifw/kon/core/agent"
+	"github.com/hizkifw/kon/core/typedid"
 	"github.com/hizkifw/kon/internal/app"
-	"github.com/hizkifw/kon/internal/typedid"
 )
 
 // scriptedRuntime replays a fixed event stream and then returns err.

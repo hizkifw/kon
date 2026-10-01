@@ -15,6 +15,21 @@ app runtime ────── agent runner ───── provider layer
     └── session store ───── append-only JSONL
 ```
 
+## Core and CLI
+
+`core/` is everything that makes an agent run: the `agent.Runner` loop with
+compaction, provider backends with retries, the session store, and the
+`tool.Tool` contract. It knows nothing about kon's prompt, tools, or terminal.
+The CLI supplies those: `internal/prompt` builds the system prompt,
+`internal/codetools` registers read, write, edit, and shell, and `internal/app`
+puts them together in an `agent.Config`. A tool's live progress reaches the
+event stream as an opaque snapshot; kon's tools report a `codetools.Display`,
+which the UI paints. Another program, such as a chat bot, builds its own
+registry and prompt the same way; `core/agent/example_test.go` shows one. The
+runner extends any `agent.Store`: kon's is a `session.Store`, while a program
+keeping conversations in its own database implements the interface and builds
+the model's context with `session.Project`.
+
 ## Runtime flow
 
 1. Resolve configuration and data roots. Acquire a storage lease, run any
@@ -22,8 +37,8 @@ app runtime ────── agent runner ───── provider layer
 2. Create a cwd-scoped session and persist the exact system prompt. With
    `--resume`, open the newest existing session for the directory (or a named
    one) instead of creating a session, and replay its active path for display.
-   With `--incognito`, the session is `session.NewEphemeral`: the same store
-   and append path, writing to a discarded file, with images held in memory.
+   With `--incognito`, the session is `session.NewMemory`: the same store
+   and append path, with nothing written and images held in memory.
 3. Render the alternate-screen TUI. No provider request occurs during startup.
 4. Persist a submitted user message before starting network work.
 5. Stream one assistant message. A completed message is persisted atomically as
@@ -199,7 +214,7 @@ as a role-colored slab: user and error messages carry distinct backgrounds,
 agent messages render on the default terminal background, thinking traces
 render in muted gray, and consecutive tool calls pair with their results and
 collapse into a single grouped slab so bursts of tool activity stay compact.
-Each tool owns its transcript presentation through the `tools.Displayer`
+Each tool owns its transcript presentation through the `codetools.Displayer`
 interface: it renders the request-line summary and the trimmed result body
 from the persisted arguments and content, so the transcript never parses tool
 output, and a resumed session replays the identical display. A long-running
@@ -267,7 +282,7 @@ are never rewritten by a catalog refresh. Normal startup does not load the
 catalog or contact models.dev.
 
 Two concepts are kept apart. A wire format (the config `type`) is how kon
-talks to a server; `internal/provider/wire` lists every format with its
+talks to a server; `core/provider/wire` lists every format with its
 protocol, default base URL, API path, auth headers, reasoning-effort encoding,
 default reasoning field, and whether model listing is optional. Config
 validation, both backends, and login discovery all read that one table. The
@@ -501,7 +516,7 @@ never reprices past work.
   `KON_SESSION` as its session's parent, writes its session ID into `KON_JOB`,
   keeps its session in memory with `--incognito` or under `KON_INCOGNITO`, and
   refuses to start past a fixed depth. What subagents spend is read from their
-  own sessions: `session.Subagents` finds every session in the workspace whose
+  own sessions: `sessions.Subagents` finds every session in the workspace whose
   parent chain leads to the live one. A subagent is always created after its
   parent, and file names start with the creation time, so only newer files
   are considered, each header read once. Each subagent session is then read
@@ -523,7 +538,7 @@ inspected. JSON, typed-ID generation, files, subprocesses, and release
 cross-compilation also use the Go standard library. Dependencies are pinned in
 `go.mod` and authenticated by `go.sum`.
 
-Owned identifiers are value objects from `internal/typedid`. Their unexported
+Owned identifiers are value objects from `core/typedid`. Their unexported
 representation prevents arbitrary construction outside that package. External
 provider IDs use distinct named-string wrappers: kon prevents category mistakes
 without applying rules to identifiers it does not own.

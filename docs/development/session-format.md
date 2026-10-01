@@ -17,8 +17,10 @@ The schema version governs the file representation. Readers accept only version
 4. The startup migration converts version 1 sessions written by kon v0.1.1 to
 version 4 before a reader opens them. Versions 2 and 3 are not migrated.
 
-Session files are named `<UTC timestamp>_<session ID>.jsonl`, where the timestamp
-has millisecond precision. Listing orders sessions by the header `timestamp`
+kon names session files `<UTC timestamp>_<session ID>.jsonl`, where the timestamp
+has millisecond precision, in one directory per working directory
+(`internal/sessions`). The format itself does not depend on either: a program
+using `core/session` writes a session wherever it creates one. Listing orders sessions by the header `timestamp`
 rather than the name, because two sessions created in the same millisecond would
 otherwise tie on their random session ID.
 

@@ -15,18 +15,18 @@ This runs every `Benchmark` in the module with allocation counts. The UI and
 markdown suites dominate the run time, so filter while iterating:
 
 ```sh
-go test -run '^$' -bench DecodeChatStream -benchmem ./internal/provider
+go test -run '^$' -bench DecodeChatStream -benchmem ./core/provider
 ```
 
 | Benchmark | Guards |
 | --- | --- |
-| `internal/provider` `BenchmarkDecodeChatStream` | SSE decoding stays flat per delta as a reply grows |
+| `core/provider` `BenchmarkDecodeChatStream` | SSE decoding stays flat per delta as a reply grows |
 | `internal/markdown` `BenchmarkStream*`, `BenchmarkRender*` | streamed markdown rendering |
 | `internal/ui` `BenchmarkTranscriptRender*`, `BenchmarkViewportRefresh` | transcript folding and per-frame refresh; see [rendering-performance.md](rendering-performance.md) |
 | `internal/catalog` `BenchmarkNew` | loading the bundled model catalog |
 | `internal/projectfiles` `BenchmarkList` | project-file discovery through Git and the directory fallback at 1k, 10k, 50k, and 100k files |
 | `internal/ui` `BenchmarkMentionCandidates` | per-keystroke file matching and ranking at 1k, 10k, and 50k cached paths |
-| `internal/session` `BenchmarkSubagents*` | counting subagent usage in a workspace of 2,000 sessions: the first read, the once-a-second read, and the memory kept while following them (`retained-MiB`) |
+| `core/session` `BenchmarkSubagents*` | counting subagent usage in a workspace of 2,000 sessions: the first read, the once-a-second read, and the memory kept while following them (`retained-MiB`) |
 
 Several stream benchmarks grow their input on every iteration, so their
 `ns/op` depends on `b.N` and is not comparable across machines or runs. Compare
