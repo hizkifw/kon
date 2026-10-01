@@ -22,80 +22,40 @@ type SessionID struct{ value string }
 
 // NewSessionID makes a random session ID.
 func NewSessionID() (SessionID, error) {
-	value, err := generate("ses")
+	value, err := sessionKind.generate()
 	return SessionID{value: value}, err
 }
 
 // ParseSessionID reads a session ID, rejecting any other shape.
 func ParseSessionID(value string) (SessionID, error) {
-	if err := validate(value, "ses"); err != nil {
-		return SessionID{}, fmt.Errorf("invalid session ID: %w", err)
-	}
-	return SessionID{value: value}, nil
+	value, err := sessionKind.parse(value)
+	return SessionID{value: value}, err
 }
 
-func (id SessionID) String() string { return id.value }
-func (id SessionID) IsZero() bool   { return id.value == "" }
-
-func (id SessionID) MarshalJSON() ([]byte, error) {
-	if id.IsZero() {
-		return nil, fmt.Errorf("marshal zero session ID")
-	}
-	return json.Marshal(id.value)
-}
-
-func (id *SessionID) UnmarshalJSON(data []byte) error {
-	var value string
-	if err := json.Unmarshal(data, &value); err != nil {
-		return err
-	}
-	parsed, err := ParseSessionID(value)
-	if err != nil {
-		return err
-	}
-	*id = parsed
-	return nil
-}
+func (id SessionID) String() string                   { return id.value }
+func (id SessionID) IsZero() bool                     { return id.value == "" }
+func (id SessionID) MarshalJSON() ([]byte, error)     { return sessionKind.marshal(id.value) }
+func (id *SessionID) UnmarshalJSON(data []byte) error { return sessionKind.unmarshal(data, &id.value) }
 
 // EntryID has the serialized form ent_<20 base62 characters>.
 type EntryID struct{ value string }
 
 // NewEntryID makes a random entry ID.
 func NewEntryID() (EntryID, error) {
-	value, err := generate("ent")
+	value, err := entryKind.generate()
 	return EntryID{value: value}, err
 }
 
 // ParseEntryID reads an entry ID, rejecting any other shape.
 func ParseEntryID(value string) (EntryID, error) {
-	if err := validate(value, "ent"); err != nil {
-		return EntryID{}, fmt.Errorf("invalid entry ID: %w", err)
-	}
-	return EntryID{value: value}, nil
+	value, err := entryKind.parse(value)
+	return EntryID{value: value}, err
 }
 
-func (id EntryID) String() string { return id.value }
-func (id EntryID) IsZero() bool   { return id.value == "" }
-
-func (id EntryID) MarshalJSON() ([]byte, error) {
-	if id.IsZero() {
-		return nil, fmt.Errorf("marshal zero entry ID")
-	}
-	return json.Marshal(id.value)
-}
-
-func (id *EntryID) UnmarshalJSON(data []byte) error {
-	var value string
-	if err := json.Unmarshal(data, &value); err != nil {
-		return err
-	}
-	parsed, err := ParseEntryID(value)
-	if err != nil {
-		return err
-	}
-	*id = parsed
-	return nil
-}
+func (id EntryID) String() string                   { return id.value }
+func (id EntryID) IsZero() bool                     { return id.value == "" }
+func (id EntryID) MarshalJSON() ([]byte, error)     { return entryKind.marshal(id.value) }
+func (id *EntryID) UnmarshalJSON(data []byte) error { return entryKind.unmarshal(data, &id.value) }
 
 // ToolCallID is controlled by an external model provider. No local format
 // constraints are applied; the type exists to prevent mixing it with kon IDs.
@@ -112,7 +72,17 @@ type ModelID string
 func ExternalModelID(value string) ModelID { return ModelID(value) }
 func (id ModelID) String() string          { return string(id) }
 
-func generate(prefix string) (string, error) {
+// kind is what sets one kon-owned ID apart from another: the prefix it is
+// serialized with and the noun its errors use. Each ID type delegates to its
+// kind, so generation and validation are written once.
+type kind struct{ prefix, noun string }
+
+var (
+	sessionKind = kind{prefix: "ses", noun: "session"}
+	entryKind   = kind{prefix: "ent", noun: "entry"}
+)
+
+func (k kind) generate() (string, error) {
 	random := make([]byte, randomLength)
 	// Reject bytes outside the largest multiple of 62 below 256 to avoid modulo bias.
 	const ceiling = byte(248)
@@ -120,7 +90,7 @@ func generate(prefix string) (string, error) {
 		for {
 			var candidate [1]byte
 			if _, err := rand.Read(candidate[:]); err != nil {
-				return "", fmt.Errorf("generate %s ID: %w", prefix, err)
+				return "", fmt.Errorf("generate %s ID: %w", k.noun, err)
 			}
 			if candidate[0] < ceiling {
 				random[i] = base62[int(candidate[0])%len(base62)]
@@ -128,11 +98,20 @@ func generate(prefix string) (string, error) {
 			}
 		}
 	}
-	return prefix + "_" + string(random), nil
+	return k.prefix + "_" + string(random), nil
 }
 
-func validate(value, prefix string) error {
-	wantPrefix := prefix + "_"
+// parse returns value unchanged if it has this kind's shape, and "" otherwise,
+// so a failed parse always yields the zero ID.
+func (k kind) parse(value string) (string, error) {
+	if err := k.validate(value); err != nil {
+		return "", fmt.Errorf("invalid %s ID: %w", k.noun, err)
+	}
+	return value, nil
+}
+
+func (k kind) validate(value string) error {
+	wantPrefix := k.prefix + "_"
 	if !strings.HasPrefix(value, wantPrefix) {
 		return fmt.Errorf("must start with %q", wantPrefix)
 	}
@@ -145,5 +124,29 @@ func validate(value, prefix string) error {
 			return fmt.Errorf("contains non-base62 character %q", char)
 		}
 	}
+	return nil
+}
+
+// marshal refuses the zero ID, which would otherwise be written as "" and fail
+// to parse when the session is read back.
+func (k kind) marshal(value string) ([]byte, error) {
+	if value == "" {
+		return nil, fmt.Errorf("marshal zero %s ID", k.noun)
+	}
+	return json.Marshal(value)
+}
+
+// unmarshal sets *dst only when data holds a valid ID, leaving it untouched on
+// error.
+func (k kind) unmarshal(data []byte, dst *string) error {
+	var value string
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	parsed, err := k.parse(value)
+	if err != nil {
+		return err
+	}
+	*dst = parsed
 	return nil
 }
