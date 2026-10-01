@@ -19,7 +19,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hizkifw/kon/internal/buildinfo"
+	"kon.kitsu.red/internal/buildinfo"
 )
 
 const sourceURL = "https://models.dev/api.json"

@@ -38,7 +38,7 @@ for target in $targets; do
   [ "$os" = windows ] && binary=kon.exe
   echo "building $target"
   CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath -buildvcs=false \
-    -ldflags="-s -w -X github.com/hizkifw/kon/internal/buildinfo.version=$version" -o "$dir/$binary" ./cmd/kon
+    -ldflags="-s -w -X kon.kitsu.red/internal/buildinfo.version=$version" -o "$dir/$binary" ./cmd/kon
   cp "$root/README.md" "$root/LICENSE" "$root/THIRD_PARTY_NOTICES" "$dir/"
   if [ "$os" = windows ]; then
     archive="$dist/$name.zip"

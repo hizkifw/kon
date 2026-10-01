@@ -1,7 +1,7 @@
 package tool
 
 import (
-	"github.com/hizkifw/kon/core/session"
+	"kon.kitsu.red/core/session"
 )
 
 // Registry is a catalog of tools. Tools are registered once at startup; the

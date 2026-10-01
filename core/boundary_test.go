@@ -15,7 +15,7 @@ import (
 // internal or cmd would make core unusable outside kon. Test files count too,
 // since core's tests should prove it works without the CLI.
 func TestCoreImportsNoInternalPackage(t *testing.T) {
-	const module = "github.com/hizkifw/kon/"
+	const module = "kon.kitsu.red/"
 	err := filepath.WalkDir(".", func(path string, entry fs.DirEntry, err error) error {
 		if err != nil || entry.IsDir() || !strings.HasSuffix(path, ".go") {
 			return err

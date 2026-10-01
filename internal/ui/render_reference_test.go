@@ -3,7 +3,7 @@ package ui
 import (
 	"strings"
 
-	"github.com/hizkifw/kon/internal/markdown"
+	"kon.kitsu.red/internal/markdown"
 )
 
 // This file holds the from-scratch transcript renderer. Production repaints go

@@ -1,4 +1,4 @@
-module github.com/hizkifw/kon
+module kon.kitsu.red
 
 go 1.25.0
 

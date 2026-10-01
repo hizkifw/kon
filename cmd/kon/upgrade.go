@@ -11,12 +11,12 @@ import (
 	"os/signal"
 	"path/filepath"
 
-	productdocs "github.com/hizkifw/kon/docs/product"
-	"github.com/hizkifw/kon/internal/buildinfo"
-	"github.com/hizkifw/kon/internal/catalog"
-	"github.com/hizkifw/kon/internal/codetools"
-	"github.com/hizkifw/kon/internal/config"
-	"github.com/hizkifw/kon/internal/selfupdate"
+	productdocs "kon.kitsu.red/docs/product"
+	"kon.kitsu.red/internal/buildinfo"
+	"kon.kitsu.red/internal/catalog"
+	"kon.kitsu.red/internal/codetools"
+	"kon.kitsu.red/internal/config"
+	"kon.kitsu.red/internal/selfupdate"
 )
 
 func upgradeCommand() command {

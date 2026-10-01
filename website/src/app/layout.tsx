@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, JetBrains_Mono } from "next/font/google";
-import { binaryMb, ogImage, siteUrl, startupMs } from "@/lib/site";
+import { binaryMb, goImport, ogImage, siteUrl, startupMs } from "@/lib/site";
 import "./globals.css";
 
 const geist = Geist({
@@ -23,6 +23,9 @@ export const metadata: Metadata = {
   alternates: { canonical: "/" },
   openGraph: { title, description, url: "/", siteName: "kon", type: "website", images: [ogImage] },
   twitter: { card: "summary_large_image", title, description, images: [ogImage] },
+  // Every page, including the 404, carries the tag, so the go command resolves
+  // kon.kitsu.red/... import paths to the repository.
+  other: { "go-import": goImport },
 };
 
 export const viewport: Viewport = {

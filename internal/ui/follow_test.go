@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hizkifw/kon/core/session"
-	"github.com/hizkifw/kon/core/typedid"
-	"github.com/hizkifw/kon/internal/app"
-	"github.com/hizkifw/kon/internal/history"
+	"kon.kitsu.red/core/session"
+	"kon.kitsu.red/core/typedid"
+	"kon.kitsu.red/internal/app"
+	"kon.kitsu.red/internal/history"
 )
 
 // newFollowingModel opens a session another kon has open, with its writer

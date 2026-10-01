@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
-	"github.com/hizkifw/kon/internal/markdown"
+	"kon.kitsu.red/internal/markdown"
 )
 
 // markdownStyles maps markdown style roles onto the transcript palette. A

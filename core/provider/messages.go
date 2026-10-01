@@ -15,10 +15,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/hizkifw/kon/core/provider/wire"
-	"github.com/hizkifw/kon/core/session"
-	"github.com/hizkifw/kon/core/tokens"
-	"github.com/hizkifw/kon/core/typedid"
+	"kon.kitsu.red/core/provider/wire"
+	"kon.kitsu.red/core/session"
+	"kon.kitsu.red/core/tokens"
+	"kon.kitsu.red/core/typedid"
 )
 
 // messagesModel implements Model for Anthropic's Messages API. Like the chat

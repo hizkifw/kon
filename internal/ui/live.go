@@ -6,7 +6,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/hizkifw/kon/internal/tui"
+	"kon.kitsu.red/internal/tui"
 )
 
 // liveStream renders the not-yet-finalized portion of the transcript (an active

@@ -8,7 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/hizkifw/kon/internal/tui"
+	"kon.kitsu.red/internal/tui"
 )
 
 // The commands these tests run only work out a selection's text. The one that

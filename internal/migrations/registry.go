@@ -1,7 +1,7 @@
 // Package migrations contains the concrete, ordered storage upgrades.
 package migrations
 
-import "github.com/hizkifw/kon/internal/migrate"
+import "kon.kitsu.red/internal/migrate"
 
 // Ordered is the one place that defines migration order. New steps append here
 // and use the next version number; existing steps must not be reordered.

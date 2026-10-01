@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hizkifw/kon/core/session"
-	"github.com/hizkifw/kon/core/tokens"
-	"github.com/hizkifw/kon/core/typedid"
+	"kon.kitsu.red/core/session"
+	"kon.kitsu.red/core/tokens"
+	"kon.kitsu.red/core/typedid"
 )
 
 // reply is an assistant message that used and cost what it is given.

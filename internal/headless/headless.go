@@ -12,10 +12,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hizkifw/kon/core/agent"
-	"github.com/hizkifw/kon/core/typedid"
-	"github.com/hizkifw/kon/internal/app"
-	"github.com/hizkifw/kon/internal/codetools"
+	"kon.kitsu.red/core/agent"
+	"kon.kitsu.red/core/typedid"
+	"kon.kitsu.red/internal/app"
+	"kon.kitsu.red/internal/codetools"
 )
 
 // Runtime is the part of app.Runtime a headless run drives.

@@ -26,7 +26,7 @@ iwr -useb https://kon.kitsu.red/install.ps1 | iex
 With Go:
 
 ```sh
-go install github.com/hizkifw/kon/cmd/kon@latest
+go install kon.kitsu.red/cmd/kon@latest
 ```
 
 ## Get started

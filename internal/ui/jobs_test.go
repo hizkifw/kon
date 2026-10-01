@@ -8,10 +8,10 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/hizkifw/kon/core/session"
-	"github.com/hizkifw/kon/core/typedid"
-	"github.com/hizkifw/kon/internal/codetools"
-	"github.com/hizkifw/kon/internal/sessions"
+	"kon.kitsu.red/core/session"
+	"kon.kitsu.red/core/typedid"
+	"kon.kitsu.red/internal/codetools"
+	"kon.kitsu.red/internal/sessions"
 )
 
 // jobsModel is a sized model whose session has a finished command, 1, and

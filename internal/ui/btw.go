@@ -7,9 +7,9 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/hizkifw/kon/core/agent"
-	"github.com/hizkifw/kon/internal/app"
-	"github.com/hizkifw/kon/internal/tui"
+	"kon.kitsu.red/core/agent"
+	"kon.kitsu.red/internal/app"
+	"kon.kitsu.red/internal/tui"
 )
 
 // sideChat is a side answer streaming into its own drawer; the main

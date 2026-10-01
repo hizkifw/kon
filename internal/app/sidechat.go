@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/hizkifw/kon/core/agent"
-	"github.com/hizkifw/kon/core/provider"
-	"github.com/hizkifw/kon/core/session"
-	"github.com/hizkifw/kon/internal/codetools"
+	"kon.kitsu.red/core/agent"
+	"kon.kitsu.red/core/provider"
+	"kon.kitsu.red/core/session"
+	"kon.kitsu.red/internal/codetools"
 )
 
 // ErrSideChatTools lets the frontend explain an attempted tool call without

@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/hizkifw/kon/internal/config"
+	"kon.kitsu.red/internal/config"
 )
 
 type instructionsFileV4 struct{}

@@ -11,5 +11,18 @@
       "destination": "https://raw.githubusercontent.com/hizkifw/kon/main/scripts/install.ps1",
       "permanent": false
     }
+  ],
+  "rewrites": [
+    {
+      "source": "/:path*",
+      "has": [
+        {
+          "type": "query",
+          "key": "go-get",
+          "value": "1"
+        }
+      ],
+      "destination": "/"
+    }
   ]
 }

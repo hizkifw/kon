@@ -18,7 +18,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/hizkifw/kon/internal/config"
+	"kon.kitsu.red/internal/config"
 )
 
 type v011SessionsV2 struct{}

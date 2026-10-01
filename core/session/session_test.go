@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hizkifw/kon/core/typedid"
+	"kon.kitsu.red/core/typedid"
 )
 
 func messageWithCalls(calls []ToolCall) Message {

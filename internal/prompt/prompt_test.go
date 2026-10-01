@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hizkifw/kon/internal/contextfiles"
+	"kon.kitsu.red/internal/contextfiles"
 )
 
 func TestSystemRendersContextFilesInOrder(t *testing.T) {

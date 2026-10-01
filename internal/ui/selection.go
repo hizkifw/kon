@@ -8,8 +8,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/hizkifw/kon/internal/markdown"
-	"github.com/hizkifw/kon/internal/tui"
+	"kon.kitsu.red/internal/markdown"
+	"kon.kitsu.red/internal/tui"
 )
 
 // Dragging over the transcript selects it, and releasing the button copies

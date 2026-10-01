@@ -9,8 +9,8 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/hizkifw/kon/internal/codetools"
-	"github.com/hizkifw/kon/internal/tui"
+	"kon.kitsu.red/internal/codetools"
+	"kon.kitsu.red/internal/tui"
 )
 
 // copyUsage is /copy's usage line, shown when its argument is not one it

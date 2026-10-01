@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hizkifw/kon/core/tool"
+	"kon.kitsu.red/core/tool"
 )
 
 func TestWriteEditRead(t *testing.T) {

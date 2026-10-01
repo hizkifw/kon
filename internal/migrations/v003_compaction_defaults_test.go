@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hizkifw/kon/internal/config"
+	"kon.kitsu.red/internal/config"
 )
 
 func runCompactionDefaults(t *testing.T, contents string) (string, error) {

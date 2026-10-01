@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hizkifw/kon/internal/buildinfo"
+	"kon.kitsu.red/internal/buildinfo"
 )
 
 const testCatalog = `{"example":{"id":"example","name":"Example","api":"https://example.test/v1","npm":"@ai-sdk/openai-compatible","env":["EXAMPLE_KEY"],"models":{"new-model":{"id":"new-model","name":"New Model","tool_call":true,"modalities":{"input":["text","image"],"output":["text"]},"limit":{"context":123456},"cost":{"input":1.25,"output":2.5}}}}}`

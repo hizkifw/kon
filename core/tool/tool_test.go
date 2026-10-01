@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/hizkifw/kon/core/session"
+	"kon.kitsu.red/core/session"
 )
 
 type echoTool struct{ name string }

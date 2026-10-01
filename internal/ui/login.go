@@ -7,8 +7,8 @@ import (
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
-	"github.com/hizkifw/kon/internal/app"
-	"github.com/hizkifw/kon/internal/config"
+	"kon.kitsu.red/internal/app"
+	"kon.kitsu.red/internal/config"
 )
 
 type loginFlow struct {

@@ -23,7 +23,7 @@ func TestImportsNoKonPackage(t *testing.T) {
 		}
 		for _, spec := range file.Imports {
 			imported, _ := strconv.Unquote(spec.Path.Value)
-			if strings.HasPrefix(imported, "github.com/hizkifw/kon/") {
+			if strings.HasPrefix(imported, "kon.kitsu.red/") {
 				t.Errorf("%s imports %s", path, imported)
 			}
 		}

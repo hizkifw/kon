@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/hizkifw/kon/internal/web"
+	"kon.kitsu.red/internal/web"
 )
 
 // toolCommands are the tools the agent runs from its shell as `kon tool

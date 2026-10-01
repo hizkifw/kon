@@ -6,8 +6,8 @@ import (
 	"errors"
 	"time"
 
-	"github.com/hizkifw/kon/core/tokens"
-	"github.com/hizkifw/kon/core/typedid"
+	"kon.kitsu.red/core/tokens"
+	"kon.kitsu.red/core/typedid"
 )
 
 // SchemaVersion is the only session format version this package reads and

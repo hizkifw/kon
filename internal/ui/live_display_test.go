@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hizkifw/kon/core/agent"
-	"github.com/hizkifw/kon/internal/codetools"
+	"kon.kitsu.red/core/agent"
+	"kon.kitsu.red/internal/codetools"
 )
 
 // TestToolOutputEventStreamsIntoTranscript drives a running shell call's live

@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hizkifw/kon/core/provider/wire"
-	"github.com/hizkifw/kon/internal/buildinfo"
-	"github.com/hizkifw/kon/internal/config"
+	"kon.kitsu.red/core/provider/wire"
+	"kon.kitsu.red/internal/buildinfo"
+	"kon.kitsu.red/internal/config"
 )
 
 const maxModelListSize = 8 << 20

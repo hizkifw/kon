@@ -16,10 +16,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/hizkifw/kon/core/provider/wire"
-	"github.com/hizkifw/kon/core/session"
-	"github.com/hizkifw/kon/core/tokens"
-	"github.com/hizkifw/kon/core/typedid"
+	"kon.kitsu.red/core/provider/wire"
+	"kon.kitsu.red/core/session"
+	"kon.kitsu.red/core/tokens"
+	"kon.kitsu.red/core/typedid"
 )
 
 // Spec is a model resolved for use: where it is, how to talk to it, and what

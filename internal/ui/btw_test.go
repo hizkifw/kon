@@ -8,9 +8,9 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/hizkifw/kon/core/agent"
-	"github.com/hizkifw/kon/core/session"
-	"github.com/hizkifw/kon/internal/app"
+	"kon.kitsu.red/core/agent"
+	"kon.kitsu.red/core/session"
+	"kon.kitsu.red/internal/app"
 )
 
 type sideRuntime struct {

@@ -18,7 +18,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hizkifw/kon/internal/buildinfo"
+	"kon.kitsu.red/internal/buildinfo"
 )
 
 func TestParseVersion(t *testing.T) {

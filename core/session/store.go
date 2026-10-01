@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hizkifw/kon/core/tokens"
-	"github.com/hizkifw/kon/core/typedid"
+	"kon.kitsu.red/core/tokens"
+	"kon.kitsu.red/core/typedid"
 )
 
 // Store is a session open for appending: an append-only, parent-linked list

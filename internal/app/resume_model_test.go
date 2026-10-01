@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hizkifw/kon/core/agent"
-	"github.com/hizkifw/kon/core/session"
-	"github.com/hizkifw/kon/core/typedid"
-	"github.com/hizkifw/kon/internal/config"
+	"kon.kitsu.red/core/agent"
+	"kon.kitsu.red/core/session"
+	"kon.kitsu.red/core/typedid"
+	"kon.kitsu.red/internal/config"
 )
 
 // twoModels configures "fast" as the default and "review" as a second model.

@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/gofrs/flock"
-	"github.com/hizkifw/kon/internal/config"
+	"kon.kitsu.red/internal/config"
 )
 
 func testPaths(root string) config.Paths {

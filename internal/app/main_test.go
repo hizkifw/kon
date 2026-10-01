@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/hizkifw/kon/internal/catalog"
+	"kon.kitsu.red/internal/catalog"
 )
 
 // TestMain points every runtime at testdata/catalog.json. The bundled snapshot

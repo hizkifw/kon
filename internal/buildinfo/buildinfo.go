@@ -6,10 +6,10 @@ package buildinfo
 import "runtime"
 
 // version is set at build time with
-// -ldflags "-X github.com/hizkifw/kon/internal/buildinfo.version=...".
+// -ldflags "-X kon.kitsu.red/internal/buildinfo.version=...".
 var version = "dev"
 
-const projectURL = "https://github.com/hizkifw/kon"
+const projectURL = "https://kon.kitsu.red"
 
 func Version() string { return version }
 

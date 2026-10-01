@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/hizkifw/kon/internal/config"
+	"kon.kitsu.red/internal/config"
 )
 
 // Every config kon wrote before compaction was sized from the model's window

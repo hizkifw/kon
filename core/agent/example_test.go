@@ -7,11 +7,11 @@ import (
 	"os"
 	"time"
 
-	"github.com/hizkifw/kon/core/agent"
-	"github.com/hizkifw/kon/core/provider"
-	"github.com/hizkifw/kon/core/provider/wire"
-	"github.com/hizkifw/kon/core/session"
-	"github.com/hizkifw/kon/core/tool"
+	"kon.kitsu.red/core/agent"
+	"kon.kitsu.red/core/provider"
+	"kon.kitsu.red/core/provider/wire"
+	"kon.kitsu.red/core/session"
+	"kon.kitsu.red/core/tool"
 )
 
 // clockTool tells the model the time: a whole tool is a schema and a Run.

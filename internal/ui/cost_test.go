@@ -8,10 +8,10 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/hizkifw/kon/core/agent"
-	"github.com/hizkifw/kon/core/session"
-	"github.com/hizkifw/kon/internal/app"
-	"github.com/hizkifw/kon/internal/history"
+	"kon.kitsu.red/core/agent"
+	"kon.kitsu.red/core/session"
+	"kon.kitsu.red/internal/app"
+	"kon.kitsu.red/internal/history"
 )
 
 // statusLine is the rendered status bar: the line above the prompt input.

@@ -6,9 +6,9 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/hizkifw/kon/core/typedid"
-	"github.com/hizkifw/kon/internal/app"
-	"github.com/hizkifw/kon/internal/sessions"
+	"kon.kitsu.red/core/typedid"
+	"kon.kitsu.red/internal/app"
+	"kon.kitsu.red/internal/sessions"
 )
 
 // argument describes one positional argument accepted by a slash command.

@@ -3,8 +3,8 @@ package main
 import (
 	"fmt"
 
-	productdocs "github.com/hizkifw/kon/docs/product"
-	"github.com/hizkifw/kon/internal/config"
+	productdocs "kon.kitsu.red/docs/product"
+	"kon.kitsu.red/internal/config"
 )
 
 func docsCommand() command {

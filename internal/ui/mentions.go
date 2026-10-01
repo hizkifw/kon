@@ -10,7 +10,7 @@ import (
 	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/hizkifw/kon/internal/projectfiles"
+	"kon.kitsu.red/internal/projectfiles"
 )
 
 const maxMentionMatches = 100

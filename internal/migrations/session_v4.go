@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hizkifw/kon/core/typedid"
+	"kon.kitsu.red/core/typedid"
 )
 
 // This file freezes session format v4 as the steps that produce it knew it.

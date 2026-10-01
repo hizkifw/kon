@@ -1,8 +1,8 @@
 package agent
 
 import (
-	"github.com/hizkifw/kon/core/session"
-	"github.com/hizkifw/kon/core/tokens"
+	"kon.kitsu.red/core/session"
+	"kon.kitsu.red/core/tokens"
 )
 
 // A projected compaction summary is delivered as a user message wrapped in

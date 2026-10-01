@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/hizkifw/kon/core/typedid"
+	"kon.kitsu.red/core/typedid"
 )
 
 // parsedSession is the result of reading and validating a session file. Open

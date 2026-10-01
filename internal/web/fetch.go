@@ -17,7 +17,7 @@ import (
 
 	"golang.org/x/net/html"
 
-	"github.com/hizkifw/kon/internal/buildinfo"
+	"kon.kitsu.red/internal/buildinfo"
 )
 
 // MaxBodyBytes bounds how much of a response kon reads. A page's Markdown is

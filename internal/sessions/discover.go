@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hizkifw/kon/core/session"
-	"github.com/hizkifw/kon/core/typedid"
+	"kon.kitsu.red/core/session"
+	"kon.kitsu.red/core/typedid"
 )
 
 // Summary describes a persisted session without opening it for append.

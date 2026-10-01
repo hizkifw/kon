@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/hizkifw/kon/core/agent"
-	"github.com/hizkifw/kon/core/session"
+	"kon.kitsu.red/core/agent"
+	"kon.kitsu.red/core/session"
 )
 
 // liveSession opens a session with a conversation in one runtime and leaves

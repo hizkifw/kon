@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hizkifw/kon/internal/buildinfo"
+	"kon.kitsu.red/internal/buildinfo"
 )
 
 func serve(t *testing.T, handler http.HandlerFunc) *httptest.Server {

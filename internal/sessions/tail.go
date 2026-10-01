@@ -7,8 +7,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/hizkifw/kon/core/session"
-	"github.com/hizkifw/kon/core/typedid"
+	"kon.kitsu.red/core/session"
+	"kon.kitsu.red/core/typedid"
 )
 
 // tailBlock bounds how much of a file a tail read pulls in per step.

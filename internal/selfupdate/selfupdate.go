@@ -25,7 +25,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hizkifw/kon/internal/buildinfo"
+	"kon.kitsu.red/internal/buildinfo"
 )
 
 // The release source is fixed at build time. An override would let whoever

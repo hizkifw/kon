@@ -10,7 +10,7 @@ import (
 	"errors"
 	"path/filepath"
 
-	"github.com/hizkifw/kon/core/session"
+	"kon.kitsu.red/core/session"
 )
 
 // Tool is one capability the model can call. A tool describes itself to the

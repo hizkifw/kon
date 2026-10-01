@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/hizkifw/kon/internal/history"
+	"kon.kitsu.red/internal/history"
 )
 
 // searchModel returns a model whose prompt history holds the given entries,

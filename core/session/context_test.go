@@ -3,7 +3,7 @@ package session
 import (
 	"testing"
 
-	"github.com/hizkifw/kon/core/typedid"
+	"kon.kitsu.red/core/typedid"
 )
 
 // TestProjectNeedsNoStore projects a path held in memory, the way a program

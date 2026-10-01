@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hizkifw/kon/core/session"
-	"github.com/hizkifw/kon/core/typedid"
-	"github.com/hizkifw/kon/internal/app"
-	"github.com/hizkifw/kon/internal/history"
+	"kon.kitsu.red/core/session"
+	"kon.kitsu.red/core/typedid"
+	"kon.kitsu.red/internal/app"
+	"kon.kitsu.red/internal/history"
 )
 
 func modelChange(name, externalID string) session.Entry {

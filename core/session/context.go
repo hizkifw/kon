@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/hizkifw/kon/core/typedid"
+	"kon.kitsu.red/core/typedid"
 )
 
 // InterruptedToolResult is the model-facing result synthesized for a tool call

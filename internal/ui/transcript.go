@@ -3,9 +3,9 @@ package ui
 import (
 	"image/color"
 
-	"github.com/hizkifw/kon/core/session"
-	"github.com/hizkifw/kon/internal/codetools"
-	"github.com/hizkifw/kon/internal/tui"
+	"kon.kitsu.red/core/session"
+	"kon.kitsu.red/internal/codetools"
+	"kon.kitsu.red/internal/tui"
 )
 
 type blockKind uint8

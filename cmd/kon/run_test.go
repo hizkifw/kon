@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hizkifw/kon/internal/headless"
+	"kon.kitsu.red/internal/headless"
 )
 
 func TestParseRunArgsStopsAtTheMessage(t *testing.T) {

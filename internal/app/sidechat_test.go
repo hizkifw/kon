@@ -16,11 +16,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hizkifw/kon/core/agent"
-	"github.com/hizkifw/kon/core/provider/wire"
-	"github.com/hizkifw/kon/core/session"
-	"github.com/hizkifw/kon/core/typedid"
-	"github.com/hizkifw/kon/internal/config"
+	"kon.kitsu.red/core/agent"
+	"kon.kitsu.red/core/provider/wire"
+	"kon.kitsu.red/core/session"
+	"kon.kitsu.red/core/typedid"
+	"kon.kitsu.red/internal/config"
 )
 
 func sideChatRuntime(t *testing.T, handler http.HandlerFunc) *Runtime {

@@ -23,6 +23,14 @@ live in Vercel's config because a static export cannot use Next's
 `redirects()`, and they are temporary so the target can change without clients
 holding a cached permanent one.
 
+The site's domain is also kon's Go module path, so `go install
+kon.kitsu.red/cmd/kon@latest` works and the repository can move without
+breaking imports. Every page carries a `go-import` meta tag naming the
+repository (`goImport` in `src/lib/site.ts`), and `vercel.json` rewrites any
+`?go-get=1` request to the home page so subpaths such as `/cmd/kon` answer 200
+with that tag instead of a 404. If the repository moves, update `repo`; old
+tags keep resolving because the module path never names it.
+
 ## Claims
 
 The headline figures live in `src/lib/site.ts`, beside where they were

@@ -13,15 +13,15 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/hizkifw/kon/core/agent"
-	"github.com/hizkifw/kon/core/provider"
-	"github.com/hizkifw/kon/core/session"
-	"github.com/hizkifw/kon/core/tokens"
-	"github.com/hizkifw/kon/core/tool"
-	"github.com/hizkifw/kon/core/typedid"
-	"github.com/hizkifw/kon/internal/codetools"
-	"github.com/hizkifw/kon/internal/config"
-	"github.com/hizkifw/kon/internal/sessions"
+	"kon.kitsu.red/core/agent"
+	"kon.kitsu.red/core/provider"
+	"kon.kitsu.red/core/session"
+	"kon.kitsu.red/core/tokens"
+	"kon.kitsu.red/core/tool"
+	"kon.kitsu.red/core/typedid"
+	"kon.kitsu.red/internal/codetools"
+	"kon.kitsu.red/internal/config"
+	"kon.kitsu.red/internal/sessions"
 )
 
 type blockingProvider struct{ started chan struct{} }

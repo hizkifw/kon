@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hizkifw/kon/core/session"
-	"github.com/hizkifw/kon/core/typedid"
+	"kon.kitsu.red/core/session"
+	"kon.kitsu.red/core/typedid"
 )
 
 func TestDiscoverFindsSessionsNewestFirst(t *testing.T) {

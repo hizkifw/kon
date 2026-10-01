@@ -7,8 +7,8 @@ import (
 	"io"
 	"os"
 
-	"github.com/hizkifw/kon/internal/catalog"
-	"github.com/hizkifw/kon/internal/config"
+	"kon.kitsu.red/internal/catalog"
+	"kon.kitsu.red/internal/config"
 )
 
 func modelsCommand() command {

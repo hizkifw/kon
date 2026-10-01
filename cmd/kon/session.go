@@ -11,14 +11,14 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/hizkifw/kon/core/typedid"
-	"github.com/hizkifw/kon/internal/app"
-	"github.com/hizkifw/kon/internal/buildinfo"
-	"github.com/hizkifw/kon/internal/config"
-	"github.com/hizkifw/kon/internal/history"
-	"github.com/hizkifw/kon/internal/migrate"
-	"github.com/hizkifw/kon/internal/migrations"
-	"github.com/hizkifw/kon/internal/ui"
+	"kon.kitsu.red/core/typedid"
+	"kon.kitsu.red/internal/app"
+	"kon.kitsu.red/internal/buildinfo"
+	"kon.kitsu.red/internal/config"
+	"kon.kitsu.red/internal/history"
+	"kon.kitsu.red/internal/migrate"
+	"kon.kitsu.red/internal/migrations"
+	"kon.kitsu.red/internal/ui"
 )
 
 // runSession starts the default command: the full-screen TUI. It parses the

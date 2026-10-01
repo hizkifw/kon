@@ -3,12 +3,12 @@ package ui
 import (
 	"encoding/json"
 
-	"github.com/hizkifw/kon/core/agent"
-	"github.com/hizkifw/kon/core/session"
-	"github.com/hizkifw/kon/core/tokens"
-	"github.com/hizkifw/kon/core/typedid"
-	"github.com/hizkifw/kon/internal/codetools"
-	"github.com/hizkifw/kon/internal/tui"
+	"kon.kitsu.red/core/agent"
+	"kon.kitsu.red/core/session"
+	"kon.kitsu.red/core/tokens"
+	"kon.kitsu.red/core/typedid"
+	"kon.kitsu.red/internal/codetools"
+	"kon.kitsu.red/internal/tui"
 )
 
 // maxResultChars bounds tool result text kept in the transcript. Display

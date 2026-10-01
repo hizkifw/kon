@@ -14,14 +14,14 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/term"
 
-	"github.com/hizkifw/kon/core/session"
-	"github.com/hizkifw/kon/core/typedid"
-	"github.com/hizkifw/kon/internal/app"
-	"github.com/hizkifw/kon/internal/buildinfo"
-	"github.com/hizkifw/kon/internal/codetools"
-	"github.com/hizkifw/kon/internal/config"
-	"github.com/hizkifw/kon/internal/headless"
-	"github.com/hizkifw/kon/internal/ui"
+	"kon.kitsu.red/core/session"
+	"kon.kitsu.red/core/typedid"
+	"kon.kitsu.red/internal/app"
+	"kon.kitsu.red/internal/buildinfo"
+	"kon.kitsu.red/internal/codetools"
+	"kon.kitsu.red/internal/config"
+	"kon.kitsu.red/internal/headless"
+	"kon.kitsu.red/internal/ui"
 )
 
 const runSynopsis = "kon run [flags] [message...]"

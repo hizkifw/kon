@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/gofrs/flock"
-	"github.com/hizkifw/kon/internal/config"
+	"kon.kitsu.red/internal/config"
 )
 
 // Step may change any durable kon file. It must be safe to retry after an

@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hizkifw/kon/core/provider/wire"
-	"github.com/hizkifw/kon/core/session"
+	"kon.kitsu.red/core/provider/wire"
+	"kon.kitsu.red/core/session"
 )
 
 // fastRetries keeps the default number of retries with millisecond backoff.

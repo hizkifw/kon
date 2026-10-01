@@ -3,7 +3,7 @@ package session
 import (
 	"testing"
 
-	"github.com/hizkifw/kon/core/tokens"
+	"kon.kitsu.red/core/tokens"
 )
 
 // reply is an assistant message that used and cost what it is given.

@@ -10,10 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hizkifw/kon/core/provider"
-	"github.com/hizkifw/kon/core/session"
-	"github.com/hizkifw/kon/core/tokens"
-	"github.com/hizkifw/kon/core/tool"
+	"kon.kitsu.red/core/provider"
+	"kon.kitsu.red/core/session"
+	"kon.kitsu.red/core/tokens"
+	"kon.kitsu.red/core/tool"
 )
 
 // toolCallingProvider asks for the named tool call once, then finishes.

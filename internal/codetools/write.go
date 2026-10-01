@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/hizkifw/kon/core/session"
-	"github.com/hizkifw/kon/core/tool"
+	"kon.kitsu.red/core/session"
+	"kon.kitsu.red/core/tool"
 )
 
 // writeTool creates or replaces a whole file atomically.

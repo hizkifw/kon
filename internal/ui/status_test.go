@@ -7,7 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/hizkifw/kon/internal/tui"
+	"kon.kitsu.red/internal/tui"
 )
 
 // done delivers the end of the notice with the given epoch.

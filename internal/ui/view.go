@@ -9,8 +9,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/hizkifw/kon/internal/app"
-	"github.com/hizkifw/kon/internal/tui"
+	"kon.kitsu.red/internal/app"
+	"kon.kitsu.red/internal/tui"
 )
 
 // maxInputLines caps how tall the prompt input grows, in visual rows

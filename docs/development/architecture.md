@@ -262,10 +262,10 @@ Changing any of them breaks upgrades from earlier releases.
 ## Network identity
 
 Every outgoing request sends `User-Agent: kon/<version> (<os>; <arch>;
-+https://github.com/hizkifw/kon)` from `internal/buildinfo`, following the
++https://kon.kitsu.red)` from `internal/buildinfo`, following the
 crawler convention of a `+URL` that tells an operator where the traffic comes
 from. The build sets the version with
-`-X github.com/hizkifw/kon/internal/buildinfo.version=...`; source builds report
+`-X kon.kitsu.red/internal/buildinfo.version=...`; source builds report
 `dev`. Provider requests set it before a connection's configured headers, so a
 profile can still override it for a gateway that filters on it.
 

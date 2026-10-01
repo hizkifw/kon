@@ -6,9 +6,9 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
-	"github.com/hizkifw/kon/internal/codetools"
-	"github.com/hizkifw/kon/internal/markdown"
-	"github.com/hizkifw/kon/internal/tui"
+	"kon.kitsu.red/internal/codetools"
+	"kon.kitsu.red/internal/markdown"
+	"kon.kitsu.red/internal/tui"
 )
 
 // timerText renders the running indicator as its own live section, or "" when no

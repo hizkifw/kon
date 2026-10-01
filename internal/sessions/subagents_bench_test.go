@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hizkifw/kon/core/session"
-	"github.com/hizkifw/kon/core/typedid"
+	"kon.kitsu.red/core/session"
+	"kon.kitsu.red/core/typedid"
 )
 
 // The fixture is a workspace that has seen many sessions, beside a parent

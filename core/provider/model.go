@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/hizkifw/kon/core/session"
-	"github.com/hizkifw/kon/core/tokens"
+	"kon.kitsu.red/core/session"
+	"kon.kitsu.red/core/tokens"
 )
 
 // Model is the seam between kon and a wire protocol. kon owns the durable

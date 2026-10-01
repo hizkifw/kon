@@ -5,8 +5,8 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/hizkifw/kon/core/session"
-	"github.com/hizkifw/kon/internal/app"
+	"kon.kitsu.red/core/session"
+	"kon.kitsu.red/internal/app"
 )
 
 // following carries replay across batches while the session is open in

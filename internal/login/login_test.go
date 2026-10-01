@@ -3,8 +3,8 @@ package login
 import (
 	"testing"
 
-	"github.com/hizkifw/kon/core/provider/wire"
-	"github.com/hizkifw/kon/internal/catalog"
+	"kon.kitsu.red/core/provider/wire"
+	"kon.kitsu.red/internal/catalog"
 )
 
 func TestCatalogLoginEntryUsesCatalogWireAndURL(t *testing.T) {

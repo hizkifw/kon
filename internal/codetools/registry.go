@@ -1,7 +1,7 @@
 package codetools
 
 import (
-	"github.com/hizkifw/kon/core/tool"
+	"kon.kitsu.red/core/tool"
 )
 
 // Registry returns kon's built-in tools. jobs runs background shell commands

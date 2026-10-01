@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/hizkifw/kon/core/session"
+	"kon.kitsu.red/core/session"
 )
 
 // Executor runs model tool calls against a registry. It is the only piece the

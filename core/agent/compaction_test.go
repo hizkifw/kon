@@ -3,7 +3,7 @@ package agent
 import (
 	"testing"
 
-	"github.com/hizkifw/kon/core/tokens"
+	"kon.kitsu.red/core/tokens"
 )
 
 func TestCompactionSizesFollowTheWindow(t *testing.T) {

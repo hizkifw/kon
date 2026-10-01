@@ -3,7 +3,7 @@ package ui
 import (
 	"testing"
 
-	"github.com/hizkifw/kon/internal/codetools"
+	"kon.kitsu.red/internal/codetools"
 )
 
 // The returned commands are never run here: running one would write to the

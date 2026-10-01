@@ -10,8 +10,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/hizkifw/kon/core/session"
-	"github.com/hizkifw/kon/core/typedid"
+	"kon.kitsu.red/core/session"
+	"kon.kitsu.red/core/typedid"
 )
 
 // Subagents adds up what a session's subagents have used, and their own

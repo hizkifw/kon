@@ -12,8 +12,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/charmbracelet/x/ansi"
-	"github.com/hizkifw/kon/internal/markdown"
-	"github.com/hizkifw/kon/internal/tui"
+	"kon.kitsu.red/internal/markdown"
+	"kon.kitsu.red/internal/tui"
 )
 
 // TestMarkdownAssistantRendersStructure checks that an assistant message

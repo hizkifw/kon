@@ -7,9 +7,9 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/hizkifw/kon/core/provider/wire"
-	"github.com/hizkifw/kon/internal/buildinfo"
-	"github.com/hizkifw/kon/internal/config"
+	"kon.kitsu.red/core/provider/wire"
+	"kon.kitsu.red/internal/buildinfo"
+	"kon.kitsu.red/internal/config"
 )
 
 func TestDiscoverOpenRouterVerifiesKeyBeforeListing(t *testing.T) {

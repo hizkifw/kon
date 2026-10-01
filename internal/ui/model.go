@@ -11,16 +11,16 @@ import (
 
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
-	"github.com/hizkifw/kon/core/agent"
-	"github.com/hizkifw/kon/core/session"
-	"github.com/hizkifw/kon/core/tokens"
-	"github.com/hizkifw/kon/core/typedid"
-	"github.com/hizkifw/kon/internal/app"
-	"github.com/hizkifw/kon/internal/codetools"
-	"github.com/hizkifw/kon/internal/config"
-	"github.com/hizkifw/kon/internal/history"
-	"github.com/hizkifw/kon/internal/sessions"
-	"github.com/hizkifw/kon/internal/tui"
+	"kon.kitsu.red/core/agent"
+	"kon.kitsu.red/core/session"
+	"kon.kitsu.red/core/tokens"
+	"kon.kitsu.red/core/typedid"
+	"kon.kitsu.red/internal/app"
+	"kon.kitsu.red/internal/codetools"
+	"kon.kitsu.red/internal/config"
+	"kon.kitsu.red/internal/history"
+	"kon.kitsu.red/internal/sessions"
+	"kon.kitsu.red/internal/tui"
 )
 
 const streamFrameInterval = 50 * time.Millisecond

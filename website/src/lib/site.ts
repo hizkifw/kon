@@ -7,6 +7,11 @@
 export const siteUrl = "https://kon.kitsu.red";
 
 export const repo = "https://github.com/hizkifw/kon";
+
+// kon's Go module path is the site's own domain, so the repository can move
+// without breaking imports: only this tag, which the go command reads, changes.
+export const modulePath = "kon.kitsu.red";
+export const goImport = `${modulePath} git ${repo}`;
 export const docsUrl = `${repo}/blob/main/docs/product/index.md`;
 
 export type Os = "windows" | "unix" | "go";
@@ -27,7 +32,7 @@ export const installs: Record<Os, { tab: string; prompt: string; command: string
   go: {
     tab: "Go",
     prompt: "$",
-    command: "go install github.com/hizkifw/kon/cmd/kon@latest",
+    command: `go install ${modulePath}/cmd/kon@latest`,
   },
 };
 

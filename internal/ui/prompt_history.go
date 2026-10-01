@@ -1,6 +1,6 @@
 package ui
 
-import "github.com/hizkifw/kon/internal/history"
+import "kon.kitsu.red/internal/history"
 
 type promptHistory struct {
 	// store records each prompt for later launches. Without one, as in an

@@ -11,9 +11,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hizkifw/kon/core/session"
-	"github.com/hizkifw/kon/internal/config"
-	"github.com/hizkifw/kon/internal/migrate"
+	"kon.kitsu.red/core/session"
+	"kon.kitsu.red/internal/config"
+	"kon.kitsu.red/internal/migrate"
 )
 
 func testPaths(root string) config.Paths {

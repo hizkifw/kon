@@ -8,9 +8,9 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/hizkifw/kon/core/provider/wire"
-	"github.com/hizkifw/kon/internal/catalog"
-	"github.com/hizkifw/kon/internal/config"
+	"kon.kitsu.red/core/provider/wire"
+	"kon.kitsu.red/internal/catalog"
+	"kon.kitsu.red/internal/config"
 )
 
 // Entry is one /login choice: the connection it saves and what the user

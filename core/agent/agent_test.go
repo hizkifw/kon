@@ -12,11 +12,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hizkifw/kon/core/provider"
-	"github.com/hizkifw/kon/core/session"
-	"github.com/hizkifw/kon/core/tokens"
-	"github.com/hizkifw/kon/core/tool"
-	"github.com/hizkifw/kon/core/typedid"
+	"kon.kitsu.red/core/provider"
+	"kon.kitsu.red/core/session"
+	"kon.kitsu.red/core/tokens"
+	"kon.kitsu.red/core/tool"
+	"kon.kitsu.red/core/typedid"
 )
 
 // testLimits mirrors the default compaction budgets for a model whose context

@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/x/ansi"
-	"github.com/hizkifw/kon/internal/codetools"
-	"github.com/hizkifw/kon/internal/tui"
+	"kon.kitsu.red/internal/codetools"
+	"kon.kitsu.red/internal/tui"
 )
 
 // plain renders a transcript with ANSI escapes and trailing slab padding

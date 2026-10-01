@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hizkifw/kon/core/session"
+	"kon.kitsu.red/core/session"
 )
 
 // TestChatStreamKeepsInterleavedParts guards the stream's shared text buffer:

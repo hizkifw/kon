@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hizkifw/kon/core/agent"
-	"github.com/hizkifw/kon/core/session"
-	"github.com/hizkifw/kon/core/typedid"
-	"github.com/hizkifw/kon/internal/sessions"
+	"kon.kitsu.red/core/agent"
+	"kon.kitsu.red/core/session"
+	"kon.kitsu.red/core/typedid"
+	"kon.kitsu.red/internal/sessions"
 )
 
 // TestReplayMatchesLiveAfterManualCompact round-trips a real session store

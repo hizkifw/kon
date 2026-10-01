@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/hizkifw/kon/internal/contextfiles"
+	"kon.kitsu.red/internal/contextfiles"
 )
 
 //go:embed prompt.txt

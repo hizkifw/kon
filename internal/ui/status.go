@@ -6,7 +6,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/hizkifw/kon/core/tokens"
+	"kon.kitsu.red/core/tokens"
 )
 
 // interrupts tracks Esc presses against the run in flight, so the harness can

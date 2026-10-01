@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hizkifw/kon/internal/codetools"
+	"kon.kitsu.red/internal/codetools"
 )
 
 // benchTranscript builds a transcript of n representative blocks, ending with a

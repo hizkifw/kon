@@ -3,7 +3,7 @@ package ui
 import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/hizkifw/kon/internal/tui"
+	"kon.kitsu.red/internal/tui"
 )
 
 // drawer is a tui drawer whose actions see the model. kon opens one for a side

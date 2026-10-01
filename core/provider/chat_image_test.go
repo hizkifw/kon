@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hizkifw/kon/core/provider/wire"
-	"github.com/hizkifw/kon/core/session"
+	"kon.kitsu.red/core/provider/wire"
+	"kon.kitsu.red/core/session"
 )
 
 func TestToChatMessagesMapsImagePartsOnToolResults(t *testing.T) {

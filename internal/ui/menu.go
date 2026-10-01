@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
-	"github.com/hizkifw/kon/internal/tui"
+	"kon.kitsu.red/internal/tui"
 )
 
 // maxMenuRows caps how many popup rows are shown at once.

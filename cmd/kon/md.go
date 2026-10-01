@@ -7,7 +7,7 @@ import (
 	"os"
 
 	"charm.land/lipgloss/v2"
-	"github.com/hizkifw/kon/internal/ui"
+	"kon.kitsu.red/internal/ui"
 )
 
 const mdSynopsis = "kon md [--width <n>] [file]"
