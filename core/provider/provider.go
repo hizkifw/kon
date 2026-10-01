@@ -34,7 +34,9 @@ type Spec struct {
 	Headers map[string]string
 	// UserAgent identifies the program to the server, or "" for Go's default.
 	UserAgent string
-	// Vision gates whether image parts are sent; see imageReader.
+	// Vision gates whether image parts are sent. Without it, stored images
+	// go out as text placeholders, so a conversation that switches to a
+	// model without vision can continue.
 	Vision bool
 	// Reasoning marks a model that produces reasoning, which some servers hold
 	// to stricter rules for replayed history.
@@ -68,8 +70,8 @@ func (p Pricing) Cost(u session.Usage) float64 {
 		float64(u.CacheWriteTokens)*write + float64(u.CompletionTokens)*p.Output) / 1e6
 }
 
-// Client drives one configured model. It is the kon-facing half of the
-// abstraction: everything above this package only ever sees session messages.
+// Client drives one configured model. It takes and returns session messages,
+// so nothing above it sees a wire format. *Client satisfies agent.Provider.
 type Client struct {
 	model   backend
 	modelID typedid.ModelID

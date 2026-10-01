@@ -1,5 +1,5 @@
-// Package wire names the wire formats kon speaks and records what each one
-// implies. A wire format is how kon talks to a server: the endpoint it
+// Package wire names the wire formats core/provider speaks and records what
+// each one implies. A wire format is how a client talks to a server: the endpoint it
 // defaults to and how requests encode reasoning. Which service answers is a
 // separate question, the provider, identified by a connection's ID and its
 // models.dev key; quirks of a particular service do not belong here.
@@ -99,7 +99,7 @@ func (s Spec) AuthHeaders(apiKey string) map[string]string {
 	return headers
 }
 
-// Lookup returns the spec for a format kon implements.
+// Lookup returns the spec for an implemented format.
 func Lookup(format Format) (Spec, bool) {
 	spec, ok := specs[format]
 	return spec, ok

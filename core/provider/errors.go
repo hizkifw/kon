@@ -11,8 +11,8 @@ import (
 )
 
 // APIError is a provider-side failure: a non-2xx HTTP response, or an error
-// object delivered inside a successful stream. Backends return it so kon can
-// classify failures from the structured fields and fall back to the raw body.
+// object delivered inside a successful stream. Backends return it so failures
+// can be classified from the structured fields and fall back to the raw body.
 type APIError struct {
 	Status  int    // HTTP status; 0 for errors reported inside a stream
 	Code    string // provider error code, e.g. "context_length_exceeded"

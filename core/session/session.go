@@ -1,4 +1,9 @@
-// Package session persists an append-only, parent-linked conversation tree.
+// Package session persists conversations as an append-only, parent-linked tree
+// of entries: messages, compaction summaries, model changes, and turn
+// markers. Store keeps one in a JSONL file (Create, Open) or in memory
+// (NewMemory), and projects its active path into the messages a model is
+// sent. A session file has one writer at a time; View follows one that
+// another process is writing.
 package session
 
 import (
@@ -40,8 +45,8 @@ type Header struct {
 	AppVersion string            `json:"app_version"`
 	Timestamp  time.Time         `json:"timestamp"`
 	CWD        string            `json:"cwd"`
-	// Parent is the session whose agent started this one as a subagent, with
-	// kon run from its shell. It is optional, so older readers ignore it.
+	// Parent is the session whose agent started this one as a subagent. It
+	// is optional, so older readers ignore it.
 	Parent typedid.SessionID `json:"parent_session_id,omitzero"`
 }
 

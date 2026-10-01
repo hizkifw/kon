@@ -1,5 +1,5 @@
 // Package tokens defines the token count shared by configuration, sessions,
-// providers, and the terminal, so a count cannot be mixed with other integers
+// providers, and display, so a count cannot be mixed with other integers
 // and renders the same way wherever it is shown.
 package tokens
 

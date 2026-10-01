@@ -6,11 +6,11 @@ import (
 )
 
 // Inbox holds messages for the running agent that arrive while a run is in
-// flight: steering the user sends, and notices from kon such as a background
-// job exiting. The frontend pushes on its own goroutine and the runner drains
-// at its next request, so every method is safe to call concurrently. A nil
-// Inbox is empty, which is what a run with no interactive user (kon run)
-// passes.
+// flight: steering the user sends, and notices from the program itself, such
+// as a background job exiting. The program pushes on its own goroutine and the
+// runner drains at its next request, so every method is safe to call
+// concurrently. A nil Inbox is empty, which suits a run with no interactive
+// user.
 type Inbox struct {
 	mu      sync.Mutex
 	pending []inboxMessage
@@ -26,7 +26,7 @@ type inboxMessage struct {
 // Push adds user steering to be delivered at the runner's next request.
 func (b *Inbox) Push(text string) { b.push(inboxMessage{text: text}) }
 
-// PushNotice adds a notice from kon to be delivered at the runner's next
+// PushNotice adds a notice from the program to be delivered at the runner's next
 // request.
 func (b *Inbox) PushNotice(text string) { b.push(inboxMessage{text: text, notice: true}) }
 
@@ -52,7 +52,7 @@ func (b *Inbox) Take() []string {
 }
 
 // Pending returns the user's steering not yet delivered. Notices are left out:
-// they are kon's, and the user cannot withdraw them.
+// they are the program's, and the user cannot withdraw them.
 func (b *Inbox) Pending() []string {
 	if b == nil {
 		return nil

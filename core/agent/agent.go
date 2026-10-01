@@ -51,7 +51,7 @@ type Provider interface {
 }
 
 // ErrNothingToCompact reports that the conversation has no safe cut point yet,
-// so a forced compaction (manual /compact or context-overflow recovery) cannot
+// so a forced compaction (Compact, or recovery from a context overflow) cannot
 // make progress. It is not an operational failure.
 var ErrNothingToCompact = errors.New("nothing to compact")
 
@@ -231,10 +231,11 @@ func (r *Runner) usageFor(items []session.ContextMessage) (used tokens.Count, es
 	return r.measured + estimateContext(newer, nil), true
 }
 
-// Interrupt escalates cancellation of the tool call in flight. The UI sends
-// the number of consecutive interrupt presses; the runner forwards them to
-// every registered tool, whose shells are interrupted on the first press and
-// force-killed on the second if they ignored the interrupt.
+// Interrupt escalates cancellation of the tool call in flight. attempt is the
+// number of consecutive interrupt requests, such as a user pressing a key
+// again; the runner forwards it to every registered tool, so a tool can stop
+// politely on the first and force the issue on the second. See
+// tool.Interrupter.
 func (r *Runner) Interrupt(attempt int) bool {
 	return r.tools.Interrupt(attempt)
 }
@@ -422,8 +423,8 @@ func (r *Runner) messages() ([]session.Message, error) {
 }
 
 // Compact forces a compaction of the current context regardless of the
-// configured threshold, appending a summary entry. It is the manual /compact
-// path. When everything since the last summary still fits in the kept window
+// configured threshold, appending a summary entry, as a user asking to compact
+// would. When everything since the last summary still fits in the kept window
 // it returns ErrNothingToCompact.
 func (r *Runner) Compact(ctx context.Context, emit func(Event)) error {
 	emit = orDiscard(emit)

@@ -8,11 +8,11 @@ import (
 	"github.com/gofrs/flock"
 )
 
-// ErrInUse reports that another kon process holds a session open for writing.
+// ErrInUse reports that another process holds a session open for writing.
 // A session has one writer at a time: each writer extends its own in-memory
 // leaf, so a second one would fork the conversation silently, and repairing a
 // torn tail could truncate a record the first is still writing.
-var ErrInUse = errors.New("session is open in another kon")
+var ErrInUse = errors.New("session is open in another process")
 
 // The lock is a separate file beside the session rather than a lock on the
 // session itself, because Windows locks are mandatory and would block the

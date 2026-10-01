@@ -1,6 +1,6 @@
 // Package typedid defines identifiers that cannot be accidentally mixed.
 //
-// IDs owned by kon are cryptographically random, prefix-qualified base62 values.
+// IDs this package generates are cryptographically random, prefix-qualified base62 values.
 // Provider-owned IDs are lightweight named strings because their formats belong
 // to the provider and must round-trip without local validation.
 package typedid
@@ -58,7 +58,7 @@ func (id EntryID) MarshalJSON() ([]byte, error)     { return entryKind.marshal(i
 func (id *EntryID) UnmarshalJSON(data []byte) error { return entryKind.unmarshal(data, &id.value) }
 
 // ToolCallID is controlled by an external model provider. No local format
-// constraints are applied; the type exists to prevent mixing it with kon IDs.
+// constraints are applied; the type exists to prevent mixing it with generated IDs.
 type ToolCallID string
 
 // ExternalToolCallID wraps a provider's tool call ID without checking it.

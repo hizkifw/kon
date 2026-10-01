@@ -21,7 +21,7 @@ type Usage struct {
 	// CacheWriteTokens is the share of PromptTokens written to a prompt
 	// cache, which some providers bill above the input rate.
 	CacheWriteTokens tokens.Count `json:"cache_write_tokens,omitempty"`
-	// Cost is what kon priced the response at, in US dollars, from the
+	// Cost is what the response was priced at, in US dollars, from the
 	// model's prices when it ran. It is absent when the model had no price.
 	Cost float64 `json:"cost,omitempty"`
 }
@@ -66,7 +66,7 @@ const (
 // FinishReason is why a provider ended a response.
 type FinishReason string
 
-// Finish reasons kon acts on. Backends map their own spellings onto these;
+// Finish reasons the agent acts on. Backends map their own spellings onto these;
 // any other reason is kept as the provider sent it.
 const (
 	// FinishLength is a response cut off at its token limit.
@@ -104,7 +104,7 @@ type ToolDefinition struct {
 
 // Part preserves ordered, provider-neutral content needed for exact replay.
 // ProviderOptions is opaque data owned by the backend in core/provider
-// that wrote it; kon stores it without interpreting it.
+// that wrote it; the session stores it without interpreting it.
 type Part struct {
 	Type            string             `json:"type"`
 	Text            string             `json:"text,omitempty"`

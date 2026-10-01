@@ -13,8 +13,8 @@ import (
 )
 
 // Create starts a session file at path, which must not exist, holding header
-// and the root system message. The header's type and version are kon's; a
-// zero ID or timestamp is filled in. The store is the file's only writer
+// and the root system message. The header's type and version are the
+// format's own; a zero ID or timestamp is filled in. The store is the file's only writer
 // until Close.
 func Create(path string, header Header, systemPrompt string) (*Store, error) {
 	// Lock before the file exists, so no other process can find the session
