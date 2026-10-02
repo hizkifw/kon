@@ -106,7 +106,7 @@ function Window() {
           <span className="whitespace-nowrap text-accent">place-items: center</span> on the parent.
         </div>
         <Blank />
-        <Row className="bg-bar text-[#757575]">~/code/site · ctx 1.2k/400.0k · ready</Row>
+        <Row className="bg-bar text-[#757575]">~/code/site · ctx 1.2k/262.1k · ready</Row>
         <div className="h-[1.5em] px-[0.6em] whitespace-pre">
           <span className="animate-blink bg-[#d8d8d8] text-screen">A</span>
           <span className="text-faint">sk kon…</span>

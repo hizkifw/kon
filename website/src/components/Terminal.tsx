@@ -54,7 +54,7 @@ function contextUsed(t: number): string {
   ];
   let used = "0";
   for (const [at, label] of steps) if (t >= at) used = label;
-  return `ctx ${used}/400.0k`;
+  return `ctx ${used}/262.1k`;
 }
 
 const MOTION = "(prefers-reduced-motion: reduce)";
