@@ -12,6 +12,8 @@ Every command, key, tool, and setting in one place. For how to use them, see
 | `kon --resume`, `kon -r` | Reopen the most recent session in this directory, or start one if there is none. |
 | `kon --resume <id>` | Reopen a specific session. |
 | `kon --incognito` | Start a session that is never saved. It cannot be combined with `--resume`. |
+| `kon --system-prompt-override <file>` | Replace kon's built-in instructions in new sessions; see [System prompt](configuration.md#system-prompt). `kon run` and `kon acp` take it too. |
+| `kon --instructions <text>`, `kon --instructions-file <file>` | Add text or a file to new sessions as if it were an `AGENTS.md`; both repeat. See [Project instructions](configuration.md#project-instructions). `kon run` and `kon acp` take it too. |
 | `kon --version` | Print the version. |
 | `kon run [flags] <message>` | Send one prompt without the full-screen UI; see [Scripting](scripting.md#flags). |
 | `kon acp` | Serve the Agent Client Protocol on stdin and stdout for an editor; see [Editor integration](acp.md). |

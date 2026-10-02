@@ -6,10 +6,18 @@ client starts `kon acp` as a subprocess and exchanges newline-delimited
 JSON-RPC 2.0 messages with it on stdin and stdout. kon writes nothing else to
 stdout; diagnostics go to stderr.
 
-Configure the client to run `kon acp` with no arguments. Log in and pick a
-default model in the full-screen UI first: kon offers no ACP authentication
-methods, and a session with no configured model fails each prompt with an
-error that names the config file.
+Configure the client to run `kon acp`. It needs no arguments, but takes
+`--instructions <text>` and `--instructions-file <file>` (both repeatable) to
+add instructions to the sessions it starts as if from an `AGENTS.md`, and
+`--system-prompt-override <file>` to replace kon's built-in instructions; see
+[Project instructions](configuration.md#project-instructions) and
+[System prompt](configuration.md#system-prompt). Relative paths resolve
+against the directory `kon acp` starts in, which an editor chooses, so give
+absolute ones.
+
+Log in and pick a default model in the full-screen UI first: kon offers no
+ACP authentication methods, and a session with no configured model fails each
+prompt with an error that names the config file.
 
 Tools run without confirmation, as they do everywhere else in kon, so kon
 never sends `session/request_permission`. It also never calls the client's

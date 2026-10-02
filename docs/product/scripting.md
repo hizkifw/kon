@@ -36,6 +36,9 @@ Tools run without confirmation, as they do in the full-screen UI. Give
 | `--incognito` | Keep this run's session in memory only; it cannot be resumed. |
 | `--format text\|json` | Stream text (the default), or [JSON events](#json-events). |
 | `--stdin` | Append stdin to the message. |
+| `--instructions <text>` | Add instructions as if from an `AGENTS.md`; repeat for more. |
+| `--instructions-file <file>` | Add a file as if it were an `AGENTS.md`; repeat for more. See [Project instructions](configuration.md#project-instructions). |
+| `--system-prompt-override <file>` | Replace kon's built-in instructions; see [System prompt](configuration.md#system-prompt). |
 
 ## Sessions
 

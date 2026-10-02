@@ -192,3 +192,29 @@ func compare(got, want []string) string {
 	}
 	return ""
 }
+
+func TestReadResolvesSymlinksAndRejectsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	real := filepath.Join(dir, "rules.md")
+	if err := os.WriteFile(real, []byte("\xEF\xBB\xBFrules"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "link.md")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skip(err)
+	}
+	file, err := Read(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want, _ := filepath.EvalSymlinks(real); file.Path != want || file.Content != "rules" {
+		t.Fatalf("Read = %+v", file)
+	}
+	empty := filepath.Join(dir, "empty.md")
+	if err := os.WriteFile(empty, []byte("\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Read(empty); err == nil {
+		t.Fatal("empty file accepted")
+	}
+}

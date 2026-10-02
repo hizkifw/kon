@@ -1,8 +1,13 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"os"
+	"slices"
 	"strings"
+
+	"kon.kitsu.red/internal/contextfiles"
 )
 
 // command is one kon subcommand. run receives the arguments after the command
@@ -47,12 +52,19 @@ func (c command) help() string {
 // from the registry so it cannot drift from the commands kon actually accepts.
 func rootUsage() string {
 	var b strings.Builder
-	b.WriteString("usage: kon [--resume [<id>] | --incognito] [--help] [--version]\n")
+	b.WriteString("usage: kon [--resume [<id>] | --incognito] [--system-prompt-override <file>]\n")
+	b.WriteString("           [--instructions <text>]... [--instructions-file <file>]...\n")
+	b.WriteString("           [--help] [--version]\n")
 	b.WriteString("       kon <command> [flags]\n\n")
 	b.WriteString("Start a full-screen kon agent session in the current directory.\n\n")
 	b.WriteString("  --resume, -r          resume the most recent session in this directory\n")
 	b.WriteString("  --resume=<id>         resume a specific session\n")
 	b.WriteString("  --incognito           start a session that is never saved\n")
+	b.WriteString("  --system-prompt-override <file>\n")
+	b.WriteString("                        replace kon's built-in instructions in new sessions\n")
+	b.WriteString("  --instructions <text> add instructions as if from an AGENTS.md; repeatable\n")
+	b.WriteString("  --instructions-file <file>\n")
+	b.WriteString("                        add a file as if it were an AGENTS.md; repeatable\n")
 	b.WriteString("  --help, -h            show this help\n")
 	b.WriteString("  --version             print the version\n\n")
 	b.WriteString("commands:\n")
@@ -99,4 +111,50 @@ func wantsHelp(args []string) bool {
 		}
 	}
 	return false
+}
+
+// readSystemPrompt reads the file named by --system-prompt-override. A blank
+// file is rejected rather than taken as no override, which would silently fall
+// back to kon's built-in prompt.
+func readSystemPrompt(path string) (string, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("--system-prompt-override: %w", err)
+	}
+	if strings.TrimSpace(string(b)) == "" {
+		return "", fmt.Errorf("--system-prompt-override: %s is empty", path)
+	}
+	return string(b), nil
+}
+
+// instruction is one --instructions or --instructions-file argument. Both
+// flags share one list so the prompt keeps the order they were given in.
+type instruction struct {
+	value string
+	file  bool
+}
+
+// readInstructions turns --instructions text and --instructions-file files
+// into AGENTS.md-style context files. Inline text has no path. Each file is
+// read now so a bad path fails at launch, and again by the runtime for every
+// new session, as discovered files are; a file given twice is listed once.
+func readInstructions(given []instruction) ([]contextfiles.File, error) {
+	var files []contextfiles.File
+	for _, arg := range given {
+		if !arg.file {
+			if strings.TrimSpace(arg.value) == "" {
+				return nil, errors.New("--instructions: text is empty")
+			}
+			files = append(files, contextfiles.File{Content: arg.value})
+			continue
+		}
+		file, err := contextfiles.Read(arg.value)
+		if err != nil {
+			return nil, fmt.Errorf("--instructions-file: %w", err)
+		}
+		if !slices.ContainsFunc(files, func(f contextfiles.File) bool { return f.Path == file.Path }) {
+			files = append(files, file)
+		}
+	}
+	return files, nil
 }

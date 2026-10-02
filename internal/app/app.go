@@ -120,6 +120,12 @@ type Runtime struct {
 	effort string
 	// incognito keeps every session this runtime creates in memory only.
 	incognito bool
+	// basePrompt replaces kon's built-in instructions in new sessions' system
+	// prompts when it is not empty.
+	basePrompt string
+	// instructions are added after the discovered context files in new
+	// sessions' system prompts.
+	instructions []contextfiles.File
 
 	createSession func() (*session.Store, error)
 	openSession   func(string) (*session.Store, error)
@@ -166,12 +172,6 @@ func New(cfg config.Config, paths config.Paths, cwd, version string) (*Runtime, 
 	return Start(cfg, paths, cwd, version, Options{})
 }
 
-// NewResumed starts a runtime already attached to an existing session for cwd,
-// if one exists. It is the entry point for the --resume flag.
-func NewResumed(cfg config.Config, paths config.Paths, cwd, version string) (*Runtime, error) {
-	return Start(cfg, paths, cwd, version, Options{Resume: true})
-}
-
 // NewResumedID starts a runtime attached to a specific session ID. The named
 // session must already exist for cwd.
 func NewResumedID(cfg config.Config, paths config.Paths, cwd, version string, id typedid.SessionID) (*Runtime, error) {
@@ -196,6 +196,17 @@ type Options struct {
 	// Incognito keeps every session in memory: nothing is saved, and no saved
 	// session can be resumed.
 	Incognito bool
+	// SystemPrompt replaces kon's built-in instructions in the system prompt
+	// of every new session this runtime creates. Context files and the
+	// working directory are still appended. A resumed session keeps the
+	// prompt it was created with.
+	SystemPrompt string
+	// Instructions are added to every new session's system prompt as if they
+	// were AGENTS.md files, after the discovered ones and in order, so they
+	// read as the most specific. They load even when context files are off.
+	// One with a Path is read again from that file for each new session; one
+	// without is inline text.
+	Instructions []contextfiles.File
 }
 
 // Start builds a runtime on a new or resumed session.
@@ -211,7 +222,7 @@ func Start(cfg config.Config, paths config.Paths, cwd, version string, opts Opti
 		name = opts.Model
 	}
 	r := &Runtime{config: cfg, paths: paths, cwd: cwd, providerModels: loadProviderModels(paths.ProviderModels), pinned: opts.Model != "", effort: opts.Effort,
-		incognito: opts.Incognito, jobs: map[*session.Store]*codetools.Jobs{}, notices: make(chan string, 64)}
+		incognito: opts.Incognito, basePrompt: opts.SystemPrompt, instructions: opts.Instructions, jobs: map[*session.Store]*codetools.Jobs{}, notices: make(chan string, 64)}
 	r.createSession = func() (*session.Store, error) {
 		prompt, err := r.systemPrompt()
 		if err != nil {
@@ -802,9 +813,9 @@ func (r *Runtime) Close() error {
 	return err
 }
 
-// systemPrompt resolves the user's global AGENTS.md and, when enabled, the
-// context files that apply to the working directory, and builds the durable
-// system prompt for a new session.
+// systemPrompt resolves the user's global AGENTS.md, the context files that
+// apply to the working directory when enabled, and the instructions given at
+// startup, and builds the durable system prompt for a new session.
 func (r *Runtime) systemPrompt() (string, error) {
 	var files []contextfiles.File
 	global, hasGlobal := contextfiles.Global(r.paths.ConfigDir)
@@ -822,7 +833,24 @@ func (r *Runtime) systemPrompt() (string, error) {
 			return hasGlobal && file.Path == global.Path
 		})...)
 	}
-	return prompt.System(r.cwd, files), nil
+	// An instruction file that was also discovered is listed once, in the
+	// place it was given, so the order the caller chose holds.
+	files = slices.DeleteFunc(files, func(file contextfiles.File) bool {
+		return slices.ContainsFunc(r.instructions, func(given contextfiles.File) bool { return given.Path == file.Path })
+	})
+	// Given files are read afresh, as discovered ones are, so an edit applies
+	// to the next new session.
+	for _, given := range r.instructions {
+		if given.Path != "" {
+			fresh, err := contextfiles.Read(given.Path)
+			if err != nil {
+				return "", fmt.Errorf("instructions: %w", err)
+			}
+			given = fresh
+		}
+		files = append(files, given)
+	}
+	return prompt.System(r.basePrompt, r.cwd, files), nil
 }
 
 // prepareSession creates a new session for profile. A model that is not ready

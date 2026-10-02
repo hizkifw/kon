@@ -17,7 +17,8 @@ import (
 	"strings"
 )
 
-// File is one discovered instruction file. Path is absolute.
+// File is one instruction file. Path is absolute, or empty for instructions
+// given inline rather than read from a file.
 type File struct {
 	Path    string
 	Content string
@@ -74,6 +75,29 @@ func Load(cwd string) ([]File, error) {
 	// the more specific files that override it.
 	slices.Reverse(files)
 	return files, nil
+}
+
+// Read reads one instruction file named explicitly rather than discovered.
+// Its path is made absolute and symlinks are resolved, as a discovered file's
+// directory is, so the same file reached two ways has one path. Unlike
+// discovery, an empty file is an error: it was asked for by name.
+func Read(path string) (File, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return File{}, err
+	}
+	if canonical, err := filepath.EvalSymlinks(abs); err == nil {
+		abs = canonical
+	}
+	content, err := os.ReadFile(abs)
+	if err != nil {
+		return File{}, err
+	}
+	content = stripBOM(content)
+	if strings.TrimSpace(string(content)) == "" {
+		return File{}, fmt.Errorf("%s is empty", path)
+	}
+	return File{Path: abs, Content: string(content)}, nil
 }
 
 // loadFromDir returns the highest-precedence instruction file in dir. It

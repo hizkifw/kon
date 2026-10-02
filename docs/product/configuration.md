@@ -239,17 +239,44 @@ kon adds instructions from `AGENTS.md` files to every new session:
 - **The project's**, from the `AGENTS.md` in the working directory and in
   each directory above it, up to the filesystem root. Outer directories
   come first, so the most specific instructions come last.
+- **Given on the command line** to `kon`, `kon run`, or `kon acp`:
+  `--instructions <text>` adds text, and `--instructions-file <file>` adds a
+  file. Repeat either to add several; they come last, in the order given:
+
+  ```sh
+  kon run --instructions-file review.md --instructions "Be terse." review the diff
+  ```
 
 In each directory, `AGENTS.override.md` takes the place of `AGENTS.md`, and
 `CLAUDE.md` is used when there is no `AGENTS.md`. Empty files, and directories
-whose names start with `.`, are skipped.
+whose names start with `.`, are skipped; a file given with
+`--instructions-file` must not be empty.
 
 Set `"context_files": false` to skip the project's files; your own
-`AGENTS.md` still loads.
+`AGENTS.md` and instructions given on the command line still load.
 
 Instructions are read when a session starts and kept with it, so edits apply
 to new sessions (`/new` or a fresh launch). A resumed session keeps the
 instructions it started with.
+
+Subagents do not inherit instructions given on the command line, nor
+`--system-prompt-override`: each starts from your `AGENTS.md` files and kon's
+built-in prompt.
+
+## System prompt
+
+`--system-prompt-override <file>` replaces kon's built-in instructions with the
+contents of a file, for `kon`, `kon run`, and `kon acp`:
+
+```sh
+kon run --system-prompt-override reviewer.md review the staged diff
+```
+
+Only the built-in part is replaced. Your `AGENTS.md`, the project's, and the
+working directory are still added after it. The file is read once, at launch.
+The prompt is fixed when a session starts: the override applies to new
+sessions, including `/new`, and a resumed session keeps the prompt it started
+with.
 
 ## Model catalog
 

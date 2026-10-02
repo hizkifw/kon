@@ -173,3 +173,49 @@ func TestUpgradeRefusesDevelopmentBuild(t *testing.T) {
 		t.Fatalf("error = %v, want a development build refusal", err)
 	}
 }
+
+func TestReadSystemPromptRejectsBlankFile(t *testing.T) {
+	dir := t.TempDir()
+	blank := filepath.Join(dir, "blank.md")
+	if err := os.WriteFile(blank, []byte(" \n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readSystemPrompt(blank); err == nil {
+		t.Fatal("blank system prompt file accepted")
+	}
+	if _, err := readSystemPrompt(filepath.Join(dir, "missing.md")); err == nil {
+		t.Fatal("missing system prompt file accepted")
+	}
+	rules := filepath.Join(dir, "rules.md")
+	if err := os.WriteFile(rules, []byte("be terse\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if text, err := readSystemPrompt(rules); err != nil || text != "be terse\n" {
+		t.Fatalf("readSystemPrompt = %q, %v", text, err)
+	}
+}
+
+func TestReadInstructionsKeepsOrderAndReadsEachFileOnce(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	for name, content := range map[string]string{"a.md": "first", "b.md": "second", "blank.md": "\n"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files, err := readInstructions([]instruction{
+		{value: "b.md", file: true}, {value: "inline"}, {value: "a.md", file: true}, {value: filepath.Join(dir, "b.md"), file: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 3 || files[0].Content != "second" || !filepath.IsAbs(files[0].Path) ||
+		files[1].Content != "inline" || files[1].Path != "" || files[2].Content != "first" {
+		t.Fatalf("files = %+v", files)
+	}
+	for _, bad := range []instruction{{value: "blank.md", file: true}, {value: "missing.md", file: true}, {value: " "}} {
+		if _, err := readInstructions([]instruction{bad}); err == nil {
+			t.Fatalf("%+v accepted", bad)
+		}
+	}
+}

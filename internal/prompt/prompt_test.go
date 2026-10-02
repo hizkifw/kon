@@ -8,7 +8,7 @@ import (
 )
 
 func TestSystemRendersContextFilesInOrder(t *testing.T) {
-	prompt := System("/work/project", []contextfiles.File{
+	prompt := System("", "/work/project", []contextfiles.File{
 		{Path: "/work/AGENTS.md", Content: "outer rules\n"},
 		{Path: "/work/project/AGENTS.md", Content: "inner rules"},
 	})
@@ -26,22 +26,42 @@ func TestSystemRendersContextFilesInOrder(t *testing.T) {
 }
 
 func TestSystemOmitsContextSectionWhenEmpty(t *testing.T) {
-	prompt := System("/work", nil)
+	prompt := System("", "/work", nil)
 	if strings.Contains(prompt, "<instructions") || strings.Contains(prompt, "User and project instructions") {
 		t.Fatalf("empty context files produced a section:\n%s", prompt)
 	}
 }
 
 func TestSystemPointsToBundledDocs(t *testing.T) {
-	prompt := System("/work", nil)
+	prompt := System("", "/work", nil)
 	if !strings.Contains(prompt, "`kon docs`") {
 		t.Fatalf("kon docs missing from prompt:\n%s", prompt)
 	}
 }
 
 func TestSystemPointsToShellTools(t *testing.T) {
-	prompt := System("/work", nil)
+	prompt := System("", "/work", nil)
 	if !strings.Contains(prompt, "`kon tool webfetch <url>`") || !strings.Contains(prompt, "`kon tool --help`") {
 		t.Fatalf("shell tools missing from prompt:\n%s", prompt)
+	}
+}
+
+func TestSystemReplacesBaseWhenGiven(t *testing.T) {
+	prompt := System("custom rules\n", "/work", []contextfiles.File{{Path: "/work/AGENTS.md", Content: "project rules"}})
+	if !strings.HasPrefix(prompt, "custom rules\n\nUser and project instructions:") {
+		t.Fatalf("custom base not used as the prefix:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "`kon docs`") {
+		t.Fatalf("built-in prompt kept alongside the custom base:\n%s", prompt)
+	}
+	if !strings.HasSuffix(prompt, "Current working directory: /work") {
+		t.Fatalf("cwd missing after the custom base:\n%s", prompt)
+	}
+}
+
+func TestSystemRendersInlineInstructionsWithoutPath(t *testing.T) {
+	prompt := System("", "/work", []contextfiles.File{{Content: "be terse"}})
+	if !strings.Contains(prompt, "\n\n<instructions>\nbe terse\n</instructions>") {
+		t.Fatalf("inline instructions not rendered as a bare block:\n%s", prompt)
 	}
 }

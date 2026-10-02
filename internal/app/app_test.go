@@ -21,6 +21,7 @@ import (
 	"kon.kitsu.red/core/typedid"
 	"kon.kitsu.red/internal/codetools"
 	"kon.kitsu.red/internal/config"
+	"kon.kitsu.red/internal/contextfiles"
 	"kon.kitsu.red/internal/sessions"
 )
 
@@ -700,6 +701,83 @@ func TestNewLoadsGlobalAgentsFileFirst(t *testing.T) {
 	}
 }
 
+func TestStartAddsGivenInstructionsLast(t *testing.T) {
+	workspace := t.TempDir()
+	agents := filepath.Join(workspace, "AGENTS.md")
+	if err := os.WriteFile(agents, []byte("workspace rules"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	paths := config.Paths{Sessions: t.TempDir(), ConfigFile: filepath.Join(t.TempDir(), "config.json")}
+	prompt := func(cfg config.Config, given ...contextfiles.File) string {
+		t.Helper()
+		runtime, err := Start(cfg, paths, workspace, "test", Options{Instructions: given})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer runtime.Close()
+		return runtime.SessionHistory()[0].Message.Text()
+	}
+
+	review := filepath.Join(t.TempDir(), "review.md")
+	if err := os.WriteFile(review, []byte("stale review rules"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	extra := contextfiles.File{Path: review, Content: "stale review rules"}
+	// The file is read again for the session, so an edit since launch shows.
+	if err := os.WriteFile(review, []byte("review rules"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := prompt(config.Default(), extra)
+	if strings.Contains(got, "stale") {
+		t.Fatalf("given file not read afresh:\n%s", got)
+	}
+	project, given := strings.Index(got, "workspace rules"), strings.Index(got, `<instructions path="`+review+`">`)
+	if project < 0 || given < 0 || project > given {
+		t.Fatalf("given instructions should follow discovered files:\n%s", got)
+	}
+	// Naming a discovered file moves it to the place it was given.
+	got = prompt(config.Default(), contextfiles.File{Path: agents, Content: "workspace rules"}, extra)
+	if strings.Count(got, "workspace rules") != 1 || strings.Index(got, "workspace rules") > strings.Index(got, "review rules") {
+		t.Fatalf("discovered file not listed once in the given order:\n%s", got)
+	}
+	disabled := false
+	cfg := config.Default()
+	cfg.ContextFiles = &disabled
+	if got := prompt(cfg, extra); !strings.Contains(got, "review rules") || strings.Contains(got, "workspace rules") {
+		t.Fatalf("given instructions should load with discovery off:\n%s", got)
+	}
+}
+
+func TestStartReplacesBasePromptOnlyForNewSessions(t *testing.T) {
+	workspace := t.TempDir()
+	paths := config.Paths{Sessions: t.TempDir(), ConfigFile: filepath.Join(t.TempDir(), "config.json")}
+	open := func(opts Options) string {
+		t.Helper()
+		runtime, err := Start(config.Default(), paths, workspace, "test", opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer runtime.Close()
+		return runtime.SessionHistory()[0].Message.Text()
+	}
+	got := open(Options{SystemPrompt: "custom rules", Instructions: []contextfiles.File{{Content: "be terse"}}})
+	if !strings.HasPrefix(got, "custom rules\n") || !strings.Contains(got, "<instructions>\nbe terse\n</instructions>") {
+		t.Fatalf("new session did not use the override:\n%s", got)
+	}
+	// A resumed session keeps the prompt it was created with.
+	saved, err := sessions.New(paths.Sessions, workspace, "test", "saved prompt", typedid.SessionID{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := saved.AppendMessage(session.TextMessage(session.RoleUser, "hi")); err != nil {
+		t.Fatal(err)
+	}
+	saved.Close()
+	if resumed := open(Options{Resume: true, SystemPrompt: "other rules"}); resumed != "saved prompt" {
+		t.Fatalf("resumed session prompt changed:\n%s", resumed)
+	}
+}
+
 func TestCloseCancelsAndWaitsForActiveRun(t *testing.T) {
 	store := testStore(t)
 	profile := modelSpec{Model: config.Model{Name: "default", Type: "openai", ModelID: "model"}}
@@ -917,7 +995,7 @@ func TestNewResumedIDOpensSpecificSession(t *testing.T) {
 func TestNewResumedWithoutSessionsStartsFresh(t *testing.T) {
 	dir := t.TempDir()
 	paths := config.Paths{Sessions: filepath.Join(dir, "sessions"), ConfigFile: filepath.Join(dir, "config.json")}
-	runtime, err := NewResumed(config.Default(), paths, t.TempDir(), "test")
+	runtime, err := Start(config.Default(), paths, t.TempDir(), "test", Options{Resume: true})
 	if err != nil {
 		t.Fatal(err)
 	}

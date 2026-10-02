@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -24,6 +25,11 @@ func TestParseRunArgsStopsAtTheMessage(t *testing.T) {
 	if err != nil || parsed.format != headless.FormatJSON || strings.Join(parsed.message, " ") != "-h means help" {
 		t.Fatalf("parsed = %+v, %v", parsed, err)
 	}
+	parsed, err = parseRunArgs([]string{"--system-prompt-override", "rules.md", "--instructions-file", "a.md", "--instructions=be terse", "hi"})
+	want := []instruction{{value: "a.md", file: true}, {value: "be terse"}}
+	if err != nil || parsed.systemPrompt != "rules.md" || !slices.Equal(parsed.instructions, want) || strings.Join(parsed.message, " ") != "hi" {
+		t.Fatalf("parsed = %+v, %v", parsed, err)
+	}
 	parsed, err = parseRunArgs([]string{"--incognito", "keep", "this", "quiet"})
 	if err != nil || !parsed.incognito || strings.Join(parsed.message, " ") != "keep this quiet" {
 		t.Fatalf("parsed = %+v, %v", parsed, err)
@@ -34,6 +40,10 @@ func TestParseRunArgsRejectsBadFlags(t *testing.T) {
 	for _, args := range [][]string{
 		{"--bogus", "hi"},
 		{"--model"},
+		{"--system-prompt-override"},
+		{"--system-prompt-override=", "hi"},
+		{"--instructions"},
+		{"--instructions-file"},
 		{"--format", "yaml", "hi"},
 		{"--resume=not-a-session", "hi"},
 		{"--incognito", "-r", "hi"},

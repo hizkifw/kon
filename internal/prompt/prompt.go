@@ -23,17 +23,22 @@ var basePrompt string
 // innermost; they precede the cwd so a project can describe conventions
 // before the model sees where it is working. The result is byte-stable for a
 // given input, which is what keeps the provider prompt cache valid across
-// compactions.
-func System(cwd string, contextFiles []contextfiles.File) string {
-	prompt := strings.TrimSuffix(basePrompt, "\n")
+// compactions. base replaces kon's built-in instructions when it is not
+// empty; the context files and cwd follow either one.
+func System(base, cwd string, contextFiles []contextfiles.File) string {
+	if base == "" {
+		base = basePrompt
+	}
+	prompt := strings.TrimSuffix(base, "\n")
 	prompt += renderContextFiles(contextFiles)
 	prompt += "\nCurrent working directory: " + filepath.Clean(cwd)
 	return prompt
 }
 
-// renderContextFiles formats discovered instruction files as tagged blocks. The
-// path attribute lets the model attribute an instruction to its file when it
-// reports or applies it.
+// renderContextFiles formats instruction files as tagged blocks. The path
+// attribute lets the model attribute an instruction to its file when it
+// reports or applies it; instructions given inline have no file, so their
+// block has no path.
 func renderContextFiles(files []contextfiles.File) string {
 	if len(files) == 0 {
 		return ""
@@ -41,9 +46,13 @@ func renderContextFiles(files []contextfiles.File) string {
 	var out strings.Builder
 	out.WriteString("\n\nUser and project instructions:")
 	for _, file := range files {
-		out.WriteString("\n\n<instructions path=\"")
-		out.WriteString(file.Path)
-		out.WriteString("\">\n")
+		if file.Path == "" {
+			out.WriteString("\n\n<instructions>\n")
+		} else {
+			out.WriteString("\n\n<instructions path=\"")
+			out.WriteString(file.Path)
+			out.WriteString("\">\n")
+		}
 		out.WriteString(strings.TrimSpace(file.Content))
 		out.WriteString("\n</instructions>")
 	}

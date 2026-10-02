@@ -42,7 +42,12 @@ func runCommand() command {
 			"  --resume=<id>          continue a specific session\n" +
 			"  --incognito            keep this run's session in memory; it is never saved\n" +
 			"  --format text|json     stream text (default), or write one JSON event per line\n" +
-			"  --stdin                append stdin to the message\n\n" +
+			"  --stdin                append stdin to the message\n" +
+			"  --system-prompt-override <file>\n" +
+			"                         replace kon's built-in instructions in a new session\n" +
+			"  --instructions <text>  add instructions as if from an AGENTS.md; repeatable\n" +
+			"  --instructions-file <file>\n" +
+			"                         add a file as if it were an AGENTS.md; repeatable\n\n" +
 			"Exit status is 0 when the turn completes, 1 on error, 2 on a usage error,\n" +
 			"and 130 when interrupted.",
 		run: runRun,
@@ -57,6 +62,10 @@ type runArgs struct {
 	resumeID      typedid.SessionID
 	incognito     bool
 	format        headless.Format
+	// systemPrompt is the file named by --system-prompt-override.
+	systemPrompt string
+	// instructions are each --instructions and --instructions-file, in order.
+	instructions []instruction
 	// stdin appends stdin to a message given as arguments. Without it stdin
 	// is read only when there is no message, so a caller that leaves stdin
 	// open without writing to it cannot stall a run it gave a message.
@@ -99,7 +108,7 @@ func parseRunArgs(args []string) (runArgs, error) {
 		case name == "--resume" && hasInline:
 			parsed.resume = true
 			parsed.resumeID, err = typedid.ParseSessionID(inline)
-		case name == "--model" || name == "--effort" || name == "--format":
+		case name == "--model" || name == "--effort" || name == "--format" || name == "--system-prompt-override" || name == "--instructions" || name == "--instructions-file":
 			v := inline
 			if !hasInline {
 				v, err = value(&i, name)
@@ -109,6 +118,14 @@ func parseRunArgs(args []string) (runArgs, error) {
 				parsed.model = v
 			case "--effort":
 				parsed.effort = v
+			case "--system-prompt-override":
+				// An empty value would otherwise mean no override at all.
+				if v == "" && err == nil {
+					err = errors.New("--system-prompt-override needs a file")
+				}
+				parsed.systemPrompt = v
+			case "--instructions", "--instructions-file":
+				parsed.instructions = append(parsed.instructions, instruction{value: v, file: name == "--instructions-file"})
 			default:
 				parsed.format = headless.Format(v)
 			}
@@ -175,6 +192,16 @@ func runRun(args []string) error {
 	if err != nil {
 		return usageError(err)
 	}
+	var systemPrompt string
+	if parsed.systemPrompt != "" {
+		if systemPrompt, err = readSystemPrompt(parsed.systemPrompt); err != nil {
+			return err
+		}
+	}
+	instructions, err := readInstructions(parsed.instructions)
+	if err != nil {
+		return err
+	}
 	paths, err := config.ResolvePaths()
 	if err != nil {
 		return err
@@ -192,6 +219,7 @@ func runRun(args []string) error {
 			Resume: parsed.resume, SessionID: parsed.resumeID, Model: parsed.model, Effort: parsed.effort,
 			// A subagent of an incognito session is incognito too.
 			Parent: parentSession(), Incognito: parsed.incognito || codetools.Incognito(),
+			SystemPrompt: systemPrompt, Instructions: instructions,
 		})
 		if err != nil {
 			return err

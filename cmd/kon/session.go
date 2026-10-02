@@ -27,7 +27,8 @@ import (
 // cannot express.
 func runSession(args []string) (runErr error) {
 	resume, incognito := false, false
-	resumeID := ""
+	resumeID, systemPromptFile := "", ""
+	var instructions []instruction
 	for i := 0; i < len(args); i++ {
 		switch arg := args[i]; {
 		case arg == "-h" || arg == "--help":
@@ -47,6 +48,28 @@ func runSession(args []string) (runErr error) {
 			resume, resumeID = true, strings.TrimPrefix(arg, "--resume=")
 		case arg == "--incognito":
 			incognito = true
+		case arg == "--system-prompt-override":
+			if i+1 >= len(args) {
+				return errors.New("--system-prompt-override needs a value")
+			}
+			i++
+			systemPromptFile = args[i]
+		case arg == "--instructions" || arg == "--instructions-file":
+			if i+1 >= len(args) {
+				return fmt.Errorf("%s needs a value", arg)
+			}
+			i++
+			instructions = append(instructions, instruction{value: args[i], file: arg == "--instructions-file"})
+		case strings.HasPrefix(arg, "--instructions="):
+			instructions = append(instructions, instruction{value: strings.TrimPrefix(arg, "--instructions=")})
+		case strings.HasPrefix(arg, "--instructions-file="):
+			instructions = append(instructions, instruction{value: strings.TrimPrefix(arg, "--instructions-file="), file: true})
+		case strings.HasPrefix(arg, "--system-prompt-override="):
+			systemPromptFile = strings.TrimPrefix(arg, "--system-prompt-override=")
+			// An empty value would otherwise mean no override at all.
+			if systemPromptFile == "" {
+				return errors.New("--system-prompt-override needs a file")
+			}
 		default:
 			return fmt.Errorf("unknown argument %q (try --help)", arg)
 		}
@@ -64,6 +87,19 @@ func runSession(args []string) (runErr error) {
 			return err
 		}
 		id = parsed
+	}
+
+	var systemPrompt string
+	if systemPromptFile != "" {
+		text, err := readSystemPrompt(systemPromptFile)
+		if err != nil {
+			return err
+		}
+		systemPrompt = text
+	}
+	contextFiles, err := readInstructions(instructions)
+	if err != nil {
+		return err
 	}
 
 	paths, err := config.ResolvePaths()
@@ -88,20 +124,15 @@ func runSession(args []string) (runErr error) {
 	if err != nil {
 		return err
 	}
-	var runtime *app.Runtime
-	switch {
-	case incognito:
+	if incognito {
 		// Earlier prompts can still be recalled; this session's are not
 		// recorded.
 		historyStore = nil
-		runtime, err = app.Start(cfg, paths, cwd, buildinfo.Version(), app.Options{Incognito: true})
-	case resumeID != "":
-		runtime, err = app.NewResumedID(cfg, paths, cwd, buildinfo.Version(), id)
-	case resume:
-		runtime, err = app.NewResumed(cfg, paths, cwd, buildinfo.Version())
-	default:
-		runtime, err = app.New(cfg, paths, cwd, buildinfo.Version())
 	}
+	runtime, err := app.Start(cfg, paths, cwd, buildinfo.Version(), app.Options{
+		Resume: resume, SessionID: id, Incognito: incognito,
+		SystemPrompt: systemPrompt, Instructions: contextFiles,
+	})
 	if err != nil {
 		return err
 	}
