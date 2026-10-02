@@ -70,9 +70,10 @@ type sessionCapabilities struct {
 // agentExtensions lists kon's extensions under its key of the agent
 // capabilities' _meta.
 type agentExtensions struct {
-	Steer      bool `json:"steer"`
-	Jobs       bool `json:"jobs"`
-	AgentTurns bool `json:"agentTurns"`
+	Steer        bool `json:"steer"`
+	Jobs         bool `json:"jobs"`
+	AgentTurns   bool `json:"agentTurns"`
+	Instructions bool `json:"instructions"`
 }
 
 // sessionRequest covers session/new, session/load, and session/resume; only
@@ -80,6 +81,22 @@ type agentExtensions struct {
 type sessionRequest struct {
 	SessionID string `json:"sessionId"`
 	CWD       string `json:"cwd"`
+}
+
+// newSessionRequest is session/new, the one session request whose _meta kon
+// reads. Load and resume leave theirs undecoded, so they accept whatever they
+// did before the extension.
+type newSessionRequest struct {
+	sessionRequest
+	Meta map[string]json.RawMessage `json:"_meta"`
+}
+
+// sessionExtensions is what a client sets under the kon key of session/new's
+// _meta.
+type sessionExtensions struct {
+	// Instructions are added to the new session's system prompt as if they
+	// came from an AGENTS.md.
+	Instructions string `json:"instructions"`
 }
 
 type sessionResponse struct {

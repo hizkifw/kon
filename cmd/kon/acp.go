@@ -7,6 +7,8 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"slices"
+	"strings"
 	"syscall"
 
 	"kon.kitsu.red/core/typedid"
@@ -14,6 +16,7 @@ import (
 	"kon.kitsu.red/internal/app"
 	"kon.kitsu.red/internal/buildinfo"
 	"kon.kitsu.red/internal/config"
+	"kon.kitsu.red/internal/contextfiles"
 	"kon.kitsu.red/internal/sessions"
 )
 
@@ -89,12 +92,20 @@ func runACP(args []string) error {
 		server := &acp.Server{
 			// Each session reads the config afresh, so one started after
 			// another changed the model starts on the new default.
-			Start: func(cwd string, id typedid.SessionID) (acp.Runtime, error) {
+			Start: func(cwd string, id typedid.SessionID, extra string) (acp.Runtime, error) {
 				cfg, err := config.Load(paths.ConfigFile)
 				if err != nil {
 					return nil, err
 				}
-				return app.Start(cfg, paths, cwd, buildinfo.Version(), app.Options{Resume: !id.IsZero(), SessionID: id, SystemPrompt: systemPrompt, Instructions: instructions})
+				// A client's instructions come after kon acp's own, on a
+				// copy so they never reach another session's prompt.
+				files := slices.Clone(instructions)
+				if strings.TrimSpace(extra) != "" {
+					files = append(files, contextfiles.File{Content: extra})
+				}
+				return app.Start(cfg, paths, cwd, buildinfo.Version(), app.Options{
+					Resume: !id.IsZero(), SessionID: id, SystemPrompt: systemPrompt, Instructions: files,
+				})
 			},
 			List:    func(cwd string) ([]sessions.Summary, error) { return sessions.Discover(paths.Sessions, cwd) },
 			CWD:     cwd,

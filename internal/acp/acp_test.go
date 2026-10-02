@@ -231,7 +231,7 @@ func updates(msgs []map[string]any) []string {
 func newServer(runtimes ...*fakeRuntime) *Server {
 	var mu sync.Mutex
 	return &Server{
-		Start: func(string, typedid.SessionID) (Runtime, error) {
+		Start: func(string, typedid.SessionID, string) (Runtime, error) {
 			mu.Lock()
 			defer mu.Unlock()
 			if len(runtimes) == 0 {
@@ -274,8 +274,48 @@ func TestInitializeAdvertisesV1AndExtensions(t *testing.T) {
 		t.Fatalf("capabilities = %v", caps)
 	}
 	ext := caps["_meta"].(map[string]any)[extension].(map[string]any)
-	if ext["steer"] != true || ext["jobs"] != true || ext["agentTurns"] != true {
+	if ext["steer"] != true || ext["jobs"] != true || ext["agentTurns"] != true || ext["instructions"] != true {
 		t.Fatalf("extensions = %v", ext)
+	}
+}
+
+func TestNewSessionPassesClientInstructions(t *testing.T) {
+	server := newServer(newFakeRuntime(t))
+	start := server.Start
+	var got string
+	server.Start = func(cwd string, id typedid.SessionID, instructions string) (Runtime, error) {
+		got = instructions
+		return start(cwd, id, instructions)
+	}
+	c := serve(t, server)
+	c.call("initialize", map[string]any{"protocolVersion": 1})
+	c.call("session/new", map[string]any{"cwd": "/work", "mcpServers": []any{},
+		"_meta": map[string]any{extension: map[string]any{"instructions": "be terse"}}})
+	if got != "be terse" {
+		t.Fatalf("instructions = %q", got)
+	}
+	resp, _ := c.until(c.request("session/new", map[string]any{"cwd": "/work", "mcpServers": []any{},
+		"_meta": map[string]any{extension: map[string]any{"instructions": 7}}}))
+	if resp["error"] == nil {
+		t.Fatal("malformed instructions accepted")
+	}
+}
+
+func TestLoadIgnoresClientInstructions(t *testing.T) {
+	r := newFakeRuntime(t)
+	server := newServer(r)
+	start := server.Start
+	got := "unset"
+	server.Start = func(cwd string, id typedid.SessionID, instructions string) (Runtime, error) {
+		got = instructions
+		return start(cwd, id, instructions)
+	}
+	c := serve(t, server)
+	c.call("initialize", map[string]any{"protocolVersion": 1})
+	c.call("session/load", map[string]any{"sessionId": r.id.String(), "cwd": "/work", "mcpServers": []any{},
+		"_meta": map[string]any{extension: map[string]any{"instructions": "be terse"}}})
+	if got != "" {
+		t.Fatalf("load passed instructions %q", got)
 	}
 }
 

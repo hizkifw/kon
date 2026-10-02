@@ -69,7 +69,7 @@ empty session is in the full-screen UI. Its ID is not kept.
     "promptCapabilities": {"image": true, "audio": true, "embeddedContext": true},
     "mcpCapabilities": {"http": false, "sse": false},
     "sessionCapabilities": {"list": {}, "resume": {}, "close": {}},
-    "_meta": {"kon.kitsu.red": {"steer": true, "jobs": true, "agentTurns": true}}
+    "_meta": {"kon.kitsu.red": {"steer": true, "jobs": true, "agentTurns": true, "instructions": true}}
   },
   "authMethods": []
 }
@@ -193,6 +193,24 @@ that started the turn as a `user_message_chunk`.
 `error`, a message, instead when the turn failed. A `session/prompt` sent
 during an agent-started turn waits for it like any other, and `session/cancel`
 cancels it.
+
+### Session instructions
+
+`session/new` takes instructions for the new session under the kon key of its
+`_meta`. kon adds them to the session's system prompt as another
+`<instructions>` block, as if they came from an `AGENTS.md`: after the
+discovered files and any given to `kon acp` with `--instructions` or
+`--instructions-file`.
+
+```json
+{"jsonrpc": "2.0", "id": 2, "method": "session/new", "params": {"cwd": "/work/project", "mcpServers": [], "_meta": {"kon.kitsu.red": {"instructions": "Answer in British English."}}}}
+```
+
+The system prompt is fixed when a session is created, so `session/load` and
+`session/resume` ignore them: a saved session keeps the instructions it
+started with. Empty or `null` instructions add nothing; any other value that
+is not a string, or a kon entry that is not an object, is an invalid-params
+error.
 
 ### Steering
 

@@ -52,8 +52,10 @@ type Runtime interface {
 // storage, which cmd/kon wires up and tests replace.
 type Server struct {
 	// Start opens a runtime in cwd: on a new session for a zero id, or on
-	// the saved session id.
-	Start func(cwd string, id typedid.SessionID) (Runtime, error)
+	// the saved session id. instructions are added to a new session's system
+	// prompt as if they came from an AGENTS.md; they are empty for a saved
+	// session, which keeps the prompt it was created with.
+	Start func(cwd string, id typedid.SessionID, instructions string) (Runtime, error)
 	// List lists the saved sessions of cwd, newest first.
 	List func(cwd string) ([]sessions.Summary, error)
 	// CWD is where kon acp was started, which session/list lists when the
@@ -235,7 +237,7 @@ func (c *conn) initialize(params json.RawMessage) (any, error) {
 		AgentCapabilities: agentCapabilities{
 			LoadSession:        true,
 			PromptCapabilities: promptCapabilities{Image: true, Audio: true, EmbeddedContext: true},
-			Meta:               map[string]any{extension: agentExtensions{Steer: true, Jobs: true, AgentTurns: true}},
+			Meta:               map[string]any{extension: agentExtensions{Steer: true, Jobs: true, AgentTurns: true, Instructions: true}},
 		},
 		AuthMethods: []struct{}{},
 	}, nil
@@ -270,7 +272,7 @@ func workspace(cwd string) (string, error) {
 }
 
 func (c *conn) newSession(params json.RawMessage) (any, error) {
-	var req sessionRequest
+	var req newSessionRequest
 	if err := decode(params, &req); err != nil {
 		return nil, err
 	}
@@ -278,7 +280,13 @@ func (c *conn) newSession(params json.RawMessage) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	runtime, err := c.server.Start(cwd, typedid.SessionID{})
+	var ext sessionExtensions
+	if raw, ok := req.Meta[extension]; ok {
+		if err := json.Unmarshal(raw, &ext); err != nil {
+			return nil, invalidParams(err)
+		}
+	}
+	runtime, err := c.server.Start(cwd, typedid.SessionID{}, ext.Instructions)
 	if err != nil {
 		return nil, err
 	}
@@ -324,7 +332,7 @@ func (c *conn) reopen(params json.RawMessage) (*liveSession, error) {
 	if s := c.session(id.String()); s != nil {
 		return s, nil
 	}
-	runtime, err := c.server.Start(cwd, id)
+	runtime, err := c.server.Start(cwd, id, "")
 	if err != nil {
 		return nil, &rpcError{Code: codeNotFound, Message: err.Error()}
 	}
