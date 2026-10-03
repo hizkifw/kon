@@ -37,8 +37,8 @@ func (r *Runtime) Models() []Model {
 	for _, connection := range r.config.Providers {
 		ids := make(map[string]string)
 		displayNames := make(map[string]string)
-		for _, id := range r.providerModels[connection.ID] {
-			ids[id] = "provider list"
+		for _, model := range r.providerModels[connection.ID] {
+			ids[model.ID] = "provider list"
 		}
 		if key := catalogKey(connection); service != nil && key != "" {
 			for _, model := range service.Models(key) {
@@ -186,14 +186,17 @@ func (r *Runtime) changeEffort(pick func(efforts []string, current string) (stri
 	return profile.effort, nil
 }
 
-// configuredSpec resolves a model from the config alone, without waiting for
-// the catalog, so a derived model is left unresolved.
+// configuredSpec applies config and cached discovery without waiting for the
+// catalog, so a derived model is left unresolved.
 func (r *Runtime) configuredSpec(name string) (modelSpec, bool) {
 	profile, ok := r.config.ResolveModel(name)
 	if !ok {
 		return modelSpec{}, false
 	}
 	_, explicit := r.config.Model(name)
+	if !explicit {
+		profile = r.withProviderInputs(profile)
+	}
 	return r.withEffort(modelSpec{Model: profile, resolved: explicit}), true
 }
 
@@ -236,7 +239,8 @@ func (r *Runtime) describeActive() Model {
 func (r *Runtime) DescribeSelection(selection session.ModelSelection) Model {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	profile, ok := r.config.ResolveModel(selection.Name)
+	spec, ok := r.configuredSpec(selection.Name)
+	profile := spec.Model
 	if !ok {
 		// The profile or connection is gone; the record still names the model.
 		return Model{
@@ -339,7 +343,20 @@ func (r *Runtime) resolveModel(name string) (config.Model, bool) {
 			}
 		}
 	}
-	return profile, true
+	return r.withProviderInputs(profile), true
+}
+
+// withProviderInputs prefers the serving endpoint's modalities to reference
+// data. An ID-only listing leaves catalog capabilities intact.
+func (r *Runtime) withProviderInputs(profile config.Model) config.Model {
+	providerID, _, _ := strings.Cut(profile.Name, "/")
+	for _, model := range r.providerModels[providerID] {
+		if model.ID == profile.ModelID && model.InputModalities != nil {
+			profile.Inputs = inputModalities(model.InputModalities)
+			break
+		}
+	}
+	return profile
 }
 
 // catalogKey is the models.dev provider whose model metadata describes a
@@ -362,7 +379,7 @@ func catalogKey(connection config.Provider) string {
 }
 
 // Login verifies a provider only in response to the user's /login command,
-// then stores its connection and discovered model IDs separately.
+// then stores its connection and discovered model metadata separately.
 func (r *Runtime) Login(ctx context.Context, connection config.Provider) (int, bool, error) {
 	r.mu.Lock()
 	if err := r.mutable(); err != nil {
@@ -405,7 +422,7 @@ func (r *Runtime) Login(ctx context.Context, connection config.Provider) (int, b
 	}
 	r.config = current
 	if r.providerModels == nil {
-		r.providerModels = make(map[string][]string)
+		r.providerModels = make(map[string][]login.Model)
 	}
 	if verified {
 		r.providerModels[connection.ID] = models
@@ -428,7 +445,7 @@ func (r *Runtime) Login(ctx context.Context, connection config.Provider) (int, b
 	return len(models), verified, nil
 }
 
-func loadProviderModels(path string) map[string][]string {
+func loadProviderModels(path string) map[string][]login.Model {
 	if path == "" {
 		return nil
 	}
@@ -441,14 +458,26 @@ func loadProviderModels(path string) map[string][]string {
 	if err != nil {
 		return nil
 	}
-	var models map[string][]string
-	if json.Unmarshal(b, &models) != nil {
+	var models map[string][]login.Model
+	if json.Unmarshal(b, &models) == nil {
+		return models
+	}
+	// Older caches contain IDs only, so their capabilities remain unknown
+	// until the next explicit login refreshes the provider list.
+	var ids map[string][]string
+	if json.Unmarshal(b, &ids) != nil {
 		return nil
+	}
+	models = make(map[string][]login.Model, len(ids))
+	for connection, list := range ids {
+		for _, id := range list {
+			models[connection] = append(models[connection], login.Model{ID: id})
+		}
 	}
 	return models
 }
 
-func saveProviderModels(path string, models map[string][]string) error {
+func saveProviderModels(path string, models map[string][]login.Model) error {
 	if path == "" {
 		return nil
 	}
@@ -478,12 +507,12 @@ func saveProviderModels(path string, models map[string][]string) error {
 	return os.Rename(tmp.Name(), path)
 }
 
-// inputModalities keeps the catalog's input modalities kon can attach, which
+// inputModalities keeps the input modalities kon can attach, which
 // drops "text" and any it does not know.
-func inputModalities(catalog []string) []session.Modality {
+func inputModalities(reported []string) []session.Modality {
 	var inputs []session.Modality
 	for _, modality := range session.Modalities() {
-		if slices.Contains(catalog, string(modality)) {
+		if slices.Contains(reported, string(modality)) {
 			inputs = append(inputs, modality)
 		}
 	}
