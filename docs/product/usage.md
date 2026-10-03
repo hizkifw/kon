@@ -130,6 +130,18 @@ It keeps a page's main content when the page marks it, and prints JSON and
 plain text as they are. Pages that build their content with JavaScript, and
 sites behind bot protection, may come back empty or refused.
 
+## Web search
+
+With a [search provider configured](configuration.md#web-search), the agent
+searches the web by running `kon tool websearch <query>`, then reads the pages
+it picks with `kon tool webfetch`. You can run it too:
+
+```sh
+kon tool websearch -n 10 go generics tutorial
+```
+
+Search is off by default, and the command says so until a provider is set.
+
 ## Long conversations
 
 When the conversation nears the model's context window, kon summarizes older

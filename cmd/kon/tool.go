@@ -2,18 +2,25 @@ package main
 
 import (
 	"context"
+	"errors"
+	"flag"
 	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"strings"
 
+	"kon.kitsu.red/internal/config"
 	"kon.kitsu.red/internal/web"
+	"kon.kitsu.red/internal/websearch"
+	"kon.kitsu.red/internal/websearch/engines"
 )
 
 // toolCommands are the tools the agent runs from its shell as `kon tool
 // <name>`. The system prompt names them and points at `kon tool --help`, so a
 // new one adds a line there instead of a schema to every model request.
 func toolCommands() []command {
-	return []command{webfetchCommand()}
+	return []command{webfetchCommand(), websearchCommand()}
 }
 
 func toolCommand() command {
@@ -84,4 +91,63 @@ func runWebfetch(args []string) error {
 		fmt.Fprintf(os.Stderr, "kon: page truncated to its first %d MiB\n", web.MaxBodyBytes>>20)
 	}
 	return nil
+}
+
+func websearchCommand() command {
+	return command{
+		name:     "websearch",
+		summary:  "search the web",
+		synopsis: "kon tool websearch [-n <count>] <query>",
+		detail: "Search the web with the provider set as web_search.provider in kon's\n" +
+			"config, and print each result's title, URL, and a snippet. The query is\n" +
+			"every argument joined by spaces, so it needs no quotes. Without a provider\n" +
+			"configured, web search is off and this is an error.\n\n" +
+			fmt.Sprintf("  -n <count>   how many results to print, up to %d (default %d)\n\n", websearch.MaxCount, websearch.DefaultCount) +
+			"Read a result's page with \"kon tool webfetch <url>\".",
+		run: runWebsearch,
+	}
+}
+
+func runWebsearch(args []string) error {
+	flags := flag.NewFlagSet("kon tool websearch", flag.ContinueOnError)
+	// Help and errors are rendered by the dispatch layer; keep flag from
+	// printing its own usage and duplicating the message.
+	flags.SetOutput(io.Discard)
+	flags.Usage = func() {}
+	count := flags.Int("n", websearch.DefaultCount, "how many results to print")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() == 0 {
+		return fmt.Errorf("usage: kon tool websearch [-n <count>] <query>")
+	}
+	paths, err := config.ResolvePaths()
+	if err != nil {
+		return err
+	}
+	// The config is only read: a kon session has already brought storage up
+	// to date, and waiting on the upgrade lock would slow every search.
+	cfg, err := config.Load(paths.ConfigFile)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	return searchWeb(cfg.WebSearch, paths.ConfigFile, websearch.Query{Text: strings.Join(flags.Args(), " "), Count: *count}, os.Stdout)
+}
+
+// searchWeb runs one query with the configured provider and prints the
+// results. With none configured it says where to set one, since the model
+// relays the error to the person who can.
+func searchWeb(search config.WebSearch, configFile string, query websearch.Query, output io.Writer) error {
+	if !search.Enabled() {
+		return fmt.Errorf("web search is off: set web_search.provider in %s (one of %s)", configFile, strings.Join(websearch.Names(), ", "))
+	}
+	results, err := engines.Search(context.Background(), search.Provider, search.Connection(), query)
+	if err != nil {
+		return err
+	}
+	if len(results) == 0 {
+		_, err := fmt.Fprintln(output, "no results")
+		return err
+	}
+	return websearch.Write(output, results)
 }

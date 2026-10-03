@@ -10,6 +10,3 @@ documentation before answering.
 Subagents are available: run `kon run "<task>"` in a background shell job; it
 will send a message when done, so don't poll it. Use them only when the user
 explicitly asks.
-
-More tools run through kon: `kon tool webfetch <url>` prints a web page as
-Markdown. Run `kon tool --help` for their usage.

@@ -57,6 +57,9 @@ them with its own prompt and tools. Everything kon-specific lives in `internal/`
 | `internal/codetools` | kon's coding tools: bounded schemas, execution, and transcript displays | agent orchestration |
 | `internal/prompt` | kon's system prompt | context-file discovery |
 | `internal/web` | `kon tool` web access: fetching pages as Markdown | tool schemas or agent state |
+| `internal/websearch` | the web search contract: the `Engine` type, the provider table, shared HTTP calls, and result formatting | any one provider's API |
+| `internal/websearch/<provider>` | one search provider's requests and response parsing | config, output, or another provider |
+| `internal/websearch/engines` | the map from provider names to their engines | request or response details |
 | `core/typedid` | identifier construction and parsing | storage or provider policy |
 | `core/tokens` | the token count type and its compact display | usage policy or estimation |
 | `internal/buildinfo` | build version and the outgoing User-Agent | configuration or network clients |

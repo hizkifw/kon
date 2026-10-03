@@ -278,6 +278,41 @@ The prompt is fixed when a session starts: the override applies to new
 sessions, including `/new`, and a resumed session keeps the prompt it started
 with.
 
+## Web search
+
+Web search is off until you choose a provider. Set `web_search.provider`, and
+give that provider what it needs under `web_search.providers`:
+
+```json
+{
+  "web_search": {
+    "provider": "brave",
+    "providers": {
+      "brave": {"api_key": "..."},
+      "searxng": {"base_url": "http://localhost:8888"}
+    }
+  }
+}
+```
+
+The agent then searches by running `kon tool websearch <query>`; new sessions
+are told about it, and a session started earlier is not. `providers` may hold
+more than the one in use, so switching is a one-word edit. To turn search off
+again, set `provider` to `""` or remove it.
+
+| Provider | Needs | Notes |
+| --- | --- | --- |
+| `brave` | `api_key` | The [Brave Search API](https://brave.com/search/api/). |
+| `exa` | `api_key` | [Exa](https://exa.ai). Snippets are the passages that match the query. |
+| `perplexity` | `api_key` | The [Perplexity Search API](https://docs.perplexity.ai): ranked results, not a written answer. |
+| `tavily` | `api_key` | [Tavily](https://tavily.com), at its basic search depth. |
+| `searxng` | `base_url` | Your own [SearXNG](https://docs.searxng.org) instance, which must list `json` under `search.formats` in its `settings.yml`. An `api_key`, if set, is sent as a bearer token for an instance behind a proxy. |
+| `duckduckgo` | nothing | Reads DuckDuckGo's HTML results page, since it has no search API. It needs no account, but DuckDuckGo may refuse automated requests. |
+
+`base_url` is optional for the hosted providers, and points kon at a proxy
+instead of the provider's own address. A selected provider that lacks its key
+or URL, or a provider name kon does not know, is an error when kon starts.
+
 ## Model catalog
 
 kon ships a copy of the [models.dev](https://models.dev) catalog, which it uses

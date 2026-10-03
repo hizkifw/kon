@@ -22,6 +22,7 @@ Every command, key, tool, and setting in one place. For how to use them, see
 | `kon upgrade [--check]` | Install the latest release; `--check` only reports whether there is one. |
 | `kon docs` | Write this guide to a local directory as Markdown, and print the directory. |
 | `kon tool webfetch <url>` | Print a web page as Markdown; see [Tools](#tools). |
+| `kon tool websearch [-n <count>] <query>` | Search the web with the configured provider; see [Tools](#tools). |
 
 `kon --help` lists the commands, and `kon <command> --help` the flags of one.
 
@@ -150,6 +151,7 @@ The agent reaches more tools through its shell, as `kon tool <name>`:
 | Tool | Does |
 | --- | --- |
 | `kon tool webfetch <url>` | Print a web page as Markdown, or other text as it arrived. A URL without a scheme uses https. It reads at most 5 MiB and gives up after 30 seconds. Links within the site print as paths from its root; after a redirect, the final URL is noted on stderr. Images, PDFs, and other non-text responses are errors. |
+| `kon tool websearch [-n <count>] <query>` | Print search results from the provider set as [`web_search.provider`](configuration.md#web-search): a numbered title, the URL, and a date and snippet when the provider gives them. The query is every argument joined by spaces. `-n` asks for 1 to 20 results, 5 by default. It gives up after 30 seconds, and is an error while no provider is set. |
 
 ## Background job files
 
@@ -220,6 +222,8 @@ Set by kon for every shell command the agent runs:
 | `compaction.reserve_tokens` | integer | derived | Room kept free below the context window. |
 | `compaction.keep_recent_tokens` | integer | derived | Recent context kept verbatim when compacting. |
 | `context_files` | boolean | `true` | Load the project's `AGENTS.md` files. |
+| `web_search.provider` | string | `""` | The [web search](configuration.md#web-search) provider: `brave`, `duckduckgo`, `exa`, `perplexity`, `searxng`, or `tavily`. Empty turns search off. |
+| `web_search.providers` | object | none | [Search connections](#web-search-providers), keyed by provider name. |
 
 ### Providers
 
@@ -231,6 +235,15 @@ Set by kon for every shell command the agent runs:
 | `base_url` | string | for `openai-compatible` | API root; other formats have a default. |
 | `api_key` | string | no | Sent as a bearer token, or as `x-api-key` for `anthropic`. |
 | `headers` | object | no | Extra HTTP headers, which may override kon's own. |
+
+### Web search providers
+
+Each key of `web_search.providers` is a provider name, and its value has:
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `api_key` | string | for `brave`, `exa`, `perplexity`, `tavily` | The provider's API key. |
+| `base_url` | string | for `searxng` | The server's root; the hosted providers have a default. |
 
 ### Models
 

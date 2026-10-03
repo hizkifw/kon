@@ -100,7 +100,7 @@ loop, and the text goes to the clipboard the way `/copy` sends it.
 file (`run.go`, `acp.go`, `docs.go`, `models.go`, `upgrade.go`, `tool.go`) as a thin
 adapter: it parses its flags, resolves paths, and delegates the work to an
 `internal/` package that owns the logic (`internal/headless`, `internal/acp`, `docs/product`,
-`internal/catalog`, `internal/selfupdate`, `internal/web`). Subcommands register in one table in
+`internal/catalog`, `internal/selfupdate`, `internal/web`, `internal/websearch`). Subcommands register in one table in
 `cli.go`; the root `--help` index is rendered from that table, so a new command
 cannot be accepted without also being documented in help.
 
@@ -131,6 +131,18 @@ of a schema in every request, and the model can page or pipe its output with
 ordinary commands. Tools register in their own table in `tool.go`, which
 renders `kon tool --help`. `kon tool webfetch` needs no config or storage, so
 it starts as fast as `kon --version`.
+
+`kon tool websearch` reads the config for its provider, without entering
+storage: the session that runs it has already upgraded it. `internal/websearch`
+is the contract, the `Engine` function type, the table of provider names with
+what each connection needs, the shared HTTP calls, and the output format; it
+imports no provider, so `internal/config` validates against the same table.
+Each provider is a package under it that turns a query into results and knows
+nothing of config or printing, and `internal/websearch/engines` is the one
+package that imports them all and maps names to them. A new provider is its
+package, a line in that map, and a line in the table; a test keeps the two in
+step. The system prompt names the tool only when a provider is set, so a model
+is never pointed at a search that cannot run.
 
 `kon run` builds its runtime with `app.Start` options, which override the
 default model and effort without writing the config. `internal/headless` is a

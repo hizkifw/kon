@@ -850,7 +850,7 @@ func (r *Runtime) systemPrompt() (string, error) {
 		}
 		files = append(files, given)
 	}
-	return prompt.System(r.basePrompt, r.cwd, files), nil
+	return prompt.System(r.basePrompt, r.cwd, files, r.config.WebSearch.Enabled()), nil
 }
 
 // prepareSession creates a new session for profile. A model that is not ready

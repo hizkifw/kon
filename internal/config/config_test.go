@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -369,5 +370,51 @@ func TestNewConfigLeavesCompactionDerived(t *testing.T) {
 	cfg.Compaction.KeepRecentTokens = -1
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("a negative compaction budget was accepted")
+	}
+}
+
+func TestWebSearchIsOffByDefault(t *testing.T) {
+	cfg := Default()
+	if cfg.WebSearch.Enabled() {
+		t.Fatal("web search is on in the default config")
+	}
+	b, err := json.Marshal(cfg)
+	if err != nil || strings.Contains(string(b), "web_search") {
+		t.Fatalf("default config = %s, err = %v, want no web_search", b, err)
+	}
+}
+
+func TestValidateWebSearch(t *testing.T) {
+	brave := map[string]WebSearchProvider{"brave": {APIKey: "key"}}
+	for _, test := range []struct {
+		name   string
+		search WebSearch
+		want   string
+	}{
+		{"selected with a key", WebSearch{Provider: "brave", Providers: brave}, ""},
+		{"off with connections kept", WebSearch{Providers: map[string]WebSearchProvider{"brave": {}, "searxng": {}}}, ""},
+		{"keyless provider without an entry", WebSearch{Provider: "duckduckgo"}, ""},
+		{"self-hosted with a base URL", WebSearch{Provider: "searxng", Providers: map[string]WebSearchProvider{"searxng": {BaseURL: "http://localhost:8888"}}}, ""},
+		{"unknown selection", WebSearch{Provider: "bogus"}, `web_search.provider: unknown web search provider "bogus"`},
+		{"unknown entry", WebSearch{Providers: map[string]WebSearchProvider{"bogus": {}}}, "web_search.providers: unknown"},
+		{"selected without a key", WebSearch{Provider: "brave"}, "web_search.providers.brave requires api_key"},
+		{"self-hosted without a base URL", WebSearch{Provider: "searxng"}, "web_search.providers.searxng requires base_url"},
+	} {
+		cfg := testConfig()
+		cfg.WebSearch = test.search
+		err := cfg.Validate()
+		if test.want == "" && err != nil {
+			t.Errorf("%s: %v", test.name, err)
+		}
+		if test.want != "" && (err == nil || !strings.Contains(err.Error(), test.want)) {
+			t.Errorf("%s: error = %v, want it to contain %q", test.name, err, test.want)
+		}
+	}
+}
+
+func TestWebSearchConnectionIsTheSelectedProviders(t *testing.T) {
+	search := WebSearch{Provider: "exa", Providers: map[string]WebSearchProvider{"brave": {APIKey: "b"}, "exa": {APIKey: "e", BaseURL: "http://proxy"}}}
+	if conn := search.Connection(); conn.APIKey != "e" || conn.BaseURL != "http://proxy" {
+		t.Fatalf("connection = %+v, want exa's", conn)
 	}
 }

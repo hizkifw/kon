@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -15,6 +16,7 @@ import (
 	"kon.kitsu.red/core/provider/wire"
 	"kon.kitsu.red/core/session"
 	"kon.kitsu.red/core/tokens"
+	"kon.kitsu.red/internal/websearch"
 )
 
 const filename = "config.json"
@@ -32,7 +34,54 @@ type Config struct {
 	// up from the working directory. It is on by default; set it to false to
 	// keep the system prompt limited to the built-in rules and the global
 	// AGENTS.md in the config directory.
-	ContextFiles *bool `json:"context_files,omitempty"`
+	ContextFiles *bool     `json:"context_files,omitempty"`
+	WebSearch    WebSearch `json:"web_search,omitzero"`
+}
+
+// WebSearch configures `kon tool websearch`. Provider selects one entry of
+// Providers; empty leaves web search off, which is the default. Providers may
+// hold connections that are not selected, so switching is a one-word edit.
+type WebSearch struct {
+	Provider  string                       `json:"provider,omitempty"`
+	Providers map[string]WebSearchProvider `json:"providers,omitempty"`
+}
+
+// WebSearchProvider is the connection to one search provider. Which fields it
+// needs is the provider's to say; see the websearch table.
+type WebSearchProvider struct {
+	APIKey  string `json:"api_key,omitempty"`
+	BaseURL string `json:"base_url,omitempty"`
+}
+
+// Enabled reports whether a search provider is selected.
+func (w WebSearch) Enabled() bool { return w.Provider != "" }
+
+// Connection is the selected provider's connection as the engines take it. A
+// provider that needs no settings may be selected without an entry.
+func (w WebSearch) Connection() websearch.Connection {
+	selected := w.Providers[w.Provider]
+	return websearch.Connection{APIKey: selected.APIKey, BaseURL: selected.BaseURL}
+}
+
+// validate rejects provider names kon does not know, and a selected provider
+// whose connection could not search. Unselected entries may be incomplete.
+func (w WebSearch) validate() error {
+	for _, name := range slices.Sorted(maps.Keys(w.Providers)) {
+		if _, ok := websearch.Lookup(name); !ok {
+			return fmt.Errorf("web_search.providers: %w", websearch.UnknownProvider(name))
+		}
+	}
+	if !w.Enabled() {
+		return nil
+	}
+	spec, ok := websearch.Lookup(w.Provider)
+	if !ok {
+		return fmt.Errorf("web_search.provider: %w", websearch.UnknownProvider(w.Provider))
+	}
+	if _, err := spec.Connect(w.Connection()); err != nil {
+		return fmt.Errorf("web_search.providers.%s %w", w.Provider, err)
+	}
+	return nil
 }
 
 // Provider is a named connection to one service, shared by the models derived
@@ -242,6 +291,9 @@ func ensureFile(path string) error {
 func (c Config) Validate() error {
 	if c.Compaction.ReserveTokens < 0 || c.Compaction.KeepRecentTokens < 0 {
 		return errors.New("compaction token budgets must not be negative")
+	}
+	if err := c.WebSearch.validate(); err != nil {
+		return err
 	}
 	seen := make(map[string]bool, len(c.Models))
 	connections := make(map[string]bool, len(c.Providers))
