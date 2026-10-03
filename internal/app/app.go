@@ -24,6 +24,7 @@ import (
 	"kon.kitsu.red/internal/codetools"
 	"kon.kitsu.red/internal/config"
 	"kon.kitsu.red/internal/contextfiles"
+	"kon.kitsu.red/internal/login"
 	"kon.kitsu.red/internal/prompt"
 	"kon.kitsu.red/internal/sessions"
 )
@@ -48,6 +49,7 @@ type Model struct {
 	WireFormat    string
 	ExternalID    string
 	ContextWindow tokens.Count
+	Inputs        []session.Modality
 	// OutputPrice is what the model charges per million output tokens, in US
 	// dollars, or zero when it is unpriced. It prices a response while it
 	// streams, before the provider reports its usage.
@@ -89,7 +91,7 @@ type Runtime struct {
 	cwd            string
 	catalogOnce    sync.Once
 	catalog        atomic.Pointer[catalog.Service]
-	providerModels map[string][]string
+	providerModels map[string][]login.Model
 
 	active modelSpec
 	store  *session.Store
@@ -942,6 +944,7 @@ func describe(profile modelSpec) Model {
 	return Model{
 		Name: profile.Name, WireFormat: string(profile.WireFormat()), ExternalID: profile.ModelID,
 		ContextWindow:    profile.ContextWindowTokens,
+		Inputs:           slices.Clone(profile.Inputs),
 		OutputPrice:      profile.Cost.Output,
 		ReasoningEfforts: slices.Clone(profile.ReasoningEfforts), ReasoningEffort: profile.effort,
 	}

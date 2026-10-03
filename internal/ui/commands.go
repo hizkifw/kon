@@ -396,6 +396,13 @@ func (m Model) listModels() (tea.Model, tea.Cmd) {
 		if option.Source != "" {
 			line += "  [" + option.Source + "]"
 		}
+		if len(option.Inputs) > 0 {
+			var inputs []string
+			for _, input := range option.Inputs {
+				inputs = append(inputs, string(input))
+			}
+			line += "  [" + strings.Join(inputs, ", ") + "]"
+		}
 		lines = append(lines, line)
 	}
 	m.transcript.add(block{kind: blockModels, text: strings.Join(lines, "\n")})

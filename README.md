@@ -33,6 +33,8 @@ go install kon.kitsu.red/cmd/kon@latest
 
 Run `kon` in any project. Connect a provider with `/login`, pick a model with
 `/model`, and start typing. Type `@` to mention a file, and `/` for commands.
+For local models, reported input modalities enable image reads automatically;
+see [model discovery](docs/product/configuration.md#choose-a-model).
 
 kon has no sandbox and does not ask before running commands, so use it on work
 you keep in version control. The [user guide](docs/product/index.md) covers
