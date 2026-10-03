@@ -71,7 +71,7 @@ release:
 # kon itself tags the release, following the Releases section of AGENTS.md.
 tag:
 	go run ./cmd/kon run --incognito $(if $(MODEL),--model $(MODEL)) \
-	  "Tag the next $(BUMP) release of kon, following the Releases section of AGENTS.md. Do not push the tag."
+	  "Tag the next $(BUMP) release of kon, following the Releases section of AGENTS.md. Do not push the tag. Do not run 'make tag'."
 
 # kon reviews the changes, runs the checks, and commits them.
 # The guard and the run share one shell, so a clean tree really stops here.
