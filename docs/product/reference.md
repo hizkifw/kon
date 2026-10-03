@@ -20,7 +20,7 @@ Every command, key, tool, and setting in one place. For how to use them, see
 | `kon md [--width <n>] [file]` | Render Markdown for the terminal; see [Render Markdown](scripting.md#render-markdown). |
 | `kon models [--refresh]` | List the catalog's model IDs; `--refresh` downloads the latest catalog first. |
 | `kon upgrade [--check]` | Install the latest release; `--check` only reports whether there is one. |
-| `kon docs` | Write this guide to a local directory as Markdown, and print the directory. |
+| `kon docs` | Write this guide to a local directory as Markdown, and print only that directory's path, as in `ls "$(kon docs)"`. |
 | `kon tool webfetch <url>` | Print a web page as Markdown; see [Tools](#tools). |
 | `kon tool websearch [-n <count>] <query>` | Search the web with the configured provider; see [Tools](#tools). |
 

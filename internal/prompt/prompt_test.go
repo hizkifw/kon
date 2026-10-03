@@ -34,7 +34,7 @@ func TestSystemOmitsContextSectionWhenEmpty(t *testing.T) {
 
 func TestSystemPointsToBundledDocs(t *testing.T) {
 	prompt := System("", "/work", nil, false)
-	if !strings.Contains(prompt, "`kon docs`") {
+	if !strings.Contains(prompt, "`kon docs`") || !strings.Contains(prompt, "`ls \"$(kon docs)\"`") {
 		t.Fatalf("kon docs missing from prompt:\n%s", prompt)
 	}
 }

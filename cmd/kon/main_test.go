@@ -28,8 +28,27 @@ func TestDocsDoesNotInitializeConfig(t *testing.T) {
 	dataHome := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", configHome)
 	t.Setenv("XDG_DATA_HOME", dataHome)
-	if err := run([]string{"docs"}); err != nil {
+	// Standard output is captured to check that it is the path alone, which
+	// is what lets a shell substitute it.
+	stdout := os.Stdout
+	read, write, err := os.Pipe()
+	if err != nil {
 		t.Fatal(err)
+	}
+	os.Stdout = write
+	err = run([]string{"docs"})
+	os.Stdout = stdout
+	write.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	printed, err := io.ReadAll(read)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := strings.TrimSuffix(string(printed), "\n")
+	if _, err := os.Stat(filepath.Join(dir, "index.md")); err != nil {
+		t.Fatalf("kon docs printed %q, want only the directory holding the guide: %v", printed, err)
 	}
 	if _, err := os.Stat(filepath.Join(configHome, "kon", "config.json")); !os.IsNotExist(err) {
 		t.Fatalf("docs initialized config: %v", err)

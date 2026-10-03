@@ -12,7 +12,8 @@ func docsCommand() command {
 		name:     "docs",
 		summary:  "extract the bundled product guide",
 		synopsis: "kon docs",
-		detail: "Extract the bundled product guide and print the local directory containing it.\n" +
+		detail: "Extract the bundled product guide and print only the path of the local\n" +
+			"directory containing it, so list the pages with: ls \"$(kon docs)\"\n\n" +
 			"Each version of the guide gets its own directory, so pages renamed or removed\n" +
 			"since an older version never appear in the path printed by this one.",
 		run: runDocs,
@@ -32,7 +33,8 @@ func runDocs(args []string) error {
 		if err != nil {
 			return err
 		}
-		fmt.Println("Documentation extracted to: " + dir)
+		// Only the path is printed, so a shell can use it: ls "$(kon docs)".
+		fmt.Println(dir)
 		return nil
 	})
 }
