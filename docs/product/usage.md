@@ -140,7 +140,8 @@ it picks with `kon tool webfetch`. You can run it too:
 kon tool websearch -n 10 go generics tutorial
 ```
 
-Search is off by default, and the command says so until a provider is set.
+Search is off by default. Until a provider is set, the command says so, and
+the agent knows to point you at the configuration page.
 
 ## Long conversations
 

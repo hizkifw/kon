@@ -141,8 +141,9 @@ Each provider is a package under it that turns a query into results and knows
 nothing of config or printing, and `internal/websearch/engines` is the one
 package that imports them all and maps names to them. A new provider is its
 package, a line in that map, and a line in the table; a test keeps the two in
-step. The system prompt names the tool only when a provider is set, so a model
-is never pointed at a search that cannot run.
+step. The system prompt names the tool either way: with no provider set it says so
+and points at the bundled documentation, so a model asked to search can
+explain how to turn it on.
 
 `kon run` builds its runtime with `app.Start` options, which override the
 default model and effort without writing the config. `internal/headless` is a

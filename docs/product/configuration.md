@@ -295,8 +295,9 @@ give that provider what it needs under `web_search.providers`:
 }
 ```
 
-The agent then searches by running `kon tool websearch <query>`; new sessions
-are told about it, and a session started earlier is not. `providers` may hold
+The agent then searches by running `kon tool websearch <query>`. A session
+started before the provider was set was told that search is unconfigured, and
+may need telling that it now works. `providers` may hold
 more than the one in use, so switching is a one-word edit. To turn search off
 again, set `provider` to `""` or remove it.
 

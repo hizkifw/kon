@@ -44,8 +44,8 @@ func TestSystemPointsToShellTools(t *testing.T) {
 	if !strings.Contains(prompt, "`kon tool webfetch <url>`") || !strings.Contains(prompt, "`kon tool --help`") {
 		t.Fatalf("shell tools missing from prompt:\n%s", prompt)
 	}
-	if strings.Contains(prompt, "websearch") {
-		t.Fatalf("prompt names web search with no provider configured:\n%s", prompt)
+	if !strings.Contains(prompt, "`kon tool websearch <query>`") || !strings.Contains(prompt, "no search\nprovider is configured") {
+		t.Fatalf("prompt does not say web search needs a provider:\n%s", prompt)
 	}
 }
 
@@ -55,6 +55,9 @@ func TestSystemNamesWebSearchWhenConfigured(t *testing.T) {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("%s missing from prompt:\n%s", want, prompt)
 		}
+	}
+	if strings.Contains(prompt, "configured") {
+		t.Fatalf("prompt calls a configured web search unconfigured:\n%s", prompt)
 	}
 }
 

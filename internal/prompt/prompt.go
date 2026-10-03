@@ -25,8 +25,8 @@ var basePrompt string
 // given input, which is what keeps the provider prompt cache valid across
 // compactions. base replaces kon's built-in instructions when it is not
 // empty; the context files and cwd follow either one. webSearch reports
-// whether a search provider is configured, so the built-in instructions name
-// `kon tool websearch` only when it would work.
+// whether a search provider is configured, so the built-in instructions say
+// whether `kon tool websearch` works or still needs one.
 func System(base, cwd string, contextFiles []contextfiles.File, webSearch bool) string {
 	if base == "" {
 		base = strings.TrimSuffix(basePrompt, "\n") + "\n\n" + shellTools(webSearch)
@@ -38,11 +38,15 @@ func System(base, cwd string, contextFiles []contextfiles.File, webSearch bool) 
 }
 
 // shellTools is the paragraph naming the tools the model runs as `kon tool
-// <name>`. Each costs a clause here instead of a schema in every request.
+// <name>`. Each costs a clause here instead of a schema in every request. Web
+// search is named even without a provider, so the model can say that it
+// exists and how to turn it on instead of concluding kon cannot search.
 func shellTools(webSearch bool) string {
 	if !webSearch {
 		return "More tools run through kon: `kon tool webfetch <url>` prints a web page as\n" +
-			"Markdown. Run `kon tool --help` for their usage."
+			"Markdown. `kon tool websearch <query>` searches the web, but no search\n" +
+			"provider is configured; the bundled documentation explains how to configure it.\n" +
+			"Run `kon tool --help` for their usage."
 	}
 	return "More tools run through kon: `kon tool websearch <query>` searches the web,\n" +
 		"and `kon tool webfetch <url>` prints a web page as Markdown. Run\n" +
