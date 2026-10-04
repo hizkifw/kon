@@ -74,9 +74,12 @@ func ReadLines(path string, offset int64, fn func(line []byte) error) (int64, er
 	for {
 		line, err := reader.ReadSlice('\n')
 		if errors.Is(err, bufio.ErrBufferFull) {
-			// A record longer than the buffer is gathered whole.
+			// A record longer than the buffer is gathered whole. The slice
+			// aliases the reader's buffer, which the next read overwrites, so
+			// it is copied first.
+			head := bytes.Clone(line)
 			rest, restErr := reader.ReadBytes('\n')
-			line, err = append(bytes.Clone(line), rest...), restErr
+			line, err = append(head, rest...), restErr
 		}
 		if err != nil {
 			// Whatever is left has no newline yet.
