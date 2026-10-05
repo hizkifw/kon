@@ -65,8 +65,9 @@ the provider reported and which are only known from the catalog. Choosing one
 saves its name as `default_model`, which new sessions use.
 
 A model chosen this way takes its context window, output limit, reasoning
-levels, and prices from the catalog. Media inputs come from the provider's
-`architecture.input_modalities` when reported, with the catalog as a fallback.
+levels, prices, and media inputs from the catalog. For models absent from the
+catalog, media inputs come from the provider's `architecture.input_modalities`
+when reported.
 For example, a llama.cpp listing with `["text", "image"]` enables image reads
 even for a custom model absent from the catalog. `/models` shows the resolved
 media inputs beside each model.
@@ -212,10 +213,11 @@ the model whole:
 | `pdf` | PDF | 20 MiB |
 
 For a modality the model does not accept, reading such a file returns a short
-text notice. For models from `/model`, server-reported input modalities take
-precedence over the catalog, including a text-only or empty list. Unknown
-modalities are ignored. Explicit profiles keep their own `inputs` as written;
-neither discovery nor the catalog adds inputs to them.
+text notice. For models from `/model`, catalog inputs take precedence. If the
+catalog lacks the model, server-reported inputs apply: text-only, empty, and
+unknown-only lists enable no media inputs. Unknown names in a mixed list are
+ignored. Explicit profiles keep their own `inputs` as written; neither
+discovery nor the catalog adds inputs to them.
 
 ```json
 {"name": "gemini", "type": "openrouter", "model": "google/gemini-3.1-flash-lite", "api_key": "...", "inputs": ["image", "audio", "video", "pdf"]}

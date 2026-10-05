@@ -397,9 +397,10 @@ checks the chosen provider on user request and caches returned model IDs and
 optional `architecture.input_modalities` in
 `provider-models.json` under the data directory. The runtime joins explicit
 profiles, cached discovery, and bundled catalog metadata into `/model` choices.
-Explicit profiles stay authoritative. For derived models, reported input
-modalities override the catalog; absent modalities leave the catalog as the
-fallback. Cached inputs apply at startup without waiting for the catalog.
+Explicit profiles stay authoritative. For derived models, catalog inputs win
+when the catalog contains the model; otherwise reported input modalities apply.
+Cached inputs apply at startup without waiting for the catalog and are replaced
+by catalog inputs when a known model is resolved before its first request.
 Older ID-only caches remain readable and gain metadata on the next login.
 Derived names are `<provider-id>/<model-id>` and are never materialized as
 config profiles. The catalog is never loaded before the first frame: the UI

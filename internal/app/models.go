@@ -239,8 +239,7 @@ func (r *Runtime) describeActive() Model {
 func (r *Runtime) DescribeSelection(selection session.ModelSelection) Model {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	spec, ok := r.configuredSpec(selection.Name)
-	profile := spec.Model
+	profile, ok := r.config.ResolveModel(selection.Name)
 	if !ok {
 		// The profile or connection is gone; the record still names the model.
 		return Model{
@@ -252,6 +251,8 @@ func (r *Runtime) DescribeSelection(selection session.ModelSelection) Model {
 	if resolved {
 		// The catalog is already loaded, so this does not block on it.
 		profile, _ = r.resolveModel(selection.Name)
+	} else if _, explicit := r.config.Model(selection.Name); !explicit {
+		profile = r.withProviderInputs(profile)
 	}
 	return r.describeProfile(modelSpec{Model: profile}, resolved)
 }
@@ -341,13 +342,14 @@ func (r *Runtime) resolveModel(name string) (config.Model, bool) {
 				// "none" is the chat format's effort value for no reasoning.
 				profile.ReasoningEfforts = []string{"none"}
 			}
+			return profile, true
 		}
 	}
 	return r.withProviderInputs(profile), true
 }
 
-// withProviderInputs prefers the serving endpoint's modalities to reference
-// data. An ID-only listing leaves catalog capabilities intact.
+// withProviderInputs fills inputs before the catalog loads or when it lacks
+// the model. Catalog metadata wins once a derived model is resolved.
 func (r *Runtime) withProviderInputs(profile config.Model) config.Model {
 	providerID, _, _ := strings.Cut(profile.Name, "/")
 	for _, model := range r.providerModels[providerID] {

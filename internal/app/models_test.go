@@ -131,19 +131,19 @@ func TestDiscoveredInputsReachReadAndProviderAfterRestart(t *testing.T) {
 }
 
 func TestProviderInputsPrecedence(t *testing.T) {
-	const id = "accounts/fireworks/models/deepseek-v4p1-flash"
 	for _, tc := range []struct {
 		name     string
 		reported []string
 		image    bool
 	}{
-		{"absent", nil, true},
+		{"absent", nil, false},
 		{"image", []string{"text", "image"}, true},
 		{"text", []string{"text"}, false},
 		{"empty", []string{}, false},
 		{"unknown", []string{"other"}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			const id = "custom-model"
 			cfg := config.Default()
 			cfg.Providers = []config.Provider{{ID: "local", CatalogProvider: "fireworks-ai", Type: wire.OpenAICompatible, BaseURL: "https://example.test/v1"}}
 			cfg.Models = []config.Model{{Name: "explicit", ModelID: id}, {Name: "explicit-image", ModelID: id, Inputs: []session.Modality{session.ModalityImage}}}
@@ -151,6 +151,12 @@ func TestProviderInputsPrecedence(t *testing.T) {
 			derived, _ := r.resolveModel("local/" + id)
 			if slices.Contains(derived.Inputs, session.ModalityImage) != tc.image {
 				t.Fatalf("derived inputs = %v", derived.Inputs)
+			}
+			const catalogID = "accounts/fireworks/models/deepseek-v4p1-flash"
+			r.providerModels["local"] = append(r.providerModels["local"], login.Model{ID: catalogID, InputModalities: tc.reported})
+			known, _ := r.resolveModel("local/" + catalogID)
+			if !slices.Contains(known.Inputs, session.ModalityImage) {
+				t.Fatalf("discovery replaced catalog inputs: %v", known.Inputs)
 			}
 			for _, name := range []string{"explicit", "explicit-image"} {
 				profile, _ := r.resolveModel(name)
@@ -161,6 +167,75 @@ func TestProviderInputsPrecedence(t *testing.T) {
 			other, _ := r.resolveModel("local/other")
 			if len(other.Inputs) != 0 {
 				t.Fatalf("inputs leaked to another model: %v", other.Inputs)
+			}
+		})
+	}
+}
+
+func TestOpenRouterDiscoveryKeepsCatalogInputs(t *testing.T) {
+	const id = "google/gemini-3.1-flash-lite"
+	want := []session.Modality{session.ModalityImage, session.ModalityAudio, session.ModalityVideo, session.ModalityPDF}
+	for _, reported := range [][]string{
+		{"text", "image", "file", "audio", "video"},
+		{"text", "file"},
+	} {
+		t.Run(fmt.Sprint(reported), func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				switch req.URL.Path {
+				case "/v1/key":
+					fmt.Fprint(w, `{"data":{}}`)
+				case "/v1/models":
+					modalities, _ := json.Marshal(reported)
+					fmt.Fprintf(w, `{"data":[{"id":%q,"architecture":{"input_modalities":%s}}]}`, id, modalities)
+				default:
+					t.Errorf("unexpected request: %s", req.URL.Path)
+					w.WriteHeader(http.StatusNotFound)
+				}
+			}))
+			defer server.Close()
+			root, cwd := t.TempDir(), t.TempDir()
+			paths := config.Paths{ConfigFile: filepath.Join(root, "config.json"), Sessions: filepath.Join(root, "sessions"), ProviderModels: filepath.Join(root, "provider-models.json")}
+			cfg := config.Default()
+			connection := config.Provider{ID: "openrouter", Type: wire.OpenRouter, BaseURL: server.URL + "/v1", APIKey: "test-key"}
+			cfg.Providers, cfg.DefaultModel = []config.Provider{connection}, "openrouter/"+id
+			if err := cfg.Save(paths.ConfigFile); err != nil {
+				t.Fatal(err)
+			}
+			r, err := New(cfg, paths, cwd, "test")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer r.Close()
+			r.LoadCatalog()
+			history := len(r.SessionHistory())
+			if count, verified, err := r.Login(t.Context(), connection); err != nil || !verified || count != 1 {
+				t.Fatalf("login = %d, %v, %v", count, verified, err)
+			}
+			if got := r.State().Active.Inputs; !slices.Equal(got, want) {
+				t.Fatalf("active inputs after login = %v, want %v", got, want)
+			}
+			if len(r.SessionHistory()) != history {
+				t.Fatal("capability refresh changed the durable session")
+			}
+			for _, model := range r.Models() {
+				if model.Name == cfg.DefaultModel && !slices.Equal(model.Inputs, want) {
+					t.Fatalf("listed inputs = %v, want %v", model.Inputs, want)
+				}
+			}
+			if err := r.Close(); err != nil {
+				t.Fatal(err)
+			}
+			reopened, err := New(cfg, paths, cwd, "test")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer reopened.Close()
+			if reopened.catalog.Load() != nil {
+				t.Fatal("cached discovery loaded the catalog at startup")
+			}
+			reopened.LoadCatalog()
+			if got := reopened.State().Active.Inputs; !slices.Equal(got, want) {
+				t.Fatalf("active inputs after restart and catalog load = %v, want %v", got, want)
 			}
 		})
 	}
