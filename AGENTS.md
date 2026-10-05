@@ -40,7 +40,7 @@ golang.org/x/net/html for parsing fetched pages).
 Each package owns one boundary. Do not reach across them.
 
 Packages under `core/` are the reusable half of kon and its public Go API: the
-loop, providers, sessions, and the tool contract. They never import `internal/`
+loop, providers, sessions, the tool contract, and the ACP client. They never import `internal/`
 or `cmd/` (`core/boundary_test.go` enforces it), so another program can drive
 them with its own prompt and tools. Everything kon-specific lives in `internal/`.
 
@@ -51,7 +51,7 @@ them with its own prompt and tools. Everything kon-specific lives in `internal/`
 | `internal/tui` | kon-agnostic terminal widgets: scroll container, word wrap, line fitting, and the drawer stack with its lists | anything kon-specific: colors, transcripts, sessions, or actions |
 | `internal/markdown` | Markdown to styled, wrapped lines, streaming, and selections cut back out as Markdown | colors, terminal output, or transcript state |
 | `internal/headless` | `kon run` output: streamed text or JSON events, one run per process | terminal state or session policy |
-| `internal/acp` | `kon acp`: the Agent Client Protocol over stdio, its turn queue per session, and kon's extensions | terminal state or session storage |
+| `internal/acp` | `kon acp`: serving the Agent Client Protocol over stdio, its turn queue per session, and kon's extensions | terminal state, session storage, or the wire types |
 | `internal/app` | live runner/store lifecycle and model switching | terminal presentation |
 | `core/agent` | the model/tool loop, retry events, and compaction policy | prompts, concrete tools, or terminal rendering |
 | `core/tool` | the tool contract: `Tool`, `Registry`, and `Executor` | concrete tools or their presentation |
@@ -70,6 +70,7 @@ them with its own prompt and tools. Everything kon-specific lives in `internal/`
 | `internal/websearch` | the web search contract: the `Engine` type, the provider table, shared HTTP calls, and result formatting | any one provider's API |
 | `internal/websearch/<provider>` | one search provider's requests and response parsing | config, output, or another provider |
 | `internal/websearch/engines` | the map from provider names to their engines | request or response details |
+| `core/acp` | the Agent Client Protocol as kon speaks it: wire types, extension names, and a client that drives `kon acp` | serving the protocol, or anything about sessions |
 | `core/typedid` | identifier construction and parsing | storage or provider policy |
 | `core/tokens` | the token count type and its compact display | usage policy or estimation |
 | `internal/buildinfo` | build version and the outgoing User-Agent | configuration or network clients |

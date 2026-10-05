@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	"kon.kitsu.red/core/acp"
 	"kon.kitsu.red/core/agent"
 	"kon.kitsu.red/internal/app"
 )
@@ -205,14 +206,14 @@ func (s *liveSession) goAgentTurn(t *turn, text string) {
 // agentTurn runs a turn kon started, bracketed by the extension's turn
 // notifications.
 func (s *liveSession) agentTurn(t *turn, text string) {
-	s.conn.out.notify("_"+extension+"/turn_start", sessionParams{SessionID: s.id})
-	s.update(contentChunk{SessionUpdate: "user_message_chunk", Content: textBlock(text)})
+	s.conn.out.notify(acp.MethodTurnStart, acp.SessionParams{SessionID: s.id})
+	s.update(acp.ContentChunk{SessionUpdate: acp.UpdateUserMessage, Content: acp.TextBlock(text)})
 	stop, err := s.run(t, agent.Prompt{Text: text})
-	end := turnEnd{SessionID: s.id, StopReason: stop}
+	end := acp.TurnEnd{SessionID: s.id, StopReason: stop}
 	if err != nil {
-		end = turnEnd{SessionID: s.id, Error: err.Error()}
+		end = acp.TurnEnd{SessionID: s.id, Error: err.Error()}
 	}
-	s.conn.out.notify("_"+extension+"/turn_end", end)
+	s.conn.out.notify(acp.MethodTurnEnd, end)
 	s.finish(t, err == nil)
 }
 
@@ -224,7 +225,7 @@ const compactCommand = "/compact"
 // dispatch keeps prompts in the order they arrived, and answers once the
 // turn has run.
 func (c *conn) prompt(id json.RawMessage, params json.RawMessage) {
-	var req promptRequest
+	var req acp.PromptRequest
 	if err := decode(params, &req); err != nil {
 		c.out.respond(id, nil, err)
 		return
@@ -248,11 +249,11 @@ func (c *conn) prompt(id json.RawMessage, params json.RawMessage) {
 	go func() {
 		defer c.handlers.Done()
 		if !s.wait(t) {
-			c.out.respond(id, promptResponse{StopReason: stopCancelled}, nil)
+			c.out.respond(id, acp.PromptResponse{StopReason: acp.StopCancelled}, nil)
 			return
 		}
 		stop, err := s.run(t, prompt)
-		c.out.respond(id, promptResponse{StopReason: stop}, err)
+		c.out.respond(id, acp.PromptResponse{StopReason: stop}, err)
 		s.finish(t, err == nil)
 	}()
 }
@@ -261,7 +262,7 @@ func (c *conn) prompt(id json.RawMessage, params json.RawMessage) {
 // error: the spec asks for the cancelled stop reason instead.
 func (s *liveSession) run(t *turn, prompt agent.Prompt) (string, error) {
 	if t.ctx.Err() != nil {
-		return stopCancelled, nil
+		return acp.StopCancelled, nil
 	}
 	tr := s.newTranslator()
 	var err error
@@ -278,28 +279,28 @@ func (s *liveSession) run(t *turn, prompt agent.Prompt) (string, error) {
 		err = s.runtime.RunPrompt(t.ctx, prompt, s.inbox, tr.event)
 	}
 	if t.ctx.Err() != nil && (err == nil || errors.Is(err, context.Canceled)) {
-		return stopCancelled, nil
+		return acp.StopCancelled, nil
 	}
 	if err != nil {
 		return "", err
 	}
-	return stopEndTurn, nil
+	return acp.StopEndTurn, nil
 }
 
 // say adds a message of kon's own to the transcript, such as the outcome of
 // a command.
 func (s *liveSession) say(text string) {
-	s.update(contentChunk{SessionUpdate: "agent_message_chunk", Content: textBlock(text)})
+	s.update(acp.ContentChunk{SessionUpdate: acp.UpdateAgentMessage, Content: acp.TextBlock(text)})
 }
 
 func (s *liveSession) update(u any) {
-	s.conn.out.notify("session/update", sessionNotification{SessionID: s.id, Update: u})
+	s.conn.out.notify("session/update", acp.SessionNotification{SessionID: s.id, Update: u})
 }
 
 // announce sends what a client shows for a session it has just opened: the
 // commands it accepts and how full its context is.
 func (s *liveSession) announce() {
-	s.update(commandsUpdate{SessionUpdate: "available_commands_update", AvailableCommands: []command{
+	s.update(acp.CommandsUpdate{SessionUpdate: acp.UpdateCommands, AvailableCommands: []acp.Command{
 		{Name: strings.TrimPrefix(compactCommand, "/"), Description: "summarize older context now"},
 	}})
 	if used, _ := s.runtime.ContextUsage(); used > 0 {
@@ -315,28 +316,28 @@ func (s *liveSession) reportUsage(used int64) {
 	if window <= 0 {
 		return
 	}
-	u := usageUpdate{SessionUpdate: "usage_update", Used: used, Size: int64(window)}
+	u := acp.UsageUpdate{SessionUpdate: acp.UpdateUsage, Used: used, Size: int64(window)}
 	if spent := s.spend(); spent > 0 {
-		u.Cost = &cost{Amount: spent, Currency: "USD"}
+		u.Cost = &acp.Cost{Amount: spent, Currency: "USD"}
 	}
 	s.update(u)
 }
 
 func (s *liveSession) setConfig(configID, value string) error {
 	switch configID {
-	case configModel:
+	case acp.ConfigModel:
 		return s.runtime.SwitchModel(value)
-	case configEffort:
-		if value == effortDefault {
+	case acp.ConfigEffort:
+		if value == acp.EffortDefault {
 			value = ""
 		}
 		return s.runtime.SetEffort(value)
 	}
-	return &rpcError{Code: codeInvalidParams, Message: "unknown config option: " + configID}
+	return &acp.Error{Code: acp.CodeInvalidParams, Message: "unknown config option: " + configID}
 }
 
 func (c *conn) setConfigOption(params json.RawMessage) (any, error) {
-	var req setConfigRequest
+	var req acp.SetConfigRequest
 	if err := decode(params, &req); err != nil {
 		return nil, err
 	}
@@ -347,11 +348,11 @@ func (c *conn) setConfigOption(params json.RawMessage) (any, error) {
 	if err := s.setConfig(req.ConfigID, req.Value); err != nil {
 		return nil, err
 	}
-	return setConfigResponse{ConfigOptions: s.configOptions()}, nil
+	return acp.SetConfigResponse{ConfigOptions: s.configOptions()}, nil
 }
 
 func (c *conn) steer(params json.RawMessage) (any, error) {
-	var req steerRequest
+	var req acp.SteerRequest
 	if err := decode(params, &req); err != nil {
 		return nil, err
 	}
@@ -360,19 +361,19 @@ func (c *conn) steer(params json.RawMessage) (any, error) {
 		return nil, err
 	}
 	if strings.TrimSpace(req.Text) == "" {
-		return nil, &rpcError{Code: codeInvalidParams, Message: "steering needs text"}
+		return nil, &acp.Error{Code: acp.CodeInvalidParams, Message: "steering needs text"}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.running == nil {
-		return nil, &rpcError{Code: codeInvalidRequest, Message: "no turn is running; send session/prompt instead"}
+		return nil, &acp.Error{Code: acp.CodeInvalidRequest, Message: "no turn is running; send session/prompt instead"}
 	}
 	s.inbox.Push(req.Text)
 	return nil, nil
 }
 
 func (c *conn) withdraw(params json.RawMessage) (any, error) {
-	var req sessionParams
+	var req acp.SessionParams
 	if err := decode(params, &req); err != nil {
 		return nil, err
 	}
@@ -390,11 +391,11 @@ func (c *conn) withdraw(params json.RawMessage) (any, error) {
 		}
 		withdrawn = append(withdrawn, text)
 	}
-	return withdrawResponse{Withdrawn: withdrawn}, nil
+	return acp.WithdrawResponse{Withdrawn: withdrawn}, nil
 }
 
 func (c *conn) jobs(params json.RawMessage) (any, error) {
-	var req sessionParams
+	var req acp.SessionParams
 	if err := decode(params, &req); err != nil {
 		return nil, err
 	}
@@ -402,15 +403,15 @@ func (c *conn) jobs(params json.RawMessage) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	resp := jobsResponse{Jobs: []job{}}
+	resp := acp.JobsResponse{Jobs: []acp.Job{}}
 	for _, j := range s.runtime.Jobs() {
-		resp.Jobs = append(resp.Jobs, job{ID: j.ID, Command: j.Command, Running: j.Exit == "", Exit: j.Exit, Output: j.Output, SubagentSessionID: j.Session})
+		resp.Jobs = append(resp.Jobs, acp.Job{ID: j.ID, Command: j.Command, Running: j.Exit == "", Exit: j.Exit, Output: j.Output, SubagentSessionID: j.Session})
 	}
 	return resp, nil
 }
 
 func (c *conn) killJob(params json.RawMessage) (any, error) {
-	var req killJobRequest
+	var req acp.KillJobRequest
 	if err := decode(params, &req); err != nil {
 		return nil, err
 	}

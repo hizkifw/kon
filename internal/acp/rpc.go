@@ -4,29 +4,15 @@ import (
 	"encoding/json"
 	"io"
 	"sync"
+
+	"kon.kitsu.red/core/acp"
 )
 
-// JSON-RPC error codes ACP uses.
-const (
-	codeParseError     = -32700
-	codeInvalidRequest = -32600
-	codeMethodNotFound = -32601
-	codeInvalidParams  = -32602
-	codeInternalError  = -32603
-	codeNotFound       = -32002
-)
-
-// rpcError is a JSON-RPC error. A handler returns one to choose the code; any
-// other error is reported as an internal error with its message.
-type rpcError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-}
-
-func (e *rpcError) Error() string { return e.Message }
-
-func invalidParams(err error) *rpcError {
-	return &rpcError{Code: codeInvalidParams, Message: "invalid params: " + err.Error()}
+// invalidParams is the error for params kon could not read. A handler returns
+// an *acp.Error to choose the code; any other error is reported as an
+// internal error with its message.
+func invalidParams(err error) *acp.Error {
+	return &acp.Error{Code: acp.CodeInvalidParams, Message: "invalid params: " + err.Error()}
 }
 
 // incoming is any message the client sends. A request has an ID and a
@@ -42,7 +28,7 @@ type response struct {
 	JSONRPC string          `json:"jsonrpc"`
 	ID      json.RawMessage `json:"id"`
 	Result  any             `json:"result,omitempty"`
-	Error   *rpcError       `json:"error,omitempty"`
+	Error   *acp.Error      `json:"error,omitempty"`
 }
 
 type notification struct {
@@ -76,9 +62,9 @@ func (w *writer) respond(id json.RawMessage, result any, err error) {
 		w.send(response{JSONRPC: "2.0", ID: id, Result: result})
 		return
 	}
-	failure, ok := err.(*rpcError)
+	failure, ok := err.(*acp.Error)
 	if !ok {
-		failure = &rpcError{Code: codeInternalError, Message: err.Error()}
+		failure = &acp.Error{Code: acp.CodeInternalError, Message: err.Error()}
 	}
 	w.send(response{JSONRPC: "2.0", ID: id, Error: failure})
 }

@@ -2,7 +2,8 @@
 // kon as a subprocess. It is a third frontend beside internal/ui and
 // internal/headless: each ACP session is an app runtime, and this package
 // only turns JSON-RPC into runtime calls and agent events into session
-// updates. docs/product/acp.md is the contract, kon's extensions included.
+// updates. docs/product/acp.md is the contract, kon's extensions included,
+// and core/acp holds its wire types, which a client shares.
 package acp
 
 import (
@@ -19,6 +20,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"kon.kitsu.red/core/acp"
 	"kon.kitsu.red/core/agent"
 	"kon.kitsu.red/core/session"
 	"kon.kitsu.red/core/tokens"
@@ -135,18 +137,18 @@ loop:
 type handler func(c *conn, params json.RawMessage) (any, error)
 
 var handlers = map[string]handler{
-	"initialize":                  (*conn).initialize,
-	"authenticate":                func(*conn, json.RawMessage) (any, error) { return nil, nil },
-	"session/new":                 (*conn).newSession,
-	"session/load":                (*conn).loadSession,
-	"session/resume":              (*conn).resumeSession,
-	"session/list":                (*conn).listSessions,
-	"session/close":               (*conn).closeSession,
-	"session/set_config_option":   (*conn).setConfigOption,
-	"_" + extension + "/steer":    (*conn).steer,
-	"_" + extension + "/withdraw": (*conn).withdraw,
-	"_" + extension + "/jobs":     (*conn).jobs,
-	"_" + extension + "/kill_job": (*conn).killJob,
+	"initialize":                (*conn).initialize,
+	"authenticate":              func(*conn, json.RawMessage) (any, error) { return nil, nil },
+	"session/new":               (*conn).newSession,
+	"session/load":              (*conn).loadSession,
+	"session/resume":            (*conn).resumeSession,
+	"session/list":              (*conn).listSessions,
+	"session/close":             (*conn).closeSession,
+	"session/set_config_option": (*conn).setConfigOption,
+	acp.MethodSteer:             (*conn).steer,
+	acp.MethodWithdraw:          (*conn).withdraw,
+	acp.MethodJobs:              (*conn).jobs,
+	acp.MethodKillJob:           (*conn).killJob,
 }
 
 // opened is the response of a request that opened a session, whose first
@@ -167,7 +169,7 @@ func (c *conn) dispatch(line []byte) {
 	}
 	var msg incoming
 	if err := json.Unmarshal(line, &msg); err != nil {
-		c.out.respond(json.RawMessage("null"), nil, &rpcError{Code: codeParseError, Message: "parse error: " + err.Error()})
+		c.out.respond(json.RawMessage("null"), nil, &acp.Error{Code: acp.CodeParseError, Message: "parse error: " + err.Error()})
 		return
 	}
 	isRequest := len(msg.ID) > 0 && string(msg.ID) != "null"
@@ -177,7 +179,7 @@ func (c *conn) dispatch(line []byte) {
 		return
 	case !isRequest:
 		if msg.Method == "session/cancel" {
-			var params sessionParams
+			var params acp.SessionParams
 			if json.Unmarshal(msg.Params, &params) == nil {
 				if s := c.session(params.SessionID); s != nil {
 					s.cancelTurns()
@@ -192,7 +194,7 @@ func (c *conn) dispatch(line []byte) {
 	}
 	handle := handlers[msg.Method]
 	if handle == nil {
-		c.out.respond(msg.ID, nil, &rpcError{Code: codeMethodNotFound, Message: "method not found: " + msg.Method})
+		c.out.respond(msg.ID, nil, &acp.Error{Code: acp.CodeMethodNotFound, Message: "method not found: " + msg.Method})
 		return
 	}
 	c.handlers.Add(1)
@@ -222,22 +224,18 @@ func decode(params json.RawMessage, v any) error {
 }
 
 func (c *conn) initialize(params json.RawMessage) (any, error) {
-	var req initializeRequest
+	var req acp.InitializeRequest
 	if err := decode(params, &req); err != nil {
 		return nil, err
 	}
-	var opted clientExtensions
-	if raw, ok := req.ClientCapabilities.Meta[extension]; ok {
-		_ = json.Unmarshal(raw, &opted)
-	}
-	c.agentTurns.Store(opted.AgentTurns)
-	return initializeResponse{
-		ProtocolVersion: protocolVersion,
-		AgentInfo:       implementation{Name: "kon", Title: "kon", Version: c.server.Version},
-		AgentCapabilities: agentCapabilities{
+	c.agentTurns.Store(req.ClientCapabilities.Meta.Kon.AgentTurns)
+	return acp.InitializeResponse{
+		ProtocolVersion: acp.ProtocolVersion,
+		AgentInfo:       acp.Implementation{Name: "kon", Title: "kon", Version: c.server.Version},
+		AgentCapabilities: acp.AgentCapabilities{
 			LoadSession:        true,
-			PromptCapabilities: promptCapabilities{Image: true, Audio: true, EmbeddedContext: true},
-			Meta:               map[string]any{extension: agentExtensions{Steer: true, Jobs: true, AgentTurns: true, Instructions: true}},
+			PromptCapabilities: acp.PromptCapabilities{Image: true, Audio: true, EmbeddedContext: true},
+			Meta:               acp.AgentMeta{Kon: acp.AgentExtensions{Steer: true, Jobs: true, AgentTurns: true, Instructions: true}},
 		},
 		AuthMethods: []struct{}{},
 	}, nil
@@ -255,14 +253,14 @@ func (c *conn) openSession(id string) (*liveSession, error) {
 	if s := c.session(id); s != nil {
 		return s, nil
 	}
-	return nil, &rpcError{Code: codeNotFound, Message: "session not found: " + id}
+	return nil, &acp.Error{Code: acp.CodeNotFound, Message: "session not found: " + id}
 }
 
 // workspace checks a client's cwd and canonicalizes it the way kon does its
 // own, so a session is filed under the directory kon itself would use.
 func workspace(cwd string) (string, error) {
 	if !filepath.IsAbs(cwd) {
-		return "", &rpcError{Code: codeInvalidParams, Message: fmt.Sprintf("cwd must be an absolute path, not %q", cwd)}
+		return "", &acp.Error{Code: acp.CodeInvalidParams, Message: fmt.Sprintf("cwd must be an absolute path, not %q", cwd)}
 	}
 	cwd = filepath.Clean(cwd)
 	if canonical, err := filepath.EvalSymlinks(cwd); err == nil {
@@ -272,7 +270,7 @@ func workspace(cwd string) (string, error) {
 }
 
 func (c *conn) newSession(params json.RawMessage) (any, error) {
-	var req newSessionRequest
+	var req acp.NewSessionRequest
 	if err := decode(params, &req); err != nil {
 		return nil, err
 	}
@@ -280,13 +278,11 @@ func (c *conn) newSession(params json.RawMessage) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	var ext sessionExtensions
-	if raw, ok := req.Meta[extension]; ok {
-		if err := json.Unmarshal(raw, &ext); err != nil {
-			return nil, invalidParams(err)
-		}
+	var instructions string
+	if req.Meta != nil {
+		instructions = req.Meta.Kon.Instructions
 	}
-	runtime, err := c.server.Start(cwd, typedid.SessionID{}, ext.Instructions)
+	runtime, err := c.server.Start(cwd, typedid.SessionID{}, instructions)
 	if err != nil {
 		return nil, err
 	}
@@ -294,7 +290,7 @@ func (c *conn) newSession(params json.RawMessage) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return opened{sessionResponse{SessionID: s.id, ConfigOptions: s.configOptions()}, s}, nil
+	return opened{acp.SessionResponse{SessionID: s.id, ConfigOptions: s.configOptions()}, s}, nil
 }
 
 func (c *conn) loadSession(params json.RawMessage) (any, error) {
@@ -303,7 +299,7 @@ func (c *conn) loadSession(params json.RawMessage) (any, error) {
 		return nil, err
 	}
 	s.replay()
-	return opened{sessionResponse{ConfigOptions: s.configOptions()}, s}, nil
+	return opened{acp.SessionResponse{ConfigOptions: s.configOptions()}, s}, nil
 }
 
 func (c *conn) resumeSession(params json.RawMessage) (any, error) {
@@ -311,13 +307,13 @@ func (c *conn) resumeSession(params json.RawMessage) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return opened{sessionResponse{ConfigOptions: s.configOptions()}, s}, nil
+	return opened{acp.SessionResponse{ConfigOptions: s.configOptions()}, s}, nil
 }
 
 // reopen opens a saved session for session/load or session/resume, or
 // returns it when this connection already has it open.
 func (c *conn) reopen(params json.RawMessage) (*liveSession, error) {
-	var req sessionRequest
+	var req acp.SessionRequest
 	if err := decode(params, &req); err != nil {
 		return nil, err
 	}
@@ -334,7 +330,7 @@ func (c *conn) reopen(params json.RawMessage) (*liveSession, error) {
 	}
 	runtime, err := c.server.Start(cwd, id, "")
 	if err != nil {
-		return nil, &rpcError{Code: codeNotFound, Message: err.Error()}
+		return nil, &acp.Error{Code: acp.CodeNotFound, Message: err.Error()}
 	}
 	// Another kon is writing the session, so this one could only follow it.
 	if runtime.State().Following() {
@@ -363,7 +359,7 @@ func (c *conn) adopt(runtime Runtime, cwd string) (*liveSession, error) {
 }
 
 func (c *conn) listSessions(params json.RawMessage) (any, error) {
-	var req listRequest
+	var req acp.ListRequest
 	if err := decode(params, &req); err != nil {
 		return nil, err
 	}
@@ -378,7 +374,7 @@ func (c *conn) listSessions(params json.RawMessage) (any, error) {
 	if req.Cursor != "" {
 		n, err := strconv.Atoi(req.Cursor)
 		if err != nil || n < 0 {
-			return nil, &rpcError{Code: codeInvalidParams, Message: "invalid cursor"}
+			return nil, &acp.Error{Code: acp.CodeInvalidParams, Message: "invalid cursor"}
 		}
 		start = n
 	}
@@ -386,7 +382,7 @@ func (c *conn) listSessions(params json.RawMessage) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	resp := listResponse{Sessions: []sessionInfo{}}
+	resp := acp.ListResponse{Sessions: []acp.SessionInfo{}}
 	listed := 0
 	for _, summary := range summaries {
 		// A subagent's session is the agent's, not one a person resumes.
@@ -400,7 +396,7 @@ func (c *conn) listSessions(params json.RawMessage) (any, error) {
 			resp.NextCursor = strconv.Itoa(start + listPage)
 			break
 		}
-		resp.Sessions = append(resp.Sessions, sessionInfo{
+		resp.Sessions = append(resp.Sessions, acp.SessionInfo{
 			SessionID: summary.ID.String(), CWD: summary.CWD, Title: summary.Title,
 			UpdatedAt: summary.CreatedAt.UTC().Format(time.RFC3339),
 		})
@@ -409,7 +405,7 @@ func (c *conn) listSessions(params json.RawMessage) (any, error) {
 }
 
 func (c *conn) closeSession(params json.RawMessage) (any, error) {
-	var req sessionParams
+	var req acp.SessionParams
 	if err := decode(params, &req); err != nil {
 		return nil, err
 	}

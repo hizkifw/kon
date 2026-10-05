@@ -26,6 +26,9 @@
 //     added to and never rewritten. The loop needs only the
 //     [kon.kitsu.red/core/agent.Store] interface, so a program can keep
 //     conversations anywhere.
+//   - [kon.kitsu.red/core/acp] is for a program that would rather run kon
+//     than build an agent: the Agent Client Protocol as kon acp speaks it,
+//     and a client that drives it. It stands apart from the packages above.
 //   - [kon.kitsu.red/core/typedid] and [kon.kitsu.red/core/tokens] are the
 //     identifier and token-count types the others share.
 //

@@ -177,6 +177,9 @@ these only for a client that opts in during `initialize`:
 {"clientCapabilities": {"_meta": {"kon.kitsu.red": {"agentTurns": true}}}}
 ```
 
+A kon entry that is not an object, or an `agentTurns` that is not a boolean,
+is an invalid-params error.
+
 Without the opt-in, nothing is lost: what arrived waits for the next prompt
 and is delivered during its turn, reported as a `user_message_chunk`.
 
@@ -264,3 +267,31 @@ ended, an exit code or why it was killed, and is absent while it runs.
 `kon acp` runs until stdin closes or it receives an interrupt or terminate
 signal. It then cancels every turn, stops every background job, and closes
 every session.
+
+## Go client
+
+A Go program can drive `kon acp` with the `kon.kitsu.red/core/acp` package
+instead of writing its own JSON-RPC. It holds the wire types on this page and
+a client with one method per request kon serves, extensions included:
+
+```go
+client, err := acp.Spawn("kon", []string{"acp"}, handler)
+if err != nil {
+	return err
+}
+defer client.Close()
+if _, err := client.Initialize(ctx, "mybot", "v1.0.0"); err != nil {
+	return err
+}
+s, err := client.NewSession(ctx, "/work/project", "Answer in British English.")
+if err != nil {
+	return err
+}
+stop, err := client.Prompt(ctx, s.SessionID, []acp.ContentBlock{acp.TextBlock("hello")})
+```
+
+`handler` receives what kon sends on its own: each `session/update` as a
+`ContentChunk`, `ToolCall`, `CommandsUpdate`, or `UsageUpdate`, and the
+notifications around an [agent-started turn](#agent-started-turns), which
+`Initialize` opts into. `acp.New` speaks over a reader and writer you already
+have instead of starting a subprocess.

@@ -4,16 +4,18 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"testing"
+
+	"kon.kitsu.red/core/acp"
 )
 
 func TestConvertPromptJoinsTextMentionsAndAttachments(t *testing.T) {
 	s := &liveSession{cwd: "/work"}
 	contents := "func main() {}\n"
-	prompt, err := s.convertPrompt([]contentBlock{
+	prompt, err := s.convertPrompt([]acp.ContentBlock{
 		{Type: "text", Text: "compare "},
 		{Type: "resource_link", URI: "file:///work/a.go", Name: "a.go"},
 		{Type: "text", Text: " with "},
-		{Type: "resource", Resource: &resource{URI: "file:///elsewhere/my b.go", Text: &contents}},
+		{Type: "resource", Resource: &acp.Resource{URI: "file:///elsewhere/my b.go", Text: &contents}},
 		{Type: "image", Data: base64.StdEncoding.EncodeToString([]byte("png")), MIMEType: "image/png"},
 	})
 	if err != nil {
@@ -30,7 +32,7 @@ func TestConvertPromptJoinsTextMentionsAndAttachments(t *testing.T) {
 
 func TestConvertPromptRefusesWhatItCannotSend(t *testing.T) {
 	s := &liveSession{cwd: "/work"}
-	for name, blocks := range map[string][]contentBlock{
+	for name, blocks := range map[string][]acp.ContentBlock{
 		"empty":        {{Type: "text", Text: "  "}},
 		"unknown type": {{Type: "video"}},
 		"bad base64":   {{Type: "image", Data: "%%%", MIMEType: "image/png"}},

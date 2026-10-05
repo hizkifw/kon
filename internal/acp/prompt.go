@@ -9,6 +9,7 @@ import (
 	"strings"
 	"unicode"
 
+	"kon.kitsu.red/core/acp"
 	"kon.kitsu.red/core/agent"
 	"kon.kitsu.red/core/tool"
 )
@@ -17,7 +18,7 @@ import (
 // and mentions are joined with nothing between them, since a client may
 // split one sentence around a mention. Embedded text follows the prompt, so
 // the sentence it was mentioned in stays whole.
-func (s *liveSession) convertPrompt(blocks []contentBlock) (agent.Prompt, error) {
+func (s *liveSession) convertPrompt(blocks []acp.ContentBlock) (agent.Prompt, error) {
 	var text, attached strings.Builder
 	var prompt agent.Prompt
 	for i, block := range blocks {
@@ -54,7 +55,7 @@ func (s *liveSession) convertPrompt(blocks []contentBlock) (agent.Prompt, error)
 	}
 	prompt.Text = text.String() + attached.String()
 	if strings.TrimSpace(prompt.Text) == "" && len(prompt.Media) == 0 {
-		return agent.Prompt{}, &rpcError{Code: codeInvalidParams, Message: "empty prompt"}
+		return agent.Prompt{}, &acp.Error{Code: acp.CodeInvalidParams, Message: "empty prompt"}
 	}
 	return prompt, nil
 }

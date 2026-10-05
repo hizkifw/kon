@@ -154,7 +154,10 @@ a session rather than invoking the `docs` command. Every subcommand supports
 `kon <command> --help`.
 
 `internal/acp` is the third frontend: `kon acp` serves the Agent Client
-Protocol, specified with kon's extensions in `docs/product/acp.md`. Each ACP
+Protocol, specified with kon's extensions in `docs/product/acp.md`. The wire
+types live in `core/acp`, beside a client for them, so a program that drives
+`kon acp` shares the server's definitions instead of retyping them; a test in
+`internal/acp` runs that client against the server. Each ACP
 session is its own `app.Runtime`, since a client opens sessions in any
 directory and a runtime is bound to one, and an `agent.Inbox` its turns share.
 A session runs one turn at a time from a FIFO queue, so a prompt sent

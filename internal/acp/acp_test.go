@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"kon.kitsu.red/core/acp"
 	"kon.kitsu.red/core/agent"
 	"kon.kitsu.red/core/session"
 	"kon.kitsu.red/core/tokens"
@@ -260,7 +261,7 @@ func (c *client) open(capabilities map[string]any) string {
 }
 
 func optIn() map[string]any {
-	return map[string]any{"_meta": map[string]any{extension: map[string]any{"agentTurns": true}}}
+	return map[string]any{"_meta": map[string]any{acp.Extension: map[string]any{"agentTurns": true}}}
 }
 
 func TestInitializeAdvertisesV1AndExtensions(t *testing.T) {
@@ -273,7 +274,7 @@ func TestInitializeAdvertisesV1AndExtensions(t *testing.T) {
 	if caps["loadSession"] != true {
 		t.Fatalf("capabilities = %v", caps)
 	}
-	ext := caps["_meta"].(map[string]any)[extension].(map[string]any)
+	ext := caps["_meta"].(map[string]any)[acp.Extension].(map[string]any)
 	if ext["steer"] != true || ext["jobs"] != true || ext["agentTurns"] != true || ext["instructions"] != true {
 		t.Fatalf("extensions = %v", ext)
 	}
@@ -290,12 +291,12 @@ func TestNewSessionPassesClientInstructions(t *testing.T) {
 	c := serve(t, server)
 	c.call("initialize", map[string]any{"protocolVersion": 1})
 	c.call("session/new", map[string]any{"cwd": "/work", "mcpServers": []any{},
-		"_meta": map[string]any{extension: map[string]any{"instructions": "be terse"}}})
+		"_meta": map[string]any{acp.Extension: map[string]any{"instructions": "be terse"}}})
 	if got != "be terse" {
 		t.Fatalf("instructions = %q", got)
 	}
 	resp, _ := c.until(c.request("session/new", map[string]any{"cwd": "/work", "mcpServers": []any{},
-		"_meta": map[string]any{extension: map[string]any{"instructions": 7}}}))
+		"_meta": map[string]any{acp.Extension: map[string]any{"instructions": 7}}}))
 	if resp["error"] == nil {
 		t.Fatal("malformed instructions accepted")
 	}
@@ -313,7 +314,7 @@ func TestLoadIgnoresClientInstructions(t *testing.T) {
 	c := serve(t, server)
 	c.call("initialize", map[string]any{"protocolVersion": 1})
 	c.call("session/load", map[string]any{"sessionId": r.id.String(), "cwd": "/work", "mcpServers": []any{},
-		"_meta": map[string]any{extension: map[string]any{"instructions": "be terse"}}})
+		"_meta": map[string]any{acp.Extension: map[string]any{"instructions": "be terse"}}})
 	if got != "" {
 		t.Fatalf("load passed instructions %q", got)
 	}
@@ -439,7 +440,7 @@ func TestSecondCancelEscalatesToInterrupt(t *testing.T) {
 	c.notify("session/cancel", map[string]any{"sessionId": id})
 	c.notify("session/cancel", map[string]any{"sessionId": id})
 	// A request answered after both notifications proves kon has read them.
-	c.call("_"+extension+"/jobs", map[string]any{"sessionId": id})
+	c.call(acp.MethodJobs, map[string]any{"sessionId": id})
 	close(cancelled)
 	c.until(prompt)
 	r.mu.Lock()
@@ -468,10 +469,10 @@ func TestIdleNoticeStartsATurnForAnOptedInClient(t *testing.T) {
 	c.open(optIn())
 	r.notices <- "job 1 exited"
 	var got []string
-	for len(got) == 0 || got[len(got)-1] != "_"+extension+"/turn_end" {
+	for len(got) == 0 || got[len(got)-1] != acp.MethodTurnEnd {
 		got = append(got, updates([]map[string]any{c.next()})...)
 	}
-	want := []string{"_" + extension + "/turn_start", "user_message_chunk:job 1 exited", "agent_message_chunk:ok", "_" + extension + "/turn_end"}
+	want := []string{acp.MethodTurnStart, "user_message_chunk:job 1 exited", "agent_message_chunk:ok", acp.MethodTurnEnd}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("messages = %v, want %v", got, want)
 	}
@@ -505,14 +506,14 @@ func TestSteerReachesTheRunningTurnAndWithdrawTakesItBack(t *testing.T) {
 	r.run = blockingRun(started)
 	c := serve(t, newServer(r))
 	id := c.open(nil)
-	resp, _ := c.until(c.request("_"+extension+"/steer", map[string]any{"sessionId": id, "text": "early"}))
+	resp, _ := c.until(c.request(acp.MethodSteer, map[string]any{"sessionId": id, "text": "early"}))
 	if resp["error"] == nil {
 		t.Fatal("steering an idle session succeeded")
 	}
 	prompt := c.request("session/prompt", map[string]any{"sessionId": id, "prompt": []any{map[string]any{"type": "text", "text": "one"}}})
 	<-started
-	c.call("_"+extension+"/steer", map[string]any{"sessionId": id, "text": "use the helper"})
-	withdrawn := c.call("_"+extension+"/withdraw", map[string]any{"sessionId": id})["withdrawn"].([]any)
+	c.call(acp.MethodSteer, map[string]any{"sessionId": id, "text": "use the helper"})
+	withdrawn := c.call(acp.MethodWithdraw, map[string]any{"sessionId": id})["withdrawn"].([]any)
 	if len(withdrawn) != 1 || withdrawn[0] != "use the helper" {
 		t.Fatalf("withdrawn = %v", withdrawn)
 	}
@@ -535,7 +536,7 @@ func TestLeftoverSteeringRunsAsTheNextTurn(t *testing.T) {
 	id := c.open(optIn())
 	prompt := c.request("session/prompt", map[string]any{"sessionId": id, "prompt": []any{map[string]any{"type": "text", "text": "one"}}})
 	<-started
-	c.call("_"+extension+"/steer", map[string]any{"sessionId": id, "text": "actually, two"})
+	c.call(acp.MethodSteer, map[string]any{"sessionId": id, "text": "actually, two"})
 	c.notify("session/cancel", map[string]any{"sessionId": id})
 	c.until(prompt)
 	if got := <-started; got != "actually, two" {
@@ -632,13 +633,13 @@ func TestListLeavesOutSubagentsAndPages(t *testing.T) {
 func TestUnknownMethodsAndBadJSON(t *testing.T) {
 	c := serve(t, newServer())
 	resp, _ := c.until(c.request("session/set_mode", map[string]any{}))
-	if code := resp["error"].(map[string]any)["code"]; code != float64(codeMethodNotFound) {
+	if code := resp["error"].(map[string]any)["code"]; code != float64(acp.CodeMethodNotFound) {
 		t.Fatalf("code = %v", code)
 	}
 	if _, err := c.in.Write([]byte("{not json\n")); err != nil {
 		t.Fatal(err)
 	}
-	if code := c.next()["error"].(map[string]any)["code"]; code != float64(codeParseError) {
+	if code := c.next()["error"].(map[string]any)["code"]; code != float64(acp.CodeParseError) {
 		t.Fatalf("code = %v", code)
 	}
 }
@@ -655,4 +656,16 @@ func TestClosingStdinClosesSessions(t *testing.T) {
 	if !r.closed {
 		t.Fatal("session left open")
 	}
+}
+
+func TestInitializeRejectsAMalformedOptIn(t *testing.T) {
+	c := serve(t, newServer())
+	resp, _ := c.until(c.request("initialize", map[string]any{"protocolVersion": 1,
+		"clientCapabilities": map[string]any{"_meta": map[string]any{acp.Extension: map[string]any{"agentTurns": "yes"}}}}))
+	if code := resp["error"].(map[string]any)["code"]; code != float64(acp.CodeInvalidParams) {
+		t.Fatalf("initialize = %v", resp)
+	}
+	// Another namespace's entry is not kon's to read.
+	c.call("initialize", map[string]any{"protocolVersion": 1,
+		"clientCapabilities": map[string]any{"_meta": map[string]any{"example.com": 7}}})
 }
