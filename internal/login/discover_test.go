@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"slices"
 	"testing"
 
@@ -34,7 +35,7 @@ func TestDiscoverOpenRouterVerifiesKeyBeforeListing(t *testing.T) {
 	}))
 	defer server.Close()
 	models, verified, err := Discover(context.Background(), config.Provider{ID: "openrouter", Type: "openrouter", BaseURL: server.URL + "/v1", APIKey: "secret"})
-	if err != nil || !verified || !slices.Equal(models, []string{"a/model", "z/model"}) {
+	if err != nil || !verified || !reflect.DeepEqual(models, []Model{{ID: "a/model"}, {ID: "z/model"}}) {
 		t.Fatalf("models=%q verified=%v error=%v", models, verified, err)
 	}
 	if !slices.Equal(paths, []string{"/v1/key", "/v1/models"}) {
@@ -51,7 +52,7 @@ func TestOpenRouterWireProviderDoesNotAssumeOpenRouterKeyEndpoint(t *testing.T) 
 	}))
 	defer server.Close()
 	models, verified, err := Discover(context.Background(), config.Provider{ID: "standardcompute", Type: "openrouter", BaseURL: server.URL + "/v1", APIKey: "secret"})
-	if err != nil || !verified || !slices.Equal(models, []string{"model"}) {
+	if err != nil || !verified || !reflect.DeepEqual(models, []Model{{ID: "model"}}) {
 		t.Fatalf("models=%q verified=%v error=%v", models, verified, err)
 	}
 }
@@ -89,7 +90,7 @@ func TestDiscoverOllamaUsesCompatibleModelEndpoint(t *testing.T) {
 	}))
 	defer server.Close()
 	models, verified, err := Discover(context.Background(), config.Provider{ID: "ollama", Type: "ollama", BaseURL: server.URL})
-	if err != nil || !verified || !slices.Equal(models, []string{"coder:latest"}) {
+	if err != nil || !verified || !reflect.DeepEqual(models, []Model{{ID: "coder:latest"}}) {
 		t.Fatalf("models=%q verified=%v error=%v", models, verified, err)
 	}
 }
@@ -107,5 +108,29 @@ func TestDiscoverDoesNotForwardCredentialsOnRedirect(t *testing.T) {
 	_, _, err := Discover(context.Background(), config.Provider{ID: "openai", Type: "openai", BaseURL: source.URL, APIKey: "secret"})
 	if err == nil || forwarded {
 		t.Fatalf("redirect followed: forwarded=%v error=%v", forwarded, err)
+	}
+}
+
+func TestDiscoverInputModalitiesBelongToEachModel(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"data":[
+			{"id":"cached","status":{"value":"unloaded"}},
+			{"id":"vision","status":{"value":"loaded"},"architecture":{"input_modalities":["text","image"],"output_modalities":["text"]}},
+			{"id":"text","architecture":{"input_modalities":["text"],"output_modalities":["image"]}},
+			{"id":"unknown","architecture":{"input_modalities":["other"]}},
+			{"id":"empty","architecture":{"input_modalities":[]}},
+			{"id":"output-only","architecture":{"output_modalities":["image"]}},
+			{"id":"Qwen-vision"}
+		]}`))
+	}))
+	defer server.Close()
+	models, verified, err := Discover(t.Context(), config.Provider{ID: "local", Type: wire.OpenAICompatible, BaseURL: server.URL})
+	want := []Model{
+		{ID: "Qwen-vision"}, {ID: "cached"}, {ID: "empty", InputModalities: []string{}},
+		{ID: "output-only"}, {ID: "text", InputModalities: []string{"text"}},
+		{ID: "unknown", InputModalities: []string{"other"}}, {ID: "vision", InputModalities: []string{"text", "image"}},
+	}
+	if err != nil || !verified || !reflect.DeepEqual(models, want) {
+		t.Fatalf("models=%+v verified=%v error=%v, want %+v", models, verified, err, want)
 	}
 }

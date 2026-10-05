@@ -19,10 +19,17 @@ import (
 
 const maxModelListSize = 8 << 20
 
-// Discover checks a connection on explicit login and returns its model IDs.
+// Model is one entry from a provider's model list. Nil InputModalities means
+// the server did not report them; an empty list explicitly accepts no media.
+type Model struct {
+	ID              string   `json:"id"`
+	InputModalities []string `json:"input_modalities"`
+}
+
+// Discover checks a connection on explicit login and returns its models.
 // A server whose wire format makes the listing optional can still be saved
 // without GET /models, but is reported as unverified.
-func Discover(ctx context.Context, connection config.Provider) ([]string, bool, error) {
+func Discover(ctx context.Context, connection config.Provider) ([]Model, bool, error) {
 	spec, ok := wire.Lookup(connection.Type)
 	if !ok {
 		return nil, false, fmt.Errorf("unsupported wire format %q", connection.Type)
@@ -63,7 +70,10 @@ func Discover(ctx context.Context, connection config.Provider) ([]string, bool, 
 	}
 	var response struct {
 		Data []struct {
-			ID string `json:"id"`
+			ID           string `json:"id"`
+			Architecture struct {
+				InputModalities []string `json:"input_modalities"`
+			} `json:"architecture"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(body, &response); err != nil {
@@ -72,14 +82,14 @@ func Discover(ctx context.Context, connection config.Provider) ([]string, bool, 
 	if response.Data == nil {
 		return nil, false, errors.New("provider model list has no data array")
 	}
-	models := make([]string, 0, len(response.Data))
+	models := make([]Model, 0, len(response.Data))
 	for _, model := range response.Data {
 		if model.ID != "" {
-			models = append(models, model.ID)
+			models = append(models, Model{ID: model.ID, InputModalities: model.Architecture.InputModalities})
 		}
 	}
-	slices.Sort(models)
-	models = slices.Compact(models)
+	slices.SortStableFunc(models, func(a, b Model) int { return strings.Compare(a.ID, b.ID) })
+	models = slices.CompactFunc(models, func(a, b Model) bool { return a.ID == b.ID })
 	return models, true, nil
 }
 
