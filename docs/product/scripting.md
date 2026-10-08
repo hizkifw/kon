@@ -20,7 +20,8 @@ look like flags.
 The reply streams to stdout. On a terminal it is rendered as Markdown; piped or
 redirected, it is the Markdown exactly as the model wrote it. When stderr is a
 terminal, kon also prints progress there: one line per tool call, retries,
-compactions, and the resume hint. A pipe or log file gets only the reply.
+compactions, and the resume hint. A pipe or log file gets only the reply, and
+`--format json` prints no progress at all.
 
 Tools run without confirmation, as they do in the full-screen UI. Give
 `kon run` only work you would let it do unattended.
@@ -33,7 +34,7 @@ Tools run without confirmation, as they do in the full-screen UI. Give
 | `--effort <level>` | Use this reasoning effort for this run. It must be one of the model's levels. |
 | `--resume`, `-r` | Continue the most recent session in this directory. |
 | `--resume=<id>` | Continue a specific session. |
-| `--incognito` | Keep this run's session in memory only; it cannot be resumed. |
+| `--incognito` | Keep this run's session in memory only; it cannot be resumed, or combined with `--resume`. |
 | `--format text\|json` | Stream text (the default), or [JSON events](#json-events). |
 | `--stdin` | Append stdin to the message. |
 | `--instructions <text>` | Add instructions as if from an `AGENTS.md`; repeat for more. |

@@ -43,7 +43,8 @@ prompt for editing, or run `/queue clear` to drop them all.
 
 `/btw <question>` asks the active model about the conversation so far without
 interrupting the task. The answer opens in a drawer while the main task keeps
-running behind it. Press Esc to close it.
+running behind it. Press Esc to close it; closing it before the answer is
+finished cancels the answer.
 
 Side questions have no tools: the model can explain what it has already seen,
 but cannot read files or run commands. Ask in the main conversation for that.
@@ -82,8 +83,10 @@ and your next prompt continues it here.
 
 `kon --incognito` starts a session that is never saved. The conversation and
 your prompts live in memory and are gone when kon exits, so there is nothing
-to resume. The banner is drawn as a dashed outline while it is on. `/new`
-starts another incognito session, and subagents it starts are incognito too.
+to resume, and on exit kon says so instead of printing a resume command. The
+banner is drawn as a dashed outline while it is on. `/new` starts another
+incognito session, `/resume` is unavailable, and subagents it starts are
+incognito too.
 
 Incognito covers the session and prompt history only. Prompts still go to your
 provider, and `/login`, `/model`, and effort changes still save to the config.
@@ -117,7 +120,9 @@ bar's cost as it goes. In `/jobs`, a subagent's entry shows its conversation.
 The agent uses subagents only when you ask. A subagent may start one more
 level of subagents, and no further.
 
-## Web pages
+## The web
+
+### Pages
 
 The agent reads web pages by running `kon tool webfetch <url>`, which prints a
 page as Markdown. You can use it yourself:
@@ -130,7 +135,7 @@ It keeps a page's main content when the page marks it, and prints JSON and
 plain text as they are. Pages that build their content with JavaScript, and
 sites behind bot protection, may come back empty or refused.
 
-## Web search
+### Search
 
 With a [search provider configured](configuration.md#web-search), the agent
 searches the web by running `kon tool websearch <query>`, then reads the pages
@@ -167,7 +172,8 @@ answered; see [Cost](configuration.md#cost).
 ## Copying text
 
 `/copy` copies the last reply as Markdown, and `/copy all` copies the whole
-conversation.
+conversation: your prompts as quotes, replies, and a line per tool call,
+without the model's thinking.
 
 In the transcript, drag to select and release to copy. Double-click copies a
 word, and triple-click a paragraph. A reply copies as the Markdown behind it,
@@ -182,21 +188,3 @@ also works over SSH. If copying does nothing:
 - Inside tmux, use tmux 3.2 or newer.
 - Over SSH into a machine where kon runs inside tmux, the tmux on your own
   machine needs `set -g set-clipboard on`.
-
-## Upgrading
-
-`kon upgrade` installs the latest release over the running executable, and
-`kon upgrade --check` only reports whether there is one. kon never checks for
-updates on its own.
-
-The download is verified against the release checksums and test-run before
-anything is replaced. The new version then upgrades kon's stored data if its
-format changed, which waits for other running kon instances to exit, and
-refreshes the [model catalog](configuration.md#model-catalog). It also removes
-docs extracted by older versions and links to kon executables that no longer
-exist.
-
-Builds from source (`go install`, `go run`) report version `dev` and cannot
-upgrade themselves; reinstall them the same way. If the executable's
-directory is not writable, rerun the installer rather than running kon as
-root.

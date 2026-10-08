@@ -33,14 +33,20 @@ themselves, in the session's working directory.
 | `session/new` | Starts a kon session in `cwd`. The session ID is kon's own `ses_…` ID. |
 | `session/load` | Opens a saved session of `cwd` and [replays](#replay) it before answering. |
 | `session/resume` | Opens a saved session of `cwd` without replaying it. |
-| `session/list` | Lists saved sessions of `cwd`, newest first. Subagent sessions are left out. |
+| `session/list` | Lists saved sessions of `cwd`, newest first, 100 to a page: pass a response's `nextCursor` back as `cursor` for the next. Subagent sessions are left out. |
 | `session/close` | Cancels the session's turn, stops its background jobs, and closes it. |
 | `session/prompt` | Runs one turn. See [Prompts](#prompts). |
-| `session/cancel` | Cancels the running turn and every prompt waiting behind it. |
+| `session/cancel` | A notification, not a request. Cancels the running turn and every prompt waiting behind it. |
 | `session/set_config_option` | Sets the model or reasoning effort. See [Config options](#config-options). |
 
 Every other method gets "Method not found", including `session/set_mode`,
 `session/delete`, and `logout`, which kon does not advertise.
+
+Errors use the JSON-RPC codes: `-32700` for a message that does not parse,
+`-32601` for an unknown method, `-32602` for invalid params, such as a
+relative `cwd`, an empty prompt, or an unknown config option, and `-32600`
+for a request that does not apply now, such as steering with no turn running.
+A session ID that names no open or saved session gets `-32002`.
 
 `cwd` must be an absolute path. A `session/list` without `cwd` lists the
 directory `kon acp` was started in. Sessions belong to the directory they were
@@ -122,16 +128,18 @@ why. What the turn wrote before failing is kept in the session.
 | Provider usage reported | `usage_update` |
 
 A tool call's `title` is the tool and its summary as the transcript shows it,
-such as `read internal/ui/view.go from 100`. Its `kind` is `read` for read,
+such as `read internal/ui/view.go from 100`, and `name`, which is kon's own
+addition, is the tool's bare name. Its `kind` is `read` for read,
 `edit` for write and edit, and `execute` for shell. `locations` names the file
 a read, write, or edit touches. An edit's content is a `diff` of the replaced
 text, and a write's a `diff` with no old text. Other finished calls carry the
 output the model sees as text. `rawInput` is the model's arguments and
 `rawOutput` the tool's details, when it has any.
 
-`usage_update` reports the context size the provider last reported, the
-model's context window, and the session's cost so far in USD, its subagents
-included. It is sent only when the model's context window is known.
+`usage_update` reports the context size the provider last reported as `used`,
+the model's context window as `size`, and the session's cost so far, its
+subagents included, as `cost`: `{"amount": 0.42, "currency": "USD"}`, left out
+while nothing has been spent. It is sent only when the model's context window is known.
 
 ### Replay
 

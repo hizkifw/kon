@@ -69,7 +69,7 @@ levels, prices, and media inputs from the catalog. For models absent from the
 catalog, media inputs come from the provider's `architecture.input_modalities`
 when reported.
 For example, a llama.cpp listing with `["text", "image"]` enables image reads
-even for a custom model absent from the catalog. `/models` shows the resolved
+even for a custom model absent from the catalog. `/model` shows the resolved
 media inputs beside each model.
 
 Discovery is cached per connection and model, including its input modalities.
@@ -80,6 +80,23 @@ unknown. A listed model may be unloaded; discovery does not load it or prove
 that it is ready to serve requests.
 
 Azure deployments have names you choose, so use `azure/<deployment-name>`.
+
+Models from `/login azure`, `/login ollama`, and `/login openai-compatible`
+take nothing from the catalog, which cannot know what a deployment or a local
+server is running. Without a context window kon cannot compact ahead of time,
+and without prices it shows no cost, so
+[define the model by hand](#define-a-model-by-hand) to set them.
+
+## Model catalog
+
+kon ships a copy of the [models.dev](https://models.dev) catalog, which it uses
+for `/login` autocomplete and for the limits, media inputs, reasoning levels,
+and prices of models chosen with `/model`. The catalog is reference data: a
+model listed there is not necessarily one your account can use.
+
+`kon models` lists the catalog's model IDs, offline.
+`kon models --refresh` downloads the latest catalog and caches it; so does
+`kon upgrade`. kon never downloads it otherwise.
 
 ## Define a model by hand
 
@@ -148,7 +165,7 @@ and to [compact](usage.md#long-conversations) before the window fills.
 
 kon compacts once the context reaches about 80% of the window, sooner on
 smaller windows so there is room left for a reply and the summary, and keeps
-roughly the most recent 15% of the window verbatim. On a 1M-token window, it
+roughly the most recent 16% of the window verbatim. On a 1M-token window, it
 compacts at 800K tokens and keeps about 155K.
 
 - With `context_window_tokens` unset or `0`, kon cannot compact ahead of time.
@@ -328,14 +345,3 @@ again, set `provider` to `""` or remove it.
 `base_url` is optional for the hosted providers, and points kon at a proxy
 instead of the provider's own address. A selected provider that lacks its key
 or URL, or a provider name kon does not know, is an error when kon starts.
-
-## Model catalog
-
-kon ships a copy of the [models.dev](https://models.dev) catalog, which it uses
-for `/login` autocomplete and for the limits, media inputs, reasoning levels,
-and prices of models chosen with `/model`. The catalog is reference data: a
-model listed there is not necessarily one your account can use.
-
-`kon models` lists the catalog's model IDs, offline.
-`kon models --refresh` downloads the latest catalog and caches it; so does
-`kon upgrade`. kon never downloads it otherwise.

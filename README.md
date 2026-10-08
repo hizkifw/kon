@@ -36,7 +36,8 @@ Run `kon` in any project. Connect a provider with `/login`, pick a model with
 
 kon has no sandbox and does not ask before running commands, so use it on work
 you keep in version control. The [user guide](docs/product/index.md) covers
-the rest.
+the rest; `/help` opens it inside kon, and kon reads it to answer questions
+about itself.
 
 ## Why kon
 
@@ -67,11 +68,12 @@ on stdin and stdout, so editors such as Zed can run kon as their agent. See
 
 ## Documentation
 
-- [User guide](docs/product/index.md): install and first session
+- [User guide](docs/product/index.md): the list of its pages
+- [Getting started](docs/product/getting-started.md): install and first session
 - [Working with kon](docs/product/usage.md): prompting, sessions, jobs, and subagents
+- [Configuration](docs/product/configuration.md): providers, models, and project instructions
 - [Scripting](docs/product/scripting.md): `kon run` and `kon md`
 - [Editor integration](docs/product/acp.md): `kon acp` for ACP editors
-- [Configuration](docs/product/configuration.md): providers, models, and project instructions
 - [Reference](docs/product/reference.md): every command, key, tool, and setting
 - [Development](docs/development/index.md): building and contributing
 - [Architecture](docs/development/architecture.md): how the pieces fit together

@@ -17,7 +17,7 @@ Every command, key, tool, and setting in one place. For how to use them, see
 | `kon --version` | Print the version. |
 | `kon run [flags] <message>` | Send one prompt without the full-screen UI; see [Scripting](scripting.md#flags). |
 | `kon acp` | Serve the Agent Client Protocol on stdin and stdout for an editor; see [Editor integration](acp.md). |
-| `kon md [--width <n>] [file]` | Render Markdown for the terminal; see [Render Markdown](scripting.md#render-markdown). |
+| `kon md [--width <n>] [file]` | Render Markdown for the terminal, wrapped at 80 columns unless `--width` (or `-w`) says otherwise; see [Render Markdown](scripting.md#render-markdown). |
 | `kon models [--refresh]` | List the catalog's model IDs; `--refresh` downloads the latest catalog first. |
 | `kon upgrade [--check]` | Install the latest release; `--check` only reports whether there is one. |
 | `kon docs` | Write this guide to a local directory as Markdown, and print only that directory's path, as in `ls "$(kon docs)"`. |
@@ -39,7 +39,7 @@ Type `/` at the start of the prompt to see these.
 | `/compact` | Summarize older context now. |
 | `/btw <question>` | Ask a side question about the conversation, without tools. |
 | `/jobs` | Watch and stop background jobs and subagents. |
-| `/queue [clear]` | Take a pending steer or queued message back for editing, or drop them all. |
+| `/queue [n\|clear]` | Pick a pending steer or queued message to take back for editing, by its position, or drop them all. |
 | `/copy [all]` | Copy the last reply, or the whole conversation, as Markdown. |
 | `/help` | Read this guide in a drawer. |
 
@@ -147,9 +147,9 @@ started, without asking first.
 | Tool | Does |
 | --- | --- |
 | `read` | Return a file's lines, numbered, up to 2,000 per call; the model asks for more by offset. Text files over 1 MiB are refused. Images, audio, video, and PDFs are passed whole to models that [accept them](configuration.md#media). |
-| `write` | Create or replace a whole file, atomically. |
+| `write` | Create or replace a whole file, atomically. The directory must already exist. |
 | `edit` | Replace one exact piece of text in a file. It fails if the text occurs zero times or more than once. |
-| `shell` | Run a command, with a timeout the model chooses, of up to 600 seconds. A timeout of `0` starts a [background job](#background-job-files). |
+| `shell` | Run a command, with a timeout the model chooses, of up to 600 seconds. A timeout of `0` starts a [background job](#background-job-files). Output past 64 KiB is cut. |
 
 `shell` runs your `$SHELL`, or `/bin/sh` if that is unset or missing. On
 Windows it uses Git Bash when installed, then PowerShell, then `cmd.exe`.
@@ -174,6 +174,8 @@ that is removed when the session ends.
 | `pid` | Its process ID. |
 | `output` | Combined stdout and stderr, up to 16 MiB. |
 | `exit` | How it ended, written once it has. |
+| `session` | A subagent's session ID. |
+| `answer` | A subagent's final answer. |
 
 When a job ends, the agent is shown its last 20 lines of output. A subagent's
 final answer is quoted whole, up to 64 KiB. A job whose kon crashed is marked
@@ -201,6 +203,7 @@ Set by kon for every shell command the agent runs:
 | --- | --- |
 | `KON_SESSION` | The session ID. |
 | `KON_JOBS` | The session's job directory, so `ls $KON_JOBS` lists its jobs. |
+| `KON_JOB` | In a background job only, that job's own directory. |
 | `KON_DEPTH` | How many kon agents the command runs beneath: `1` under your own session. `kon run` refuses to start above `2`. |
 | `KON_INCOGNITO` | Set in an incognito session, so subagents are incognito too. |
 | `PATH` | Your `PATH`, with a directory holding only `kon` put first, so `kon` runs the kon you are using. |

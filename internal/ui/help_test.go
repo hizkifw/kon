@@ -53,12 +53,12 @@ func TestHelpOpensTheIndexAtItsTop(t *testing.T) {
 		t.Fatalf("/help opened %d drawers: %q", m.drawers.Len(), m.message)
 	}
 	got := plain(m.View().Content)
-	if !strings.Contains(got, " kon user guide") || !strings.Contains(got, "Install") {
+	if !strings.Contains(got, " kon user guide") || !strings.Contains(got, "Getting started") {
 		t.Fatalf("the index is not shown from its top:\n%s", got)
 	}
 	// The drawer follows links to the guide itself, so where they lead is
 	// not spelled out after them.
-	if strings.Contains(got, "usage.md") {
+	if strings.Contains(got, "getting-started.md") {
 		t.Fatalf("a link to the guide shows its destination:\n%s", got)
 	}
 }

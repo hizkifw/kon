@@ -18,6 +18,8 @@ func welcomeMessage(configPath string) string {
 		"to connect a provider, then use `/model` to choose a model. You can also\n" +
 		"edit `" + configPath + "` directly.\n\n" +
 		"- Press `/` to browse commands.\n" +
+		"- Run `/help` to read the user guide.\n" +
+		"- Once I'm set up, ask me how kon works.\n" +
 		"- Press `Ctrl+D` to exit, or `Esc` to interrupt a running turn."
 }
 
