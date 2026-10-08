@@ -20,6 +20,9 @@ import (
 // is copied on every update.
 type Drawer[H any] struct {
 	Title string
+	// Trail, when set, heads the drawer in place of Title with the way to
+	// what it shows now, such as a page and the section scrolled to.
+	Trail func(H) []Crumb[H]
 	// Content is what the drawer shows, unless List is set: then it shows
 	// the list's rows, one per line, with the highlighted one marked.
 	Content Content
@@ -35,7 +38,10 @@ type Drawer[H any] struct {
 	// armed is the key of an action pressed once that asks for a second
 	// press; any other key disarms it.
 	armed string
-	view  Scroll
+	// pressed is the crumb the mouse button is held on, counted from 1, or
+	// 0 for none.
+	pressed int
+	view    Scroll
 }
 
 // Content is what a drawer shows when it is not a list: lines wrapped to a
@@ -63,12 +69,25 @@ type Action[H any] struct {
 	Run     func(H) tea.Cmd
 }
 
+// Crumb is one step of a drawer's trail.
+type Crumb[H any] struct {
+	Label string
+	// Go, when set, is where a click on the crumb leads. The crumb shows as
+	// pressed while the button is held, and the release on it goes there.
+	Go func(H)
+}
+
+// crumbSeparator sits between the steps of a trail.
+const crumbSeparator = " › "
+
 // View is the drawer's scroll container.
 func (d *Drawer[H]) View() *Scroll { return &d.view }
 
 // Theme colors a drawer stack.
 type Theme struct {
 	Title, Rule, Warn, Dim lipgloss.Style
+	// Pressed styles a crumb while the mouse button is held on it.
+	Pressed lipgloss.Style
 	// Heading and Selected style a list's section headings and its
 	// highlighted row, and Faint its descriptions.
 	Heading, Selected lipgloss.Style
@@ -179,6 +198,9 @@ func (s *Stack[H]) Key(h H, key string) tea.Cmd {
 	}
 	armed := d.armed
 	d.armed = ""
+	// A key can change the trail, and the crumb held would no longer be the
+	// one pressed.
+	d.pressed = 0
 	for _, action := range d.actions(h) {
 		if action.Key == key {
 			if action.Confirm != "" && armed != key {
@@ -214,9 +236,9 @@ func (s *Stack[H]) Key(h H, key string) tea.Cmd {
 }
 
 // Click handles a press inside the top drawer that is not on its content. A
-// hint presses its key, and a list row is highlighted, or pressed with
-// "enter" when it already was. It returns the key to press, if any, and
-// whether the press was the drawer's.
+// crumb of its trail is held until the release, a hint presses its key, and a
+// list row is highlighted, or pressed with "enter" when it already was. It
+// returns the key to press, if any, and whether the press was the drawer's.
 func (s *Stack[H]) Click(h H, x, y int) (key string, handled bool) {
 	d := s.Top()
 	if d == nil {
@@ -224,6 +246,9 @@ func (s *Stack[H]) Click(h H, x, y int) (key string, handled bool) {
 	}
 	body := s.Body(len(s.drawers) - 1)
 	switch {
+	case y == body.Y-1 && d.Trail != nil:
+		d.pressed = crumbAt(d.Trail(h), x-body.X) + 1
+		return "", true
 	case y == body.Y+body.H:
 		for _, hint := range s.hints(h, d) {
 			if x >= body.X+hint.X && x < body.X+hint.X+hint.W {
@@ -245,6 +270,44 @@ func (s *Stack[H]) Click(h H, x, y int) (key string, handled bool) {
 		return "enter", true
 	}
 	return "", false
+}
+
+// Release handles the mouse button let go at (x, y). The crumb it was pressed
+// on goes where it leads if the pointer is still on it, as a link does in a
+// web browser.
+func (s *Stack[H]) Release(h H, x, y int) {
+	d := s.Top()
+	if d == nil || d.pressed == 0 {
+		return
+	}
+	pressed := d.pressed - 1
+	d.pressed = 0
+	body := s.Body(len(s.drawers) - 1)
+	if trail := d.Trail(h); y == body.Y-1 && crumbAt(trail, x-body.X) == pressed {
+		trail[pressed].Go(h)
+		s.Refresh()
+	}
+}
+
+// crumbCells is the cells of the title row, from its left, that show crumb
+// i of trail: from the first up to, not including, the last.
+func crumbCells[H any](trail []Crumb[H], i int) (from, to int) {
+	from = 1 // the title row leads its text with one blank cell
+	for _, crumb := range trail[:i] {
+		from += ansi.StringWidth(crumb.Label) + ansi.StringWidth(crumbSeparator)
+	}
+	return from, from + ansi.StringWidth(trail[i].Label)
+}
+
+// crumbAt is the crumb with somewhere to go shown at cell x of the title
+// row, or -1.
+func crumbAt[H any](trail []Crumb[H], x int) int {
+	for i, crumb := range trail {
+		if from, to := crumbCells(trail, i); x >= from && x < to && crumb.Go != nil {
+			return i
+		}
+	}
+	return -1
 }
 
 // Hint is one entry of the top drawer's hint row: its text, the key a click
@@ -324,7 +387,7 @@ func (s *Stack[H]) Paint(h H, screen []string) []string {
 func (s *Stack[H]) render(h H, d *Drawer[H], level int) []string {
 	r, body := s.Rect(level), s.Body(level)
 	lines := make([]string, 0, r.H)
-	lines = append(lines, s.Theme.Title.Width(body.W).Render(Fit(" "+d.Title, body.W)))
+	lines = append(lines, s.titleRow(h, d, body.W))
 	view := d.view.View()
 	if highlighter, ok := d.Content.(Highlighter); ok && d.List == nil {
 		if decorate := highlighter.Highlight(body.W); decorate != nil {
@@ -342,6 +405,28 @@ func (s *Stack[H]) render(h H, d *Drawer[H], level int) []string {
 	return lines
 }
 
+// titleRow renders the title row at width, with the crumb the mouse button
+// is held on in the pressed style.
+func (s *Stack[H]) titleRow(h H, d *Drawer[H], width int) string {
+	text := Fit(" "+d.title(h), width)
+	if d.pressed == 0 {
+		return s.Theme.Title.Width(width).Render(text)
+	}
+	trail := d.Trail(h)
+	if d.pressed > len(trail) {
+		// The trail is read anew at each paint and may have grown shorter
+		// since the press.
+		return s.Theme.Title.Width(width).Render(text)
+	}
+	from, to := crumbCells(trail, d.pressed-1)
+	from, to = min(from, width), min(to, width)
+	// Each part is styled on its own: one part's reset would clear the
+	// title's background for the rest of the row.
+	return s.Theme.Title.Render(ansi.Cut(text, 0, from)) +
+		s.Theme.Pressed.Render(ansi.Cut(text, from, to)) +
+		s.Theme.Title.Width(width-to).Render(ansi.Cut(text, to, width))
+}
+
 // hintRow renders the hint row, a question asked for a confirmation in the
 // warning style.
 func (s *Stack[H]) hintRow(h H, d *Drawer[H]) string {
@@ -354,6 +439,18 @@ func (s *Stack[H]) hintRow(h H, d *Drawer[H]) string {
 		parts = append(parts, hint.Text)
 	}
 	return " " + style.Render(strings.Join(parts, " · "))
+}
+
+// title is the text of the drawer's title row: its trail, if it has one.
+func (d *Drawer[H]) title(h H) string {
+	if d.Trail == nil {
+		return d.Title
+	}
+	var labels []string
+	for _, crumb := range d.Trail(h) {
+		labels = append(labels, crumb.Label)
+	}
+	return strings.Join(labels, crumbSeparator)
 }
 
 // actions is what the drawer offers now.

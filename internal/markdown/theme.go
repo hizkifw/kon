@@ -74,6 +74,10 @@ const (
 // zero Theme is the identity mapping.
 type Theme struct {
 	Overrides map[Style]Style
+	// HideURL, when set, reports whether a link to dest renders as its label
+	// alone. A viewer that follows a link itself has no use for showing where
+	// it leads; the span still carries the destination.
+	HideURL func(dest string) bool
 }
 
 // Resolve returns the style a role renders as.

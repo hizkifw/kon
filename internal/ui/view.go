@@ -54,11 +54,23 @@ func (m *Model) refreshTranscript(toBottom bool) {
 // one is open, which is nil for a list, otherwise the one the main viewport
 // shows.
 func (m *Model) activeTranscript() *transcript {
+	if h := m.topHelp(); h != nil {
+		return &h.text
+	}
 	if d := m.topDrawer(); d != nil {
 		t, _ := d.Content.(*transcript)
 		return t
 	}
 	return m.mainTranscript()
+}
+
+// topHelp is the guide, when its drawer is the one that takes input.
+func (m *Model) topHelp() *help {
+	if d := m.topDrawer(); d != nil {
+		h, _ := d.Content.(*help)
+		return h
+	}
+	return nil
 }
 
 // mainTranscript is the transcript the main viewport shows: a highlighted

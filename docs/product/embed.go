@@ -19,6 +19,27 @@ var bundled embed.FS
 
 var extractMu sync.Mutex
 
+// Pages names the bundled pages, sorted.
+func Pages() []string {
+	entries, _ := fs.ReadDir(bundled, ".")
+	names := make([]string, len(entries))
+	for i, entry := range entries {
+		names[i] = entry.Name()
+	}
+	return names
+}
+
+// Page returns the bundled page called name, such as "usage.md".
+func Page(name string) (string, bool) {
+	// The embedded pages sit in one directory, so a name with a path in it
+	// is no page, and fs.ReadFile would reject some of those outright.
+	if !fs.ValidPath(name) || strings.Contains(name, "/") {
+		return "", false
+	}
+	content, err := fs.ReadFile(bundled, name)
+	return string(content), err == nil
+}
+
 // Extract returns a local directory containing exactly the bundled product docs.
 // The content address changes when pages are added, renamed, removed, or edited.
 func Extract(dataDir string) (string, error) {

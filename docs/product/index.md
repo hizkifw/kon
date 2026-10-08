@@ -60,5 +60,6 @@ work in version control.
 | [Configuration](configuration.md) | Providers, models, context limits, reasoning, cost, and project instructions |
 | [Reference](reference.md) | Every command, flag, key, tool, environment variable, and config field |
 
-Run `kon docs` to get these pages as local Markdown files. It prints only the
-directory they were written to, so `ls "$(kon docs)"` lists them.
+`/help` opens this guide inside kon. Run `kon docs` to get these pages as local
+Markdown files. It prints only the directory they were written to, so
+`ls "$(kon docs)"` lists them.

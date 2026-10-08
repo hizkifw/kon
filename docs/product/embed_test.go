@@ -107,3 +107,16 @@ func assertDocs(t *testing.T, dir string, want map[string]string) {
 		}
 	}
 }
+
+func TestPageReadsOnlyBundledPages(t *testing.T) {
+	for _, name := range Pages() {
+		if text, ok := Page(name); !ok || text == "" {
+			t.Errorf("Page(%q) is missing or empty", name)
+		}
+	}
+	for _, name := range []string{"", "nosuch.md", "../product/index.md", "embed.go"} {
+		if _, ok := Page(name); ok {
+			t.Errorf("Page(%q) is a page", name)
+		}
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -105,5 +106,81 @@ func TestPaintFitsTheScreenAndRunsOnClose(t *testing.T) {
 	s.Pop(nil)
 	if s.Len() != 0 || closed != 1 {
 		t.Fatalf("Pop left %d drawers and ran OnClose %d times", s.Len(), closed)
+	}
+}
+
+func TestTrailHeadsTheDrawerAndItsCrumbsAreClicked(t *testing.T) {
+	s := stack(80, 24)
+	h := &host{}
+	s.Open(&Drawer[*host]{Title: "guide", Content: lines{"a"}, Trail: func(*host) []Crumb[*host] {
+		return []Crumb[*host]{
+			{Label: "guide", Go: func(h *host) { h.ran = append(h.ran, "guide") }},
+			{Label: "section"},
+		}
+	}})
+	body := s.Body(0)
+	if title := ansi.Strip(s.Paint(h, nil)[0]); !strings.Contains(title, " guide › section") {
+		t.Fatalf("title row %q does not show the trail", title)
+	}
+	// The crumb with nowhere to go, and the separator, take the press and
+	// do nothing.
+	for _, x := range []int{body.X + 1 + len("guide"), body.X + 1 + len("guide › ")} {
+		_, handled := s.Click(h, x, body.Y-1)
+		s.Release(h, x, body.Y-1)
+		if !handled || len(h.ran) != 0 {
+			t.Fatalf("click at %d: handled %v, ran %v", x, handled, h.ran)
+		}
+	}
+	// A crumb shows as pressed while the button is held, and goes where it
+	// leads only when the button is let go on it.
+	s.Theme.Pressed = lipgloss.NewStyle().Reverse(true)
+	s.Click(h, body.X+1, body.Y-1)
+	if title := s.Paint(h, nil)[0]; !strings.Contains(title, "\x1b[7mguide\x1b[m") || len(h.ran) != 0 {
+		t.Fatalf("pressed title row %q, ran %v", title, h.ran)
+	}
+	s.Release(h, body.X+1, body.Y)
+	if title := s.Paint(h, nil)[0]; strings.Contains(title, "\x1b[7m") || len(h.ran) != 0 {
+		t.Fatalf("after a release off the crumb: title row %q, ran %v", title, h.ran)
+	}
+	s.Click(h, body.X+1, body.Y-1)
+	s.Release(h, body.X+len("guide"), body.Y-1)
+	if len(h.ran) != 1 {
+		t.Fatalf("a release on the crumb ran %v", h.ran)
+	}
+}
+
+func TestAPressedCrumbIsDroppedWhenTheTrailChanges(t *testing.T) {
+	s := stack(80, 24)
+	h := &host{}
+	deep := true
+	s.Open(&Drawer[*host]{Content: lines{"a"}, Trail: func(*host) []Crumb[*host] {
+		trail := []Crumb[*host]{{Label: "guide", Go: func(h *host) { h.ran = append(h.ran, "guide") }}}
+		if deep {
+			trail = append(trail, Crumb[*host]{Label: "page", Go: func(h *host) { h.ran = append(h.ran, "page") }})
+		}
+		return trail
+	}})
+	body := s.Body(0)
+	page := body.X + 1 + len("guide") + ansi.StringWidth(crumbSeparator)
+	s.Theme.Pressed = lipgloss.NewStyle().Reverse(true)
+
+	// The trail loses the crumb held with no key pressed: the row paints
+	// without it, and the release goes nowhere.
+	s.Click(h, page, body.Y-1)
+	deep = false
+	if title := s.Paint(h, nil)[0]; strings.Contains(title, "\x1b[7m") {
+		t.Fatalf("title row %q shows a crumb pressed that is gone", title)
+	}
+	s.Release(h, page, body.Y-1)
+
+	// A key in between lets go of the crumb, which may be another by now.
+	s.Click(h, body.X+1, body.Y-1)
+	s.Key(h, "down")
+	if title := s.Paint(h, nil)[0]; strings.Contains(title, "\x1b[7m") {
+		t.Fatalf("title row %q still shows the crumb pressed after a key", title)
+	}
+	s.Release(h, body.X+1, body.Y-1)
+	if len(h.ran) != 0 {
+		t.Fatalf("the releases ran %v", h.ran)
 	}
 }

@@ -329,6 +329,13 @@ func defaultRegistry() *registry {
 			return m.copyTranscript(args)
 		},
 	})
+	registry.register(slashCommand{
+		name:    "help",
+		summary: "read the user guide",
+		run: func(m Model, _ []string) (tea.Model, tea.Cmd) {
+			return m.openHelp()
+		},
+	})
 	return registry
 }
 

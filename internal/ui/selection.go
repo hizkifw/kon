@@ -160,6 +160,9 @@ func (m Model) pressMouse(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		count = m.click.count%3 + 1
 	}
 	m.click = click{at: p, when: now, count: count, down: true}
+	if h := m.topHelp(); h != nil {
+		h.mouseDown(p, count == 1)
+	}
 	if u := unit(count - 1); u != byCell {
 		if r, ok := m.activeTranscript().unitAt(p, u, area.W); ok {
 			m.activeTranscript().selection = &selection{unit: u, anchor: r, head: r}
@@ -182,6 +185,10 @@ func (m Model) dragMouse(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 		// cell it is held to is that one.
 		if p == m.click.at && edge == 0 {
 			return m, nil
+		}
+		if h := m.topHelp(); h != nil {
+			// The press was the start of a selection, not a click on a link.
+			h.setFocus(-1)
 		}
 		pressed := cells{m.click.at, m.click.at}
 		sel = &selection{unit: byCell, anchor: pressed, head: pressed}
@@ -244,20 +251,32 @@ func (m Model) scrollSelection(msg selectScrollMsg) (tea.Model, tea.Cmd) {
 
 // releaseMouse copies what the press selected and clears the selection. A
 // click without a drag selects nothing, so clicking to focus the window never
-// replaces what is on the clipboard.
-func (m Model) releaseMouse(tea.MouseReleaseMsg) (tea.Model, tea.Cmd) {
+// replaces what is on the clipboard; on a page of the guide it follows the
+// link under it.
+func (m Model) releaseMouse(msg tea.MouseReleaseMsg) (tea.Model, tea.Cmd) {
+	m.drawers.Release(&m, msg.X, msg.Y)
 	if m.activeTranscript() == nil {
 		return m, nil
 	}
+	h := m.topHelp()
 	sel := m.activeTranscript().selection
 	m.activeTranscript().selection = nil
+	clicked := m.click.down && m.click.count == 1
 	m.click.down = false
 	if sel == nil {
+		if h != nil && clicked {
+			h.mouseUp(m.click.at)
+		}
 		return m, nil
 	}
 	start, end := sel.span()
 	_, area := m.surface()
-	parts := m.activeTranscript().selectedParts(start, end, area.W)
+	var parts []selectedPart
+	if h != nil {
+		parts = h.selectedParts(start, end, area.W)
+	} else {
+		parts = m.activeTranscript().selectedParts(start, end, area.W)
+	}
 	if len(parts) == 0 {
 		return m, m.flash(toneInfo, "nothing to copy in the selection")
 	}
@@ -408,9 +427,11 @@ func (t *transcript) regions() []region {
 // selectedPart is one message's share of a selection, taken when the button
 // is released so the text can be worked out off the update loop.
 type selectedPart struct {
-	// reply is the Markdown behind an agent reply, rendered at width, and
-	// from and to are the selection's first and last cells in its lines.
+	// reply is the Markdown behind an agent reply, rendered with theme at
+	// width, and from and to are the selection's first and last cells in
+	// its lines.
 	reply    string
+	theme    markdown.Theme
 	width    int
 	from, to point
 	// shown is the selected text as shown. It is what is copied of anything
@@ -515,7 +536,7 @@ func (p selectedPart) text() string {
 // excerpt returns the Markdown behind a reply's selected cells, or "" when
 // they hold no text from its source.
 func (p selectedPart) excerpt() string {
-	lines := markdown.RenderWithSource(p.reply, markdown.Theme{}, markdownContentWidth(p.width))
+	lines := markdown.RenderWithSource(p.reply, p.theme, markdownContentWidth(p.width))
 	if p.from.line >= len(lines) {
 		return ""
 	}

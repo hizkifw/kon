@@ -7,10 +7,12 @@ import (
 )
 
 // drawer is a tui drawer whose actions see the model. kon opens one for a side
-// answer, the job list, and a job's output.
+// answer, the job list, a job's output, and the user guide.
 type drawer = tui.Drawer[*Model]
 
 type drawerAction = tui.Action[*Model]
+
+type drawerCrumb = tui.Crumb[*Model]
 
 // drawerTheme colors the drawer stack in kon's palette.
 func drawerTheme() tui.Theme {
@@ -19,6 +21,7 @@ func drawerTheme() tui.Theme {
 		Rule:     lipgloss.NewStyle().Foreground(colorFaint),
 		Warn:     lipgloss.NewStyle().Foreground(colorWarn),
 		Dim:      lipgloss.NewStyle().Foreground(colorDim),
+		Pressed:  lipgloss.NewStyle().Foreground(colorBarBg).Background(colorLink),
 		Heading:  lipgloss.NewStyle().Foreground(colorFaint).Bold(true),
 		Selected: selectedRowStyle,
 		Faint:    colorFaint,

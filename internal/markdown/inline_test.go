@@ -254,3 +254,17 @@ func TestNestedListKeepsStyling(t *testing.T) {
 		t.Fatalf("\n got=%s\nwant=%s", got, linesEqual(want))
 	}
 }
+
+func TestHideURLLeavesALinkAsItsLabel(t *testing.T) {
+	theme := Theme{HideURL: func(dest string) bool { return dest == "usage.md" }}
+	lines := Render("See [Usage](usage.md) and [Go](https://go.dev).", theme, 80)
+	if got, want := lines[0].Text, "See Usage and Go (https://go.dev)."; got != want {
+		t.Fatalf("text %q, want %q", got, want)
+	}
+	for _, span := range lines[0].Spans {
+		if span.Text == "Usage" && span.Link == "usage.md" {
+			return
+		}
+	}
+	t.Fatalf("the label lost its destination: %+v", lines[0].Spans)
+}

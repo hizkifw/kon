@@ -205,7 +205,7 @@ func (t *inlineText) link(n ast.Node, style Style, dest string) {
 			label[i].link = dest
 		}
 	}
-	if dest == "" || labelText(label) == dest {
+	if dest == "" || labelText(label) == dest || t.theme.HideURL != nil && t.theme.HideURL(dest) {
 		return
 	}
 	url := piece{

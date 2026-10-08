@@ -69,7 +69,13 @@ label in the drawer's hint row, a click on the label presses the key, and a
 destructive one asks for a second press. `/jobs` stacks a list of jobs under
 the job opened from it. Both are refreshed by one chain of reads off the
 update loop: a command's output is read from where the last read ended, and a
-subagent's session through a `session.View`, as a followed session is. The runtime owns cancellation
+subagent's session through a `session.View`, as a followed session is. `/help`
+shows the guide bundled in `docs/product`, one page at a time in one drawer: it
+renders a page with the reply renderer, with `markdown.Theme.HideURL` leaving
+out the destinations it follows itself, records the cells of each such link
+and the line of each heading as it paints, and so turns a key or a click into
+a page and an anchor. The drawer's title row is its trail (`tui.Crumb`), read
+from the scroll position at paint. The runtime owns cancellation
 of both requests and waits for both on close. The snapshot includes media
 data, so side-request cleanup does not block session or model switches.
 The store serializes context snapshots and appends with the same mutex.

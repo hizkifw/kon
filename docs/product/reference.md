@@ -41,6 +41,7 @@ Type `/` at the start of the prompt to see these.
 | `/jobs` | Watch and stop background jobs and subagents. |
 | `/queue [clear]` | Take a pending steer or queued message back for editing, or drop them all. |
 | `/copy [all]` | Copy the last reply, or the whole conversation, as Markdown. |
+| `/help` | Read this guide in a drawer. |
 
 ## Keys
 
@@ -104,17 +105,25 @@ These apply while a `/` command or `@` file list is open.
 
 ### Drawers
 
-`/btw`, `/jobs`, and a job's output open in a drawer. The bottom row of a
-drawer lists its keys, and clicking one works like pressing it.
+`/btw`, `/jobs`, a job's output, and `/help` open in a drawer. The bottom row
+of a drawer lists its keys, and clicking one works like pressing it.
 
 | Key | Does |
 | --- | --- |
 | Up, Down, `k`, `j` | Scroll, or move through a list. |
 | Page Up, Page Down, Home, End | Scroll by a page, or to either end. |
-| Enter | Open the selected job. |
+| Enter | Open the selected job, or follow the link in focus in `/help`. |
+| Tab, Shift+Tab | In `/help`, move the focus to the next or previous link. |
+| Backspace | In `/help`, go back to where the last link was followed from. |
 | ⇧K, ⇧K | Stop the selected job. Any other key in between cancels. |
 | Esc, Ctrl+C, or a click outside | Close the drawer. |
 | Ctrl+D | Quit kon. |
+
+`/help` follows a link to another page or section of the guide in the same
+drawer, by Enter or by a click on it; a web link is left to the terminal.
+Dragging selects and copies there as it does in the conversation. Its
+top row names the page and the section scrolled to. Click the page there to
+go to its top, or the guide to go to its first page.
 
 ## Status bar
 
