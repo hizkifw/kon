@@ -45,6 +45,8 @@ own docs:
 | streaming throughput | `docs/development/benchmarking.md` |
 | 11 µs frames at any session length | Phase 2b of `docs/development/rendering-performance.md` |
 | Windows behavior | `docs/product/reference.md`, `docs/product/configuration.md`, `docs/development/index.md`, `docs/development/session-format.md`, `docs/development/architecture.md` |
+| Editors, the web, and side questions | `docs/product/acp.md`, and the web and side question sections of `docs/product/usage.md` |
+| `kon md` behavior | the Render Markdown section of `docs/product/scripting.md`; the mockup's colors are what `CLICOLOR_FORCE=1 kon md` prints |
 | Incognito behavior | the Incognito section of `docs/product/usage.md` and `docs/product/scripting.md` |
 
 Re-measure before a release that could move them.

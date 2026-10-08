@@ -1,6 +1,5 @@
 import { SectionHeading } from "./SectionHeading";
 import { StartupChart } from "./StartupChart";
-import { startupMs } from "@/lib/site";
 
 const REASONS = [
   {
@@ -27,8 +26,7 @@ export function Speed() {
       <div className="grid grid-cols-1 gap-12 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] lg:items-center">
         <SectionHeading eyebrow="Startup" title="Faster than you can notice.">
           <p>
-            Launch to first frame in {startupMs} ms. No splash screen, no spinner. Type <Kbd>kon</Kbd> and it&rsquo;s
-            there.
+            No splash screen, no spinner. Type <Kbd>kon</Kbd> and it&rsquo;s there.
           </p>
         </SectionHeading>
         <StartupChart />

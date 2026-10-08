@@ -26,6 +26,18 @@ const FEATURES = [
     title: "Jobs and subagents",
     body: "Servers and long builds run in the background. Ask, and kon hands a task to a subagent.",
   },
+  {
+    title: "Lives in your editor",
+    body: "`kon acp` speaks the Agent Client Protocol, so editors such as Zed can run kon as their agent.",
+  },
+  {
+    title: "Reads the web",
+    body: "`kon tool webfetch` prints a page as Markdown. Set a search provider, and `kon tool websearch` finds the pages.",
+  },
+  {
+    title: "Side questions",
+    body: "`/btw` asks about the conversation while the task keeps running. The answer stays out of the session.",
+  },
 ];
 
 export function Features() {

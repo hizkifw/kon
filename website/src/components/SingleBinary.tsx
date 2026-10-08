@@ -1,6 +1,6 @@
 import { Inline } from "./Inline";
 import { SectionHeading } from "./SectionHeading";
-import { binaries, binaryMb, downloadMb } from "@/lib/site";
+import { binaries } from "@/lib/site";
 
 const INSIDE = [
   "The agent and its full-screen terminal UI",
@@ -25,8 +25,7 @@ export function SingleBinary() {
         <div className="grid grid-cols-1 gap-12 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-end">
           <SectionHeading eyebrow="Single binary" title="One file is the whole install.">
             <p>
-              {binaryMb} MB on disk, {downloadMb} MB to download. The installer checks its SHA-256, puts it on your
-              PATH, and that&rsquo;s it.
+              Nothing to unpack and nothing to set up. The installer puts it on your PATH, and you&rsquo;re good to go.
             </p>
           </SectionHeading>
           <ul className="grid grid-cols-1 gap-3">

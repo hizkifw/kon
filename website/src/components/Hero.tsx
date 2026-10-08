@@ -2,7 +2,7 @@
 
 import { Install, useOs } from "./Install";
 import { Terminal } from "./Terminal";
-import { binaryMb, docsUrl, repo, startupMs } from "@/lib/site";
+import { docsUrl, repo, startupMs } from "@/lib/site";
 
 // Hero shares one platform between the install tabs and the terminal demo, so
 // choosing Windows shows kon running in Windows Terminal.
@@ -22,8 +22,8 @@ export function Hero() {
             <span className="block text-muted">One binary. Every&nbsp;OS.</span>
           </h1>
           <p className="mt-6 max-w-xl text-lg leading-relaxed text-muted">
-            kon reads, edits, and runs commands in your project until the work is done. One {binaryMb}&nbsp;MB
-            executable: no runtime, no daemon, no warm-up.
+            kon reads, edits, and runs commands in your project until the work is done. One executable: no runtime,
+            no daemon, no warm-up.
           </p>
           <div className="mt-8 max-w-xl">
             <Install os={os} onSelect={setOs} />
