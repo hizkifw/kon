@@ -67,6 +67,7 @@ type Spec struct {
 // Engine for each, which its tests enforce.
 var specs = map[string]Spec{
 	"brave":      {DefaultBaseURL: "https://api.search.brave.com", KeyRequired: true},
+	"deepseek":   {DefaultBaseURL: "https://api.deepseek.com", KeyRequired: true},
 	"duckduckgo": {DefaultBaseURL: "https://html.duckduckgo.com"},
 	"exa":        {DefaultBaseURL: "https://api.exa.ai", KeyRequired: true},
 	"perplexity": {DefaultBaseURL: "https://api.perplexity.ai", KeyRequired: true},

@@ -234,7 +234,7 @@ Set by kon for every shell command the agent runs:
 | `compaction.reserve_tokens` | integer | derived | Room kept free below the context window. |
 | `compaction.keep_recent_tokens` | integer | derived | Recent context kept verbatim when compacting. |
 | `context_files` | boolean | `true` | Load the project's `AGENTS.md` files. |
-| `web_search.provider` | string | `""` | The [web search](configuration.md#web-search) provider: `brave`, `duckduckgo`, `exa`, `perplexity`, `searxng`, or `tavily`. Empty turns search off. |
+| `web_search.provider` | string | `""` | The [web search](configuration.md#web-search) provider: `brave`, `deepseek`, `duckduckgo`, `exa`, `perplexity`, `searxng`, or `tavily`. Empty turns search off. |
 | `web_search.providers` | object | none | [Search connections](#web-search-providers), keyed by provider name. |
 
 ### Providers
@@ -254,7 +254,7 @@ Each key of `web_search.providers` is a provider name, and its value has:
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
-| `api_key` | string | for `brave`, `exa`, `perplexity`, `tavily` | The provider's API key. |
+| `api_key` | string | for `brave`, `deepseek`, `exa`, `perplexity`, `tavily` | The provider's API key. |
 | `base_url` | string | for `searxng` | The server's root; the hosted providers have a default. |
 
 ### Models

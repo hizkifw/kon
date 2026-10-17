@@ -12,6 +12,7 @@ import (
 
 	"kon.kitsu.red/internal/websearch"
 	"kon.kitsu.red/internal/websearch/brave"
+	"kon.kitsu.red/internal/websearch/deepseek"
 	"kon.kitsu.red/internal/websearch/duckduckgo"
 	"kon.kitsu.red/internal/websearch/exa"
 	"kon.kitsu.red/internal/websearch/perplexity"
@@ -21,6 +22,7 @@ import (
 
 var engines = map[string]websearch.Engine{
 	"brave":      brave.Search,
+	"deepseek":   deepseek.Search,
 	"duckduckgo": duckduckgo.Search,
 	"exa":        exa.Search,
 	"perplexity": perplexity.Search,
