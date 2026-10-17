@@ -336,6 +336,7 @@ again, set `provider` to `""` or remove it.
 | Provider | Needs | Notes |
 | --- | --- | --- |
 | `brave` | `api_key` | The [Brave Search API](https://brave.com/search/api/). |
+| `deepseek` | `api_key` | The [DeepSeek Search API](https://api-docs.deepseek.com/guides/search/), using a DeepSeek platform key. Queries are limited to 128 characters. |
 | `exa` | `api_key` | [Exa](https://exa.ai). Snippets are the passages that match the query. |
 | `perplexity` | `api_key` | The [Perplexity Search API](https://docs.perplexity.ai): ranked results, not a written answer. |
 | `tavily` | `api_key` | [Tavily](https://tavily.com), at its basic search depth. |
