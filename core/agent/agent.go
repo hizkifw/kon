@@ -404,6 +404,22 @@ func (r *Runner) run(ctx context.Context, prompt Prompt, inbox *Inbox, emit func
 	}
 }
 
+// Exec runs one tool call the user made directly, such as a shell command
+// typed at the prompt, and emits the same start, output, and done events a
+// model's call does. Nothing is appended to the session: what the result adds
+// to the conversation is the caller's to decide. The call can be interrupted
+// like a model's, through Interrupt.
+func (r *Runner) Exec(ctx context.Context, name string, arguments json.RawMessage, emit func(Event)) (tool.Result, bool) {
+	emit = orDiscard(emit)
+	args := string(arguments)
+	emit(Event{Kind: EventToolStart, Tool: name, Arguments: args})
+	result, isError := r.tools.Execute(ctx, name, arguments, func(snapshot any) {
+		emit(Event{Kind: EventToolOutput, Tool: name, Arguments: args, Progress: snapshot})
+	})
+	emit(Event{Kind: EventToolDone, Tool: name, Arguments: args, Text: result.Content, IsError: isError, Details: result.Details})
+	return result, isError
+}
+
 // deliver appends every pending steering message as one user message after
 // the newest entry, so the conversation only grows at its end and the cached
 // prefix survives. Stacked messages are joined rather than sent as separate

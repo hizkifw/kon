@@ -49,7 +49,7 @@ Type `/` at the start of the prompt to see these.
 
 | Key | Does |
 | --- | --- |
-| Enter | Send the prompt. |
+| Enter | Send the prompt. A prompt starting with `!` runs as a shell command; see [Run a shell command](usage.md#run-a-shell-command). |
 | Shift+Enter, Ctrl+Enter | Insert a newline. Some terminals do not report these; use `\` then Enter. |
 | `\` then Enter | Continue on a new line. |
 | Up, Down | Recall earlier prompts, from every directory. In a prompt of several lines, move the cursor. |

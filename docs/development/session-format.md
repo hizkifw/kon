@@ -141,6 +141,26 @@ command started in the background. Text reads record
 `line_count` and, for an empty file, `empty_file`. The transcript uses these
 details to replay the tool's display without parsing its model-facing text.
 
+Commands the user runs with `!` are not entries of their own. Each is written
+at the front of the next user message's text, framed for the model, and the
+transcript takes them back out on replay:
+
+```
+<user-shell-command>
+git status
+</user-shell-command>
+<user-shell-output>
+On branch main
+exit code: 0 (took 12ms)
+</user-shell-output>
+
+what changed?
+```
+
+The output is the shell tool's result text, so its trailing exit-code line
+replays the same display; a command that never finished has an `error: ` result
+instead.
+
 A turn that is interrupted before completion (user cancellation or a dropped
 connection) is written with `interrupted: true`, carrying whatever answer text
 and reasoning arrived. Its `finish_reason` and `usage` are omitted because the

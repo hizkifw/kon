@@ -33,11 +33,12 @@ func (m Model) steer(text string) (tea.Model, tea.Cmd) {
 }
 
 // canQueue reports whether Tab should queue the prompt rather than complete
-// it. Only prose queues: a slash command is completed or run, never queued.
+// it. Only prose queues: a slash command is completed or run, and a shell
+// command waits to be run, never queued.
 // Idle with an empty queue there is nothing to wait behind, so Enter sends.
 func (m Model) canQueue() bool {
 	text := strings.TrimSpace(m.input.Value())
-	return text != "" && !strings.HasPrefix(text, "/") && (m.busy() || len(m.queued) > 0)
+	return text != "" && !strings.HasPrefix(text, "/") && !shellMode(text) && (m.busy() || len(m.queued) > 0)
 }
 
 // enqueue holds the prompt until the runs ahead of it have finished.

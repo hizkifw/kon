@@ -24,6 +24,9 @@ type run struct {
 	// compaction marks a /compact run. Its compaction block is its record,
 	// so it leaves no "Worked for" line behind.
 	compaction bool
+	// shell marks a command the user ran with "!". Its tool block says how
+	// long it took, so it leaves no "Worked for" line either.
+	shell bool
 	// retry is the provider retry the run is waiting on or sending, which
 	// the marker shows in place of verb until the run moves on.
 	retry *retryState

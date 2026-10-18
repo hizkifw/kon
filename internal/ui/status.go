@@ -44,8 +44,8 @@ type streamCount struct {
 // message it covers, and no message can hide a mode.
 
 // mode names the mode kon is in: a login in progress, a session followed
-// read-only, or a launch with nothing configured, which explains itself in
-// the transcript. It is "" otherwise.
+// read-only, a launch with nothing configured, which explains itself in
+// the transcript, or a prompt that is a shell command. It is "" otherwise.
 func (m Model) mode() string {
 	switch {
 	case m.login != nil:
@@ -54,6 +54,8 @@ func (m Model) mode() string {
 		return m.follow.mode
 	case !m.configured:
 		return "needs configuration"
+	case shellMode(m.input.Value()):
+		return "shell mode · the agent sees the output with your next message"
 	}
 	return ""
 }

@@ -22,6 +22,20 @@ A mention is plain text, such as `@internal/ui/model.go` or
 when it needs to. The list follows your Git ignore rules and says when it is
 incomplete, as it can be in a very large tree.
 
+### Run a shell command
+
+Start a prompt with `!` to run the rest as a shell command in the current
+directory, such as `!git status` or `!make test`. The status line says
+`shell mode` while the prompt starts with `!`. The command and its output show
+in the transcript the way the agent's commands do, and Esc interrupts it the
+same way.
+
+Running a command does not start a turn. The command and its output are sent
+ahead of your next message, so you can run a few, then ask about them. If you
+quit or switch sessions before sending a message, the agent never sees them.
+A command can run for at most 10 minutes, and it cannot run while a turn is
+in progress.
+
 ### Steer or queue while kon works
 
 You can keep typing while kon is working:
