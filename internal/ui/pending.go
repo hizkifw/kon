@@ -12,6 +12,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"kon.kitsu.red/core/agent"
+	"kon.kitsu.red/internal/app"
 	"kon.kitsu.red/internal/tui"
 )
 
@@ -20,25 +21,36 @@ import (
 const maxPendingRows = 3
 
 // steer hands text to the running agent, which reads it before its next
-// request. Several steers stack and arrive together.
+// request. Several steers stack and arrive together. A shell command runs
+// when they arrive, rather than beside the agent's own commands, and its
+// output leads them.
 func (m Model) steer(text string) (tea.Model, tea.Cmd) {
+	command, shell := shellCommand(text)
+	if shell && command == "" {
+		m.say(toneWarn, "type a shell command after !")
+		return m, nil
+	}
 	if err := m.history.append(m.cwd, text); err != nil {
 		m.say(toneDanger, "error: "+err.Error())
 		return m, nil
 	}
-	m.inbox.Push(text)
+	if shell {
+		m.inbox.PushCall("!"+command, app.ShellCall(command))
+	} else {
+		m.inbox.Push(text)
+	}
 	m.input.Reset()
 	m.syncSteering()
 	return m, nil
 }
 
 // canQueue reports whether Tab should queue the prompt rather than complete
-// it. Only prose queues: a slash command is completed or run, and a shell
-// command waits to be run, never queued.
+// it. Prose and shell commands queue; a slash command is completed or run.
 // Idle with an empty queue there is nothing to wait behind, so Enter sends.
 func (m Model) canQueue() bool {
 	text := strings.TrimSpace(m.input.Value())
-	return text != "" && !strings.HasPrefix(text, "/") && !shellMode(text) && (m.busy() || len(m.queued) > 0)
+	command, shell := shellCommand(text)
+	return text != "" && !strings.HasPrefix(text, "/") && (!shell || command != "") && (m.busy() || len(m.queued) > 0)
 }
 
 // enqueue holds the prompt until the runs ahead of it have finished.
@@ -62,7 +74,34 @@ func (m Model) sendQueued() (tea.Model, tea.Cmd) {
 	}
 	text := m.queued[0]
 	m.queued = slices.Clone(m.queued[1:])
+	return m.sendPending(text)
+}
+
+// sendPending starts a run for a message that waited: a shell command runs
+// and is sent, and prose is sent.
+func (m Model) sendPending(text string) (tea.Model, tea.Cmd) {
+	if command, ok := shellCommand(text); ok {
+		return m.sendShell(command)
+	}
 	return m.send(text)
+}
+
+// leftoverItems groups steering the runner never read as it would have been
+// delivered: each shell command on its own, and the prose between commands
+// joined.
+func leftoverItems(leftover []string) []string {
+	var items []string
+	joinable := false
+	for _, text := range leftover {
+		_, shell := shellCommand(text)
+		if !shell && joinable {
+			items[len(items)-1] += "\n\n" + text
+			continue
+		}
+		items = append(items, text)
+		joinable = !shell
+	}
+	return items
 }
 
 // dispatchPending decides what runs after a run ends. Steering the runner
@@ -76,11 +115,12 @@ func (m Model) dispatchPending(err error) (tea.Model, tea.Cmd) {
 	leftover := m.inbox.Take()
 	m.syncSteering()
 	if len(leftover) > 0 {
-		text := strings.Join(leftover, "\n\n")
+		items := leftoverItems(leftover)
 		if (clean || errors.Is(err, context.Canceled)) && m.canSend() {
-			return m.send(text)
+			m.queued = append(items[1:], m.queued...)
+			return m.sendPending(items[0])
 		}
-		m.queued = append([]string{text}, m.queued...)
+		m.queued = append(items, m.queued...)
 		m.resize()
 		return m, nil
 	}

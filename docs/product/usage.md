@@ -32,8 +32,12 @@ way.
 
 When the command finishes, kon sends it and its output to the agent, marked as
 a command you ran rather than one the agent ran, and the agent replies. An
-interrupted command is not sent. A command can run for at most 10 minutes,
-and it cannot run while a turn is in progress.
+interrupted command is not sent. A command can run for at most 10 minutes.
+
+While kon is working, a command steers or queues like any other message.
+Enter steers it: it runs before the agent's next request, never beside the
+agent's own commands, and its output reaches the agent ahead of any other
+steering. Tab queues it to run and send once the turn ends.
 
 ### Steer or queue while kon works
 

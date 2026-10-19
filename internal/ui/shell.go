@@ -15,18 +15,19 @@ import (
 // "!".
 func shellMode(input string) bool { return strings.HasPrefix(input, "!") }
 
+// shellCommand is the command after a prompt's "!", and whether it is one.
+func shellCommand(text string) (string, bool) {
+	command, ok := strings.CutPrefix(text, "!")
+	return strings.TrimSpace(command), ok
+}
+
 // runShell runs the command after the prompt's "!" in the workspace, shown the
 // way the agent's commands are, then sends it and its output to the agent.
+// While the agent works, the command is steered or queued instead.
 func (m Model) runShell(text string) (tea.Model, tea.Cmd) {
-	command := strings.TrimSpace(strings.TrimPrefix(text, "!"))
+	command, _ := shellCommand(text)
 	if command == "" {
 		m.say(toneWarn, "type a shell command after !")
-		return m, nil
-	}
-	if m.busy() {
-		// The command would run beside the agent's tools and land in the
-		// middle of its turn.
-		m.say(toneWarn, "wait for the turn to finish to run a shell command")
 		return m, nil
 	}
 	if !m.canSend() {
@@ -37,6 +38,12 @@ func (m Model) runShell(text string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.input.Reset()
+	return m.sendShell(command)
+}
+
+// sendShell starts a run for command, which the caller has already recorded
+// in the prompt history and taken out of the input.
+func (m Model) sendShell(command string) (tea.Model, tea.Cmd) {
 	m.transcript.add(shellBlock(command))
 	m.resize()
 	runtime, inbox := m.runtime, m.inbox

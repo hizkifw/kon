@@ -764,11 +764,11 @@ func (m Model) submit() (tea.Model, tea.Cmd) {
 		}
 		return command.run(m)
 	}
-	if shellMode(text) {
-		return m.runShell(text)
-	}
 	if m.busy() {
 		return m.steer(text)
+	}
+	if shellMode(text) {
+		return m.runShell(text)
 	}
 	if !m.canSend() {
 		return m, nil

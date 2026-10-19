@@ -142,9 +142,8 @@ command started in the background. Text reads record
 details to replay the tool's display without parsing its model-facing text.
 
 A command the user runs with `!` is not an entry of its own. It is sent as a
-user message whose whole text frames the command and its output for the
-model, saying the user ran it, and the transcript takes it back out on
-replay:
+user message whose text frames the command and its output for the model,
+saying the user ran it, and the transcript takes it back out on replay:
 
 ```
 The user ran this shell command themselves and shared its output with you.
@@ -160,7 +159,9 @@ exit code: 0 (took 12ms)
 
 The output is the shell tool's result text, so its trailing exit-code line
 replays the same display; a command that never finished has an `error: ` result
-instead.
+instead. Commands steered while the agent works lead the steering delivered
+with them: each framed command, then the steering text, separated by blank
+lines.
 
 A turn that is interrupted before completion (user cancellation or a dropped
 connection) is written with `interrupted: true`, carrying whatever answer text

@@ -198,12 +198,14 @@ func (m *Model) replay(t *transcript, r *replayState, entries []session.Entry) {
 		}
 		switch entry.Message.Role {
 		case session.RoleUser:
-			// A command the user ran from the prompt is shown as it was when
-			// it ran.
-			if run, ok := app.ParseShell(entry.Message.Text()); ok {
+			// Commands the user ran from the prompt lead the message, and are
+			// shown as they were when they ran.
+			runs, text := app.SplitShell(entry.Message.Text())
+			for _, run := range runs {
 				m.replayShell(t, run)
-			} else {
-				t.add(block{kind: blockUser, text: tui.Sanitize(entry.Message.Text())})
+			}
+			if text != "" || len(runs) == 0 {
+				t.add(block{kind: blockUser, text: tui.Sanitize(text)})
 			}
 		case session.RoleAssistant:
 			for _, part := range entry.Message.Parts {

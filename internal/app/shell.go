@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"kon.kitsu.red/core/agent"
+	"kon.kitsu.red/core/tool"
 )
 
 // shellTimeout is the most a command the user runs from the prompt may take,
@@ -54,6 +55,18 @@ func (r *Runtime) Shell(ctx context.Context, command string, inbox *agent.Inbox,
 	})
 }
 
+// ShellCall is command as a call the user steers with while the agent works:
+// the runner runs it at its next request and sends it framed as Shell does.
+func ShellCall(command string) agent.Call {
+	return agent.Call{
+		Tool:      "shell",
+		Arguments: ShellArguments(command),
+		Message: func(result tool.Result) string {
+			return shellPrompt(ShellRun{Command: command, Output: result.Content})
+		},
+	}
+}
+
 // shellPrompt frames run as the prompt the agent receives.
 func shellPrompt(run ShellRun) string {
 	return shellPreface +
@@ -61,24 +74,31 @@ func shellPrompt(run ShellRun) string {
 		shellOutputOpen + strings.TrimRight(run.Output, "\n") + shellOutputClose
 }
 
-// ParseShell recovers the command a prompt sent from the shell, so a replay
-// can show it as it was shown live. It reports false for any other prompt.
-func ParseShell(prompt string) (ShellRun, bool) {
-	rest, ok := strings.CutPrefix(prompt, shellPreface+shellCommandOpen)
-	if !ok {
-		return ShellRun{}, false
+// SplitShell takes the commands the user ran from the front of a user
+// message, so a replay can show them as they were shown live, and returns
+// the rest: steering sent along with them. A message that does not start
+// with one is returned whole.
+func SplitShell(message string) ([]ShellRun, string) {
+	var runs []ShellRun
+	for {
+		rest, ok := strings.CutPrefix(message, shellPreface+shellCommandOpen)
+		if !ok {
+			return runs, message
+		}
+		command, rest, ok := strings.Cut(rest, shellCommandClose)
+		if !ok {
+			return runs, message
+		}
+		rest, ok = strings.CutPrefix(rest, shellOutputOpen)
+		if !ok {
+			return runs, message
+		}
+		output, rest, ok := strings.Cut(rest, shellOutputClose)
+		if !ok {
+			return runs, message
+		}
+		runs = append(runs, ShellRun{Command: command, Output: output})
+		// Messages delivered together are joined by a blank line.
+		message = strings.TrimPrefix(rest, "\n\n")
 	}
-	command, rest, ok := strings.Cut(rest, shellCommandClose)
-	if !ok {
-		return ShellRun{}, false
-	}
-	rest, ok = strings.CutPrefix(rest, shellOutputOpen)
-	if !ok {
-		return ShellRun{}, false
-	}
-	output, ok := strings.CutSuffix(rest, shellOutputClose)
-	if !ok {
-		return ShellRun{}, false
-	}
-	return ShellRun{Command: command, Output: output}, true
 }
