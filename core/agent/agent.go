@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -67,8 +68,10 @@ const (
 	EventToolDone
 	EventCompacted
 	EventUsage
-	// EventSteered reports steering messages the runner has just added to the
-	// conversation; Text is the user message as sent.
+	// EventSteered reports steering the runner is delivering, with Text as
+	// the user sees it. A call the user made through the inbox is reported,
+	// by its shown text, before its tool events; the rest of the steering is
+	// reported once, joined, after it is added to the conversation.
 	EventSteered
 	// EventCompacting starts a compaction summary, with Tokens the context
 	// being compacted. It comes again if the summary is restarted in its
@@ -352,7 +355,7 @@ func (r *Runner) run(ctx context.Context, prompt Prompt, inbox *Inbox, emit func
 		if len(calls) == 0 {
 			// Steering that arrived during the final response is the user's
 			// next word on the same task, so the run continues with it.
-			steered, err := r.deliver(inbox, emit)
+			steered, err := r.deliver(ctx, inbox, emit)
 			if err != nil {
 				return err
 			}
@@ -398,26 +401,64 @@ func (r *Runner) run(ctx context.Context, prompt Prompt, inbox *Inbox, emit func
 				return ctx.Err()
 			}
 		}
-		if _, err := r.deliver(inbox, emit); err != nil {
+		if _, err := r.deliver(ctx, inbox, emit); err != nil {
 			return err
 		}
 	}
 }
 
+// Exec runs one tool call the user made directly, such as a shell command
+// typed at the prompt, and emits the same start, output, and done events a
+// model's call does. Nothing is appended to the session: what the result adds
+// to the conversation is the caller's to decide. The call can be interrupted
+// like a model's, through Interrupt.
+func (r *Runner) Exec(ctx context.Context, name string, arguments json.RawMessage, emit func(Event)) (tool.Result, bool) {
+	emit = orDiscard(emit)
+	args := string(arguments)
+	emit(Event{Kind: EventToolStart, Tool: name, Arguments: args})
+	result, isError := r.tools.Execute(ctx, name, arguments, func(snapshot any) {
+		emit(Event{Kind: EventToolOutput, Tool: name, Arguments: args, Progress: snapshot})
+	})
+	emit(Event{Kind: EventToolDone, Tool: name, Arguments: args, Text: result.Content, IsError: isError, Details: result.Details})
+	return result, isError
+}
+
 // deliver appends every pending steering message as one user message after
 // the newest entry, so the conversation only grows at its end and the cached
 // prefix survives. Stacked messages are joined rather than sent as separate
-// user messages: some chat templates reject two user messages in a row.
-func (r *Runner) deliver(inbox *Inbox, emit func(Event)) (bool, error) {
-	pending := inbox.Take()
+// user messages: some chat templates reject two user messages in a row. Calls
+// the user made are made first, and their results lead the message.
+//
+// An interrupted call is dropped, as the user stopped it; everything not yet
+// delivered goes back to the inbox.
+func (r *Runner) deliver(ctx context.Context, inbox *Inbox, emit func(Event)) (bool, error) {
+	pending := inbox.take()
 	if len(pending) == 0 {
 		return false, nil
 	}
-	text := strings.Join(pending, "\n\n")
+	var calls, steering []string
+	for i, m := range pending {
+		if m.call == nil {
+			steering = append(steering, m.text)
+			continue
+		}
+		emit(Event{Kind: EventSteered, Text: m.text})
+		result, _ := r.Exec(ctx, m.call.Tool, m.call.Arguments, emit)
+		if err := ctx.Err(); err != nil {
+			// Steering before this call has not been sent yet either.
+			rest := slices.DeleteFunc(slices.Clone(pending[:i]), func(m inboxMessage) bool { return m.call != nil })
+			inbox.restore(append(rest, pending[i+1:]...))
+			return false, err
+		}
+		calls = append(calls, m.call.Message(result))
+	}
+	text := strings.Join(append(calls, steering...), "\n\n")
 	if _, err := r.session.AppendMessage(session.TextMessage(session.RoleUser, text)); err != nil {
 		return false, err
 	}
-	emit(Event{Kind: EventSteered, Text: text})
+	if len(steering) > 0 {
+		emit(Event{Kind: EventSteered, Text: strings.Join(steering, "\n\n")})
+	}
 	return true, nil
 }
 

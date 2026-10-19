@@ -7,6 +7,7 @@ import (
 	"kon.kitsu.red/core/session"
 	"kon.kitsu.red/core/tokens"
 	"kon.kitsu.red/core/typedid"
+	"kon.kitsu.red/internal/app"
 	"kon.kitsu.red/internal/codetools"
 	"kon.kitsu.red/internal/tui"
 )
@@ -197,7 +198,15 @@ func (m *Model) replay(t *transcript, r *replayState, entries []session.Entry) {
 		}
 		switch entry.Message.Role {
 		case session.RoleUser:
-			t.add(block{kind: blockUser, text: tui.Sanitize(entry.Message.Text())})
+			// Commands the user ran from the prompt lead the message, and are
+			// shown as they were when they ran.
+			runs, text := app.SplitShell(entry.Message.Text())
+			for _, run := range runs {
+				m.replayShell(t, run)
+			}
+			if text != "" || len(runs) == 0 {
+				t.add(block{kind: blockUser, text: tui.Sanitize(text)})
+			}
 		case session.RoleAssistant:
 			for _, part := range entry.Message.Parts {
 				switch part.Type {

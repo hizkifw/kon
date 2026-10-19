@@ -766,3 +766,38 @@ func TestRunnerReportsProviderRetries(t *testing.T) {
 		t.Fatalf("compaction events = %#v", events)
 	}
 }
+
+// echoTool reports its arguments back, with a live snapshot first.
+type echoTool struct{}
+
+func (echoTool) Definition() session.ToolDefinition {
+	return session.ToolDefinition{Name: "echo", Parameters: json.RawMessage(`{"type":"object"}`)}
+}
+
+func (echoTool) Run(_ context.Context, env tool.Env, raw json.RawMessage) (tool.Result, error) {
+	env.Report("running")
+	return tool.Result{Content: string(raw)}, nil
+}
+
+// A call the user makes directly is shown like the model's and leaves the
+// session untouched.
+func TestExecRunsToolWithoutAppending(t *testing.T) {
+	store, err := newSession(t.TempDir(), t.TempDir(), "test", "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	runner := newRunner(testLimits, &fakeProvider{}, store, echoTool{})
+	before := len(store.ActivePath())
+	var kinds []EventKind
+	result, failed := runner.Exec(context.Background(), "echo", json.RawMessage(`{"x":1}`), func(event Event) { kinds = append(kinds, event.Kind) })
+	if failed || result.Content != `{"x":1}` {
+		t.Fatalf("result = %+v, failed = %v", result, failed)
+	}
+	if !reflect.DeepEqual(kinds, []EventKind{EventToolStart, EventToolOutput, EventToolDone}) {
+		t.Fatalf("events = %v", kinds)
+	}
+	if after := len(store.ActivePath()); after != before {
+		t.Fatalf("session grew from %d to %d entries", before, after)
+	}
+}

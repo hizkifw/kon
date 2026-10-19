@@ -52,9 +52,12 @@ type fakeRuntime struct {
 	// run's goroutine.
 	runs     atomic.Int32
 	compacts atomic.Int32
-	notices  chan string
-	jobs     int
-	jobList  []codetools.Job
+	// shell is the last command Shell ran, which arrives on the run's
+	// goroutine.
+	shell   atomic.Value
+	notices chan string
+	jobs    int
+	jobList []codetools.Job
 	// subagentPath is the session file OpenSubagent opens, if any.
 	subagentPath string
 	killed       []int
@@ -68,6 +71,10 @@ func (f *fakeRuntime) Models() []app.Model { return f.models }
 func (f *fakeRuntime) State() app.State    { return f.state }
 func (f *fakeRuntime) Run(context.Context, string, *agent.Inbox, func(agent.Event)) error {
 	f.runs.Add(1)
+	return nil
+}
+func (f *fakeRuntime) Shell(_ context.Context, command string, _ *agent.Inbox, _ func(agent.Event)) error {
+	f.shell.Store(command)
 	return nil
 }
 func (f *fakeRuntime) Compact(context.Context, func(agent.Event)) error {

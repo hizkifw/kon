@@ -36,6 +36,9 @@ type Runtime interface {
 	Models() []app.Model
 	State() app.State
 	Run(context.Context, string, *agent.Inbox, func(agent.Event)) error
+	// Shell runs a command the user typed after "!" and sends it, with its
+	// output, to the agent.
+	Shell(context.Context, string, *agent.Inbox, func(agent.Event)) error
 	SideChat(context.Context, string, func(agent.Event)) error
 	Compact(context.Context, func(agent.Event)) error
 	SwitchModel(string) error
@@ -763,6 +766,9 @@ func (m Model) submit() (tea.Model, tea.Cmd) {
 	}
 	if m.busy() {
 		return m.steer(text)
+	}
+	if shellMode(text) {
+		return m.runShell(text)
 	}
 	if !m.canSend() {
 		return m, nil

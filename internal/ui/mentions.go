@@ -192,8 +192,9 @@ func mentionText(file string) string {
 // mentionAt returns the whole token for replacement, but only the part before
 // the cursor for searching. Requiring a word boundary leaves email addresses
 // and inline code alone. Quoting keeps paths with spaces one editable token.
+// A shell command has no mentions: an @ in it is the shell's.
 func mentionAt(input string, cursor int) (start, end int, query string, ok bool) {
-	if cursor < 0 || cursor > len(input) {
+	if cursor < 0 || cursor > len(input) || shellMode(input) {
 		return
 	}
 	for at := 0; at < cursor; {
