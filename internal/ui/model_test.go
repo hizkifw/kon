@@ -73,7 +73,7 @@ func (f *fakeRuntime) Run(context.Context, string, *agent.Inbox, func(agent.Even
 	f.runs.Add(1)
 	return nil
 }
-func (f *fakeRuntime) Shell(_ context.Context, command string, _ func(agent.Event)) error {
+func (f *fakeRuntime) Shell(_ context.Context, command string, _ *agent.Inbox, _ func(agent.Event)) error {
 	f.shell.Store(command)
 	return nil
 }

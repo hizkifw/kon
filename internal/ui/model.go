@@ -36,9 +36,9 @@ type Runtime interface {
 	Models() []app.Model
 	State() app.State
 	Run(context.Context, string, *agent.Inbox, func(agent.Event)) error
-	// Shell runs a command the user typed after "!"; the agent sees it and
-	// its output with the next prompt.
-	Shell(context.Context, string, func(agent.Event)) error
+	// Shell runs a command the user typed after "!" and sends it, with its
+	// output, to the agent.
+	Shell(context.Context, string, *agent.Inbox, func(agent.Event)) error
 	SideChat(context.Context, string, func(agent.Event)) error
 	Compact(context.Context, func(agent.Event)) error
 	SwitchModel(string) error
@@ -860,7 +860,7 @@ func (m Model) finishTurn(err error) (tea.Model, tea.Cmd) {
 	// The elapsed marker is the turn's last line: finalizing the stream and
 	// appending any error first keeps it below everything it timed.
 	m.transcript.liveTimer = ""
-	if !turn.compaction && !turn.shell {
+	if !turn.compaction {
 		m.transcript.add(block{kind: blockElapsed, text: workedLabel(time.Since(turn.start))})
 	}
 	m.refreshTranscript(true)

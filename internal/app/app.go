@@ -114,9 +114,6 @@ type Runtime struct {
 	// subagents counts the usage of the live session's subagents, for the
 	// session it was made for.
 	subagents *sessions.Subagents
-	// shell holds the commands the user has run from the prompt since the
-	// last one was sent; see Shell.
-	shell []ShellRun
 
 	// pinned keeps the active model across a resume instead of restoring the
 	// session's recorded one, and effort, when set, replaces the saved
@@ -483,8 +480,6 @@ type opened struct {
 func (r *Runtime) install(o opened) {
 	r.store, r.view, r.runner, r.problem = o.store, o.view, o.runner, o.problem
 	r.active = o.profile
-	// Commands run in one session are not news to another.
-	r.shell = nil
 	switch {
 	case o.view != nil:
 		r.phase = PhaseFollowing
@@ -539,15 +534,14 @@ func (r *Runtime) State() State {
 // Run sends prompt and drives the agent to a final response. inbox carries
 // steering the user sends while it runs; it may be nil.
 func (r *Runtime) Run(ctx context.Context, prompt string, inbox *agent.Inbox, emit func(agent.Event)) error {
-	return r.RunPrompt(ctx, agent.Prompt{Text: prompt}, inbox, emit)
+	return r.operate(ctx, func(ctx context.Context, runner *agent.Runner) error {
+		return runner.Run(ctx, prompt, inbox, emit)
+	})
 }
 
 // RunPrompt is Run for a prompt with attachments.
 func (r *Runtime) RunPrompt(ctx context.Context, prompt agent.Prompt, inbox *agent.Inbox, emit func(agent.Event)) error {
 	return r.operate(ctx, func(ctx context.Context, runner *agent.Runner) error {
-		// Commands the user ran from the prompt lead it, so the agent reads
-		// them before what the user says about them.
-		prompt.Text = r.takeShell() + prompt.Text
 		return runner.RunPrompt(ctx, prompt, inbox, emit)
 	})
 }

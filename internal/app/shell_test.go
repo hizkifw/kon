@@ -5,25 +5,22 @@ import (
 	"testing"
 )
 
-func TestShellRunsLeadNextPromptOnce(t *testing.T) {
-	r := &Runtime{shell: []ShellRun{{Command: "ls", Output: "go.mod\nexit code: 0 (took 1ms)\n"}, {Command: "false", Output: "exit code: 1 (took 1ms)"}}}
-	framed := r.takeShell()
-	if r.takeShell() != "" {
-		t.Fatal("shell runs were sent twice")
+func TestShellPromptRoundTrips(t *testing.T) {
+	prompt := shellPrompt(ShellRun{Command: "ls", Output: "go.mod\nexit code: 0 (took 1ms)\n"})
+	if !strings.Contains(prompt, "The user ran") {
+		t.Fatalf("prompt does not say the user ran it: %q", prompt)
 	}
-	runs, rest := SplitShell(framed + "why did false fail?")
-	if rest != "why did false fail?" || len(runs) != 2 {
-		t.Fatalf("runs = %q, rest = %q", runs, rest)
-	}
-	if runs[0].Command != "ls" || runs[0].Output != "go.mod\nexit code: 0 (took 1ms)" || runs[1].Command != "false" {
-		t.Fatalf("runs = %q", runs)
+	run, ok := ParseShell(prompt)
+	if !ok || run.Command != "ls" || run.Output != "go.mod\nexit code: 0 (took 1ms)" {
+		t.Fatalf("ParseShell = %q, %v", run, ok)
 	}
 }
 
-func TestSplitShellLeavesOrdinaryPrompts(t *testing.T) {
-	for _, prompt := range []string{"hello", "<user-shell-command>\nls", ""} {
-		if runs, rest := SplitShell(prompt); len(runs) != 0 || rest != prompt {
-			t.Fatalf("SplitShell(%q) = %q, %q", prompt, runs, rest)
+func TestParseShellLeavesOrdinaryPrompts(t *testing.T) {
+	framed := shellPrompt(ShellRun{Command: "ls", Output: "go.mod"})
+	for _, prompt := range []string{"hello", "<user-shell-command>\nls", "", framed + "\nmore"} {
+		if _, ok := ParseShell(prompt); ok {
+			t.Fatalf("ParseShell(%q) took an ordinary prompt", prompt)
 		}
 	}
 	if strings.Contains(string(ShellArguments(`echo "hi"`)), `"timeout":0`) {

@@ -55,7 +55,7 @@ func (m Model) mode() string {
 	case !m.configured:
 		return "needs configuration"
 	case shellMode(m.input.Value()):
-		return "shell mode · the agent sees the output with your next message"
+		return "shell"
 	}
 	return ""
 }

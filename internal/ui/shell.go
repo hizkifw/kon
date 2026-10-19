@@ -15,9 +15,8 @@ import (
 // "!".
 func shellMode(input string) bool { return strings.HasPrefix(input, "!") }
 
-// runShell runs the command after the prompt's "!" in the workspace. It is
-// shown the way the agent's commands are, and the agent sees it and its output
-// with the next prompt.
+// runShell runs the command after the prompt's "!" in the workspace, shown the
+// way the agent's commands are, then sends it and its output to the agent.
 func (m Model) runShell(text string) (tea.Model, tea.Cmd) {
 	command := strings.TrimSpace(strings.TrimPrefix(text, "!"))
 	if command == "" {
@@ -40,11 +39,10 @@ func (m Model) runShell(text string) (tea.Model, tea.Cmd) {
 	m.input.Reset()
 	m.transcript.add(shellBlock(command))
 	m.resize()
-	runtime := m.runtime
-	cmd := m.startTurn("Running", func(ctx context.Context, emit func(agent.Event)) error {
-		return runtime.Shell(ctx, command, emit)
+	runtime, inbox := m.runtime, m.inbox
+	cmd := m.startTurn("Working", func(ctx context.Context, emit func(agent.Event)) error {
+		return runtime.Shell(ctx, command, inbox, emit)
 	})
-	m.turn.shell = true
 	m.viewport.GotoBottom()
 	return m, cmd
 }

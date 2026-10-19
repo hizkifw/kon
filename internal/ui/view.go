@@ -119,8 +119,14 @@ func (m Model) View() tea.View {
 		status += " · " + text
 	}
 	line := statusStyle.Render(tui.Fit(status, m.width))
-	if t := m.messageTone(); t != toneInfo && m.search == nil {
+	switch t := m.messageTone(); {
+	case m.search != nil:
+	case t != toneInfo:
 		line = statusStyle.Render(toneLine(tui.Fit(status, m.width), len(status)-len(oneLine(m.message)), t))
+	case m.message == "" && m.mode() == "shell":
+		// The prompt runs in the shell rather than going to the agent,
+		// which the brand color marks apart from the faint status around it.
+		line = statusStyle.Render(paintTail(tui.Fit(status, m.width), len(status)-len("shell"), colorAccent))
 	}
 	transcript := m.viewport.View()
 	if t := m.mainTranscript(); t.selection != nil {
@@ -235,13 +241,18 @@ func inputView(view string, width int) string {
 // bar background, since a span's style reset would otherwise clear it for the
 // rest of the line.
 func toneLine(line string, at int, t tone) string {
+	return paintTail(line, at, t.color())
+}
+
+// paintTail paints line from byte at onward in c, leaving the rest faint.
+func paintTail(line string, at int, c color.Color) string {
 	if at >= len(line) {
-		// Truncation cut the message off entirely.
+		// Truncation cut the tail off entirely.
 		return line
 	}
 	faint := lipgloss.NewStyle().Foreground(colorFaint).Background(colorBarBg)
-	toned := lipgloss.NewStyle().Foreground(t.color()).Background(colorBarBg)
-	return faint.Render(line[:at]) + toned.Render(line[at:])
+	painted := lipgloss.NewStyle().Foreground(c).Background(colorBarBg)
+	return faint.Render(line[:at]) + painted.Render(line[at:])
 }
 
 func abbreviateHome(path string) string {

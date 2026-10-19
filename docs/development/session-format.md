@@ -141,11 +141,14 @@ command started in the background. Text reads record
 `line_count` and, for an empty file, `empty_file`. The transcript uses these
 details to replay the tool's display without parsing its model-facing text.
 
-Commands the user runs with `!` are not entries of their own. Each is written
-at the front of the next user message's text, framed for the model, and the
-transcript takes them back out on replay:
+A command the user runs with `!` is not an entry of its own. It is sent as a
+user message whose whole text frames the command and its output for the
+model, saying the user ran it, and the transcript takes it back out on
+replay:
 
 ```
+The user ran this shell command themselves and shared its output with you.
+
 <user-shell-command>
 git status
 </user-shell-command>
@@ -153,8 +156,6 @@ git status
 On branch main
 exit code: 0 (took 12ms)
 </user-shell-output>
-
-what changed?
 ```
 
 The output is the shell tool's result text, so its trailing exit-code line
