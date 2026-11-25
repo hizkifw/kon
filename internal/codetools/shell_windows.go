@@ -31,7 +31,15 @@ func configureProcessGroup(cmd *exec.Cmd) {
 // command written for one shell still runs on a machine without the others.
 func resolveShell() shellBackend {
 	if path := findGitBash(); path != "" {
-		return shellBackend{path: path, args: []string{"-c"}, name: "Git Bash"}
+		// Git Bash reparses the Windows command line and can collapse literal
+		// backslashes. Read the whole script before running it so a command
+		// that reads stdin cannot consume the next line of shell source.
+		const run = `if IFS= read -r -d '' BASH_EXECUTION_STRING; then
+	echo 'shell command contains NUL' >&2
+	exit 2
+fi
+eval -- "$BASH_EXECUTION_STRING" </dev/null`
+		return shellBackend{path: path, args: []string{"-c", run}, name: "Git Bash", scriptOnStdin: true}
 	}
 	for _, name := range []string{"powershell.exe", "powershell"} {
 		if path, err := exec.LookPath(name); err == nil {

@@ -1,6 +1,7 @@
 package codetools
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -239,7 +240,7 @@ func (j *Jobs) Start(command, cwd string) (int, int, error) {
 		return 0, 0, err
 	}
 	backend := shellCommand()
-	cmd := exec.Command(backend.path, append(backend.args, command)...)
+	cmd := backend.command(context.Background(), command)
 	cmd.Dir = cwd
 	// KON_JOB lets a kon run subagent record its session beside the job.
 	cmd.Env = append(os.Environ(), append(j.Env(), "KON_JOB="+dir)...)

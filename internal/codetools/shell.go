@@ -42,11 +42,21 @@ const liveDisplayInterval = 100 * time.Millisecond
 
 // shellBackend is the interpreter a shell command runs through. name is the
 // human-readable label the model sees in the tool description; path and args
-// are the argv prefix the command text is appended to.
+// are the interpreter and its startup arguments.
 type shellBackend struct {
-	path string
-	args []string
-	name string
+	path          string
+	args          []string
+	name          string
+	scriptOnStdin bool
+}
+
+func (b shellBackend) command(ctx context.Context, script string) *exec.Cmd {
+	if b.scriptOnStdin {
+		cmd := exec.CommandContext(ctx, b.path, b.args...)
+		cmd.Stdin = strings.NewReader(script)
+		return cmd
+	}
+	return exec.CommandContext(ctx, b.path, append(b.args, script)...)
 }
 
 // shellBackendOnce resolves the interpreter shell commands run through exactly
@@ -231,7 +241,7 @@ func (t *shellTool) Run(ctx context.Context, env tool.Env, raw json.RawMessage) 
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	backend := shellCommand()
-	cmd := exec.CommandContext(ctx, backend.path, append(backend.args, args.Command)...)
+	cmd := backend.command(ctx, args.Command)
 	cmd.Dir = env.CWD
 	if vars := t.jobs.Env(); vars != nil {
 		cmd.Env = append(os.Environ(), vars...)

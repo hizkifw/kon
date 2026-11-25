@@ -153,7 +153,8 @@ started, without asking first.
 
 `shell` runs your `$SHELL`, or `/bin/sh` if that is unset or missing. On
 Windows it uses Git Bash when installed, then PowerShell, then `cmd.exe`.
-Commands inherit your environment.
+Commands inherit your environment. In Git Bash, a quoted heredoc preserves
+literal backslashes, including those in Windows paths and regular expressions.
 
 The agent reaches more tools through its shell, as `kon tool <name>`:
 
